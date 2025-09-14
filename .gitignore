@@ -15,3 +15,8 @@ publish/
 # OS
 .DS_Store
 Thumbs.db
+
+build/Output/
+n**/bin/
+n**/obj/
+n**/publish/
