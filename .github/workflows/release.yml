@@ -11,7 +11,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET (read your global.json if present)
+      - name: Setup .NET (use your global.json if present)
         uses: actions/setup-dotnet@v4
         with:
           global-json-file: ./global.json
@@ -22,8 +22,7 @@ jobs:
         run: |
           $tag = "${{ github.ref_name }}"
           if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw "Tag must be vX.Y.Z" }
-          $ver = $tag.TrimStart('v')
-          "VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VERSION=$($tag.TrimStart('v'))" | Out-File -FilePath $env:GITHUB_ENV -Append
           "TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Restore
@@ -48,7 +47,6 @@ jobs:
         run: |
           $pub = Resolve-Path "src/GravityCapture/bin/Release/*/win-x64/publish"
           "PUB=$pub" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "Publish dir: $pub"
 
       - name: Create portable ZIP
         shell: pwsh
@@ -58,21 +56,22 @@ jobs:
           "PORTABLE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install Inno Setup
-        run: choco install innosetup --no-progress -y
+        run: choco install innosetup -y --no-progress
 
       - name: Build Installer
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) { throw "ISCC not found" }
+          if (-not (Test-Path $iscc)) { $iscc = "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" }
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found" }
           & $iscc "build\installer.iss" /DMyAppVersion=${{ env.VERSION }} /DSourcePath="${{ env:PUB }}"
-          Copy-Item ".\Output\GravityCapture-Setup-v${{ env.VERSION }}.exe" -Destination "GravityCapture-Setup-v${{ env.VERSION }}.exe"
+          Copy-Item ".\build\Output\GravityCapture-Setup-v${{ env.VERSION }}.exe" -Destination "GravityCapture-Setup-v${{ env.VERSION }}.exe"
 
       - name: SHA256 checksums
         shell: pwsh
         run: |
-          Get-FileHash "GravityCapture-Setup-v${{ env.VERSION }}.exe" -Algorithm SHA256 | % { $_.Hash | Out-File -Encoding ascii "GravityCapture-Setup-v${{ env.VERSION }}.exe.sha256" }
-          Get-FileHash "${{ env.PORTABLE_ZIP }}" -Algorithm SHA256 | % { $_.Hash | Out-File -Encoding ascii "GravityCapture-Portable-v${{ env.VERSION }}.zip.sha256" }
+          Get-FileHash "GravityCapture-Setup-v${{ env.VERSION }}.exe" -Algorithm SHA256 | % { $_.Hash } | Out-File -Encoding ascii "GravityCapture-Setup-v${{ env.VERSION }}.exe.sha256"
+          Get-FileHash "${{ env.PORTABLE_ZIP }}" -Algorithm SHA256 | % { $_.Hash } | Out-File -Encoding ascii "GravityCapture-Portable-v${{ env.VERSION }}.zip.sha256"
 
       - name: Release
         uses: softprops/action-gh-release@v2
