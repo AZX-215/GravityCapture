@@ -1,0 +1,17 @@
+# Visual Studio / Dotnet
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.cache
+TestResult*/
+artifacts/
+publish/
+*.pdb
+*.nupkg
+*.snupkg
+
+# OS
+.DS_Store
+Thumbs.db

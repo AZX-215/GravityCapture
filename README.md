@@ -1,0 +1,1 @@
+Gravity Capture is a lightweight Windows companion for Gravity List Bot. At set intervals it screenshots your screen or the active window, compresses it, and securely sends it to the bot’s ingest API to post in a chosen Discord channel. Configure interval, quality, and channel; authenticated via a shared key. (Full Log-bot features coming soon!)
