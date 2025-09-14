@@ -83,5 +83,19 @@ jobs:
       - name: SHA256 checksums
         shell: pwsh
         run: |
-          Get-FileHash "GravityCapture-Setup-v$env:VERSION.exe" -Algorithm SHA256 | % { $_.Hash } | Out-File -Encoding ascii "GravityCapture-Setup-v$env:VERSION.exe.sha256"
-          Get-FileHash "$env:PORTABLE_ZIP" -Algor_
+          $setup    = "GravityCapture-Setup-v$env:VERSION.exe"
+          $portable = $env:PORTABLE_ZIP
+          Get-FileHash $setup    -Algorithm SHA256 | ForEach-Object { $_.Hash } | Out-File -Encoding ascii "$setup.sha256"
+          Get-FileHash $portable -Algorithm SHA256 | ForEach-Object { $_.Hash } | Out-File -Encoding ascii "$portable.sha256"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: Gravity Capture ${{ env.TAG }}
+          generate_release_notes: true
+          files: |
+            GravityCapture-Setup-v${{ env.VERSION }}.exe
+            GravityCapture-Setup-v${{ env.VERSION }}.exe.sha256
+            GravityCapture-Portable-v${{ env.VERSION }}.zip
+            GravityCapture-Portable-v${{ env.VERSION }}.zip.sha256
