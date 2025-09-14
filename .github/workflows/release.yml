@@ -1,7 +1,11 @@
 name: Release
+
 on:
   push:
     tags: ['v*.*.*']
+
+permissions:
+  contents: write
 
 jobs:
   build-release:
@@ -11,7 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET (use your global.json if present)
+      - name: Setup .NET (uses your global.json if present)
         uses: actions/setup-dotnet@v4
         with:
           global-json-file: ./global.json
@@ -26,6 +30,7 @@ jobs:
           "TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Restore
+        shell: pwsh
         run: dotnet restore .\src\GravityCapture\GravityCapture.csproj --nologo
 
       - name: Publish (self-contained, single-file)
@@ -38,42 +43,47 @@ jobs:
             -p:SelfContained=true `
             -p:DebugType=none `
             -p:Deterministic=true `
-            -p:Version=${{ env.VERSION }} `
+            -p:Version=$env:VERSION `
             --nologo
 
       - name: Find publish dir
         id: pub
         shell: pwsh
         run: |
-          $pub = Resolve-Path "src/GravityCapture/bin/Release/*/win-x64/publish"
+          $pub = (Resolve-Path "src/GravityCapture/bin/Release/*/win-x64/publish").Path
           "PUB=$pub" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Create portable ZIP
         shell: pwsh
         run: |
-          $zip = "GravityCapture-Portable-v${{ env.VERSION }}.zip"
+          $zip = "GravityCapture-Portable-v$env:VERSION.zip"
           Compress-Archive -Path "$env:PUB\*" -DestinationPath $zip
           "PORTABLE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install Inno Setup
-        run: choco install innosetup -y --no-progress
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress || echo "choco not available; trying winget…"
+          if (-not (Test-Path "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe")) {
+            winget install --id=JRSoftware.InnoSetup -e --silent || echo "winget attempted"
+          }
 
       - name: Build Installer
         shell: pwsh
         run: |
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $iscc = "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { $iscc = "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" }
           if (-not (Test-Path $iscc)) { throw "ISCC.exe not found" }
-          & $iscc "build\installer.iss" /DMyAppVersion=${{ env.VERSION }} /DSourcePath="${{ env:PUB }}"
-          Copy-Item ".\build\Output\GravityCapture-Setup-v${{ env.VERSION }}.exe" -Destination "GravityCapture-Setup-v${{ env.VERSION }}.exe"
+          & $iscc "build\installer.iss" /DMyAppVersion=$env:VERSION /DSourcePath="$env:PUB"
+          Copy-Item ".\build\Output\GravityCapture-Setup-v$env:VERSION.exe" "GravityCapture-Setup-v$env:VERSION.exe"
 
       - name: SHA256 checksums
         shell: pwsh
         run: |
-          Get-FileHash "GravityCapture-Setup-v${{ env.VERSION }}.exe" -Algorithm SHA256 | % { $_.Hash } | Out-File -Encoding ascii "GravityCapture-Setup-v${{ env.VERSION }}.exe.sha256"
-          Get-FileHash "${{ env.PORTABLE_ZIP }}" -Algorithm SHA256 | % { $_.Hash } | Out-File -Encoding ascii "GravityCapture-Portable-v${{ env.VERSION }}.zip.sha256"
+          Get-FileHash "GravityCapture-Setup-v$env:VERSION.exe" -Algorithm SHA256 | % { $_.Hash } | Out-File -Encoding ascii "GravityCapture-Setup-v$env:VERSION.exe.sha256"
+          Get-FileHash "$env:PORTABLE_ZIP" -Algorithm SHA256 | % { $_.Hash } | Out-File -Encoding ascii "GravityCapture-Portable-v$env:VERSION.zip.sha256"
 
-      - name: Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
