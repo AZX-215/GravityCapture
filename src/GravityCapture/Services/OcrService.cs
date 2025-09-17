@@ -1,251 +1,156 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
-using System.Linq;
 using Tesseract;
 
 namespace GravityCapture.Services
 {
     public static class OcrService
     {
-        // If you ever relocate tessdata again, change here:
-        private static readonly string TessdataDir =
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tessdata");
+        private static readonly object _lock = new();
+        private static TesseractEngine? _engine;
+        private static string? _tessdataPath;
 
         /// <summary>
-        /// Run OCR on a crop and return cleaned text lines (top-to-bottom).
+        /// OCR the given bitmap and return non-empty, trimmed lines, in order.
         /// </summary>
-        public static List<string> ReadLines(Bitmap src)
+        public static List<string> ReadLines(Bitmap source)
         {
-            using var pre = PreprocessForArk(src);         // HDR-friendly preprocessing
-            using var pix = PixConverter.ToPix(pre);
+            EnsureEngine();
 
-            // Tesseract config for multi-line block of uniform text
-            using var engine = new TesseractEngine(TessdataDir, "eng", EngineMode.LstmOnly);
-            engine.SetVariable("user_defined_dpi", "300");                     // helps accuracy
-            engine.SetVariable("preserve_interword_spaces", "1");              // keep spacing
-            engine.DefaultPageSegMode = PageSegMode.SingleBlock;              // uniform text block
+            using var work = PreprocessForLogs(source);
+            using var px = BitmapToPix(work);
 
-            using var page = engine.Process(pix);
+            using var page = _engine!.Process(px, PageSegMode.Auto);
             var text = page.GetText() ?? string.Empty;
 
-            // Split, clean common OCR confusions
-            var lines = text
-                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(CleanLine)
-                .Where(l => !string.IsNullOrWhiteSpace(l))
-                .ToList();
-
+            var lines = new List<string>();
+            using var sr = new StringReader(text);
+            string? line;
+            while ((line = sr.ReadLine()) != null)
+            {
+                line = line.Trim();
+                if (!string.IsNullOrWhiteSpace(line))
+                    lines.Add(line);
+            }
             return lines;
         }
 
+        // ---------------- internal helpers ----------------
+
         /// <summary>
-        /// Basic cleanup to fix common OCR misreads in ARK logs.
+        /// Initialize tesseract engine once, locating tessdata near the executable.
+        /// Looks in:
+        ///   1) {AppContext.BaseDirectory}\tessdata
+        ///   2) {AppContext.BaseDirectory}\Assets\tessdata
         /// </summary>
-        private static string CleanLine(string s)
+        private static void EnsureEngine()
         {
-            var t = s.Trim();
+            if (_engine != null) return;
 
-            // Dash and punctuation normalizations
-            t = t.Replace('–', '-').Replace('—', '-').Replace('•', '-');
-            t = t.Replace('’', '\'').Replace('“', '"').Replace('”', '"');
+            lock (_lock)
+            {
+                if (_engine != null) return;
 
-            // Common character swaps
-            t = t.Replace('|', 'l');      // pipe -> lowercase L
-            t = t.Replace('O', '0');      // O -> 0 (time/date and levels)
-            t = t.Replace("  ", " ");
+                var baseDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-            // Collapse weird spacing around punctuation
-            t = t.Replace(" ,", ",").Replace(" .", ".").Replace(" :", ":").Replace(": ", ": ");
+                var candidates = new[]
+                {
+                    Path.Combine(baseDir, "tessdata"),
+                    Path.Combine(baseDir, "Assets", "tessdata"),
+                };
 
-            return t.Trim();
+                foreach (var p in candidates)
+                {
+                    if (Directory.Exists(p))
+                    {
+                        _tessdataPath = p;
+                        break;
+                    }
+                }
+
+                if (_tessdataPath == null)
+                    throw new DirectoryNotFoundException(
+                        $"tessdata folder not found. Checked:\n - {string.Join("\n - ", candidates)}");
+
+                // Expect eng.traineddata inside _tessdataPath
+                _engine = new TesseractEngine(_tessdataPath, "eng", EngineMode.LstmOnly);
+                // Log text is monospaced-ish; forcing PSM SingleBlock often helps
+                _engine.DefaultPageSegMode = PageSegMode.SingleBlock;
+            }
         }
 
         /// <summary>
-        /// HDR-friendly preprocessing: scale up, grayscale, contrast stretch, gentle binarization.
+        /// Lightweight pre-processing that helps with HDR: scale up a bit,
+        /// convert to 24bpp, boost contrast slightly, and gray.
         /// </summary>
-        private static Bitmap PreprocessForArk(Bitmap src)
+        private static Bitmap PreprocessForLogs(Bitmap input)
         {
-            // 1) Scale up for sharper glyph edges (helps Tesseract)
-            var scale = 1.8; // 1.5–2.0 works well for 1080p crops
-            var w = (int)Math.Round(src.Width * scale);
-            var h = (int)Math.Round(src.Height * scale);
+            // 1) upscale modestly to help OCR on small UI text
+            double scale = 1.35;
+            var w = Math.Max(1, (int)Math.Round(input.Width * scale));
+            var h = Math.Max(1, (int)Math.Round(input.Height * scale));
+
             var scaled = new Bitmap(w, h, PixelFormat.Format24bppRgb);
             using (var g = Graphics.FromImage(scaled))
             {
-                g.CompositingQuality = CompositingQuality.HighQuality;
-                g.InterpolationMode  = InterpolationMode.HighQualityBicubic;
-                g.SmoothingMode      = SmoothingMode.None;
-                g.PixelOffsetMode    = PixelOffsetMode.HighQuality;
-                g.DrawImage(src, new Rectangle(0, 0, w, h), new Rectangle(0, 0, src.Width, src.Height), GraphicsUnit.Pixel);
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.DrawImage(input, new Rectangle(0, 0, w, h));
             }
 
-            // 2) Convert to grayscale + contrast/gamma tweak (counter HDR bloom)
-            var gray = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-            using (var g = Graphics.FromImage(gray))
+            // 2) apply a mild contrast boost via ColorMatrix
+            //    (kept simple; avoids unsafe/pixel loops)
+            float c = 1.20f; // contrast
+            float t = 0.5f * (1f - c); // translate
+            var cm = new ColorMatrix(new float[][]
+            {
+                new float[] { c, 0, 0, 0, 0 },
+                new float[] { 0, c, 0, 0, 0 },
+                new float[] { 0, 0, c, 0, 0 },
+                new float[] { 0, 0, 0, 1, 0 },
+                new float[] { t, t, t, 0, 1 }
+            });
+
+            var contrasted = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+            using (var g = Graphics.FromImage(contrasted))
             using (var ia = new ImageAttributes())
             {
-                // Grayscale matrix
-                var grayMatrix = new ColorMatrix(new float[][]
-                {
-                    new float[] {0.299f, 0.299f, 0.299f, 0, 0},
-                    new float[] {0.587f, 0.587f, 0.587f, 0, 0},
-                    new float[] {0.114f, 0.114f, 0.114f, 0, 0},
-                    new float[] {0,      0,      0,      1, 0},
-                    new float[] {0,      0,      0,      0, 1}
-                });
-
-                // Contrast/brightness
-                const float contrast = 1.35f;   // >1 increases contrast
-                const float brightness = 0.00f; // -1..+1 (post-scale offset)
-                var t = 0.5f * (1f - contrast) + brightness;
-
-                var contrastMatrix = new ColorMatrix(new float[][]
-                {
-                    new float[] {contrast, 0,        0,        0, 0},
-                    new float[] {0,        contrast, 0,        0, 0},
-                    new float[] {0,        0,        contrast, 0, 0},
-                    new float[] {0,        0,        0,        1, 0},
-                    new float[] {t,        t,        t,        0, 1}
-                });
-
-                ia.SetColorMatrix(grayMatrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+                ia.SetColorMatrix(cm);
                 g.DrawImage(scaled, new Rectangle(0, 0, w, h), 0, 0, w, h, GraphicsUnit.Pixel, ia);
-
-                ia.ClearColorMatrix();
-                ia.SetColorMatrix(contrastMatrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
-                g.DrawImage(gray, new Rectangle(0, 0, w, h), 0, 0, w, h, GraphicsUnit.Pixel, ia);
             }
-
             scaled.Dispose();
 
-            // 3) Gentle global threshold – helps separate text from glow
-            //    (Not too aggressive; let Tesseract keep some anti-aliased edge info)
-            using (var fast = new FastBitmap(gray))
+            // 3) quick grayscale (ColorMatrix is already close; ensure neutral)
+            var gray = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+            using (var g = Graphics.FromImage(gray))
             {
-                byte thresh = EstimateOtsuThreshold(fast);
-                byte lo = (byte)Math.Max(0, thresh - 10);
-                byte hi = (byte)Math.Min(255, thresh + 10);
-
-                fast.ForEachPixel((x, y, ref byte r, ref byte g, ref byte b) =>
+                var grayMatrix = new ColorMatrix(new float[][]
                 {
-                    // simple clamp around threshold window
-                    byte v = r; // grayscale already
-                    if (v < lo) v = 0;
-                    else if (v > hi) v = 255;
-                    r = g = b = v;
+                    new float[] {.299f, .299f, .299f, 0, 0},
+                    new float[] {.587f, .587f, .587f, 0, 0},
+                    new float[] {.114f, .114f, .114f, 0, 0},
+                    new float[] {0,     0,     0,    1, 0},
+                    new float[] {0,     0,     0,    0, 1}
                 });
+                using var attr = new ImageAttributes();
+                attr.SetColorMatrix(grayMatrix);
+                g.DrawImage(contrasted, new Rectangle(0, 0, w, h), 0, 0, w, h, GraphicsUnit.Pixel, attr);
             }
+            contrasted.Dispose();
 
             return gray;
         }
 
-        /// <summary>Fast bitmap wrapper for raw byte scanning.</summary>
-        private sealed class FastBitmap : IDisposable
+        /// <summary>
+        /// Convert a Bitmap to Tesseract Pix by saving to memory (no PixConverter dependency).
+        /// </summary>
+        private static Pix BitmapToPix(Bitmap bmp)
         {
-            private readonly Bitmap _bmp;
-            private readonly BitmapData _data;
-            private readonly IntPtr _scan0;
-            private readonly int _stride;
-            private readonly int _bpp;
-
-            public int Width  { get; }
-            public int Height { get; }
-
-            public FastBitmap(Bitmap bmp)
-            {
-                _bmp = bmp;
-                Width = bmp.Width; Height = bmp.Height;
-                _bpp = Image.GetPixelFormatSize(bmp.PixelFormat) / 8;
-                _data = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadWrite, bmp.PixelFormat);
-                _scan0 = _data.Scan0; _stride = _data.Stride;
-            }
-
-            public void ForEachPixel(Action<int,int,ref byte,ref byte,ref byte> fn)
-            {
-                unsafe
-                {
-                    for (int y = 0; y < Height; y++)
-                    {
-                        byte* row = (byte*)_scan0 + (y * _stride);
-                        for (int x = 0; x < Width; x++)
-                        {
-                            ref byte b = ref row[x * _bpp + 0];
-                            ref byte g = ref row[x * _bpp + 1];
-                            ref byte r = ref row[x * _bpp + 2];
-                            fn(x, y, ref r, ref g, ref b);
-                        }
-                    }
-                }
-            }
-
-            public byte[] GetGrayHistogram()
-            {
-                var hist = new int[256];
-                unsafe
-                {
-                    for (int y = 0; y < Height; y++)
-                    {
-                        byte* row = (byte*)_scan0 + (y * _stride);
-                        for (int x = 0; x < Width; x++)
-                        {
-                            byte v = row[x * _bpp + 2]; // R == gray
-                            hist[v]++;
-                        }
-                    }
-                }
-                // convert to bytes (we only need relative sizes to compute Otsu)
-                var outb = new byte[256];
-                for (int i = 0; i < 256; i++)
-                    outb[i] = (byte)Math.Min(255, hist[i] / Math.Max(1, (Width * Height) / 255));
-                return outb;
-            }
-
-            public void Dispose() => _bmp.UnlockBits(_data);
-        }
-
-        private static byte EstimateOtsuThreshold(FastBitmap fast)
-        {
-            // Basic Otsu on grayscale histogram
-            var hist = new int[256];
-            // Expand our byte histogram to int counts
-            foreach (var b in fast.GetGrayHistogram())
-                hist[b]++;
-
-            int total = hist.Sum();
-            long sum = 0;
-            for (int t = 0; t < 256; t++)
-                sum += t * (long)hist[t];
-
-            long sumB = 0;
-            int wB = 0;
-            int wF = 0;
-            double varMax = 0.0;
-            int threshold = 127;
-
-            for (int t = 0; t < 256; t++)
-            {
-                wB += hist[t];
-                if (wB == 0) continue;
-                wF = total - wB;
-                if (wF == 0) break;
-
-                sumB += t * (long)hist[t];
-
-                double mB = sumB / (double)wB;
-                double mF = (sum - sumB) / (double)wF;
-                double varBetween = wB * wF * (mB - mF) * (mB - mF);
-
-                if (varBetween > varMax)
-                {
-                    varMax = varBetween;
-                    threshold = t;
-                }
-            }
-            return (byte)threshold;
+            using var ms = new MemoryStream();
+            bmp.Save(ms, ImageFormat.Png);
+            return Pix.LoadFromMemory(ms.ToArray());
         }
     }
 }
