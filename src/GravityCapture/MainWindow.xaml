@@ -4,148 +4,157 @@
         Title="Gravity Capture" Height="580" Width="980"
         MinWidth="820" MinHeight="520"
         WindowStartupLocation="CenterScreen">
-    <!-- Allow vertical scrolling so smaller windows still show all controls -->
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <Grid Margin="12">
-            <Grid.Background>
-                <ImageBrush ImageSource="pack://application:,,,/Assets/Gravity_Logs_Background.png"
-                            Stretch="UniformToFill" Opacity="0.18"/>
-            </Grid.Background>
+  <!-- Allow vertical scrolling so smaller windows still show all controls -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <Grid Margin="12">
+      <!-- Background image as embedded Resource -->
+      <Grid.Background>
+        <ImageBrush ImageSource="pack://application:,,,/Assets/Gravity_Logs_Background.png"
+                    Stretch="UniformToFill" Opacity="0.18"/>
+      </Grid.Background>
 
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
 
-            <!-- Row 0: Settings -->
-            <StackPanel Orientation="Vertical" Grid.Row="0" Margin="0,0,0,12">
-                <!-- API URL + Key -->
-                <WrapPanel Margin="0,0,0,6" ItemHeight="28">
-                    <TextBlock Text="API URL:" VerticalAlignment="Center" Width="80"/>
-                    <TextBox x:Name="ApiUrlBox" MinWidth="360" Margin="6,0,24,0"/>
-                    <TextBlock Text="API Key:" VerticalAlignment="Center" Width="80"/>
-                    <TextBox x:Name="ApiKeyBox" MinWidth="300" Margin="6,0,0,0"/>
-                </WrapPanel>
+      <!-- Row 0: Settings -->
+      <StackPanel Orientation="Vertical" Grid.Row="0" Margin="0,0,0,12">
+        <!-- API URL + Key -->
+        <WrapPanel Margin="0,0,0,6">
+          <TextBlock Text="API URL:" VerticalAlignment="Center" Width="80"/>
+          <TextBox x:Name="ApiUrlBox" MinWidth="360" Margin="6,0,24,0"/>
+          <TextBlock Text="API Key:" VerticalAlignment="Center" Width="80"/>
+          <TextBox x:Name="ApiKeyBox" MinWidth="300" Margin="6,0,0,0"/>
+        </WrapPanel>
 
-                <!-- Server + Tribe -->
-                <WrapPanel Margin="0,0,0,6">
-                    <TextBlock Text="Server:" VerticalAlignment="Center" Width="80"/>
-                    <TextBox x:Name="ServerBox" MinWidth="300" Margin="6,0,24,0" />
-                    <TextBlock Text="Tribe:" VerticalAlignment="Center" Width="80"/>
-                    <TextBox x:Name="TribeBox" MinWidth="200" Margin="6,0,0,0" />
-                </WrapPanel>
+        <!-- Server + Tribe -->
+        <WrapPanel Margin="0,0,0,6">
+          <TextBlock Text="Server:" VerticalAlignment="Center" Width="80"/>
+          <TextBox x:Name="ServerBox" MinWidth="300" Margin="6,0,24,0" />
+          <TextBlock Text="Tribe:" VerticalAlignment="Center" Width="80"/>
+          <TextBox x:Name="TribeBox" MinWidth="200" Margin="6,0,0,0" />
+        </WrapPanel>
 
-                <!-- Window title hint -->
-                <WrapPanel Margin="0,0,0,6">
-                    <TextBlock Text="Window title contains:" VerticalAlignment="Center" Width="160"/>
-                    <TextBox x:Name="TitleHintBox" MinWidth="360" Margin="6,0,0,0"
-                             ToolTip="If set, targets the window whose title contains this text. Otherwise uses the window under your crop selection or the foreground window."/>
-                </WrapPanel>
+        <!-- Window title hint -->
+        <WrapPanel Margin="0,0,0,6">
+          <TextBlock Text="Window title contains:" VerticalAlignment="Center" Width="160"/>
+          <TextBox x:Name="TitleHintBox" MinWidth="360" Margin="6,0,0,0"
+                   ToolTip="If set, targets the window whose title contains this text. Otherwise uses the window under your crop selection or the foreground window."/>
+        </WrapPanel>
 
-                <!-- Channel + Interval + Active Window -->
-                <WrapPanel Margin="0,0,0,6">
-                    <TextBlock Text="Channel ID:" VerticalAlignment="Center" Width="80"/>
-                    <TextBox x:Name="ChannelBox" MinWidth="160" Margin="6,0,24,0"/>
-                    <TextBlock Text="Interval (min):" VerticalAlignment="Center" Width="110"/>
-                    <TextBox x:Name="IntervalBox" MinWidth="80" Margin="6,0,24,0"/>
-                    <CheckBox x:Name="ActiveWindowCheck" Content="Capture Active Window Only" VerticalAlignment="Center"/>
-                </WrapPanel>
+        <!-- Channel + Interval + Active Window -->
+        <WrapPanel Margin="0,0,0,6">
+          <TextBlock Text="Channel ID:" VerticalAlignment="Center" Width="80"/>
+          <TextBox x:Name="ChannelBox" MinWidth="160" Margin="6,0,24,0"/>
+          <TextBlock Text="Interval (min):" VerticalAlignment="Center" Width="110"/>
+          <TextBox x:Name="IntervalBox" MinWidth="80" Margin="6,0,24,0"/>
+          <CheckBox x:Name="ActiveWindowCheck" Content="Capture Active Window Only" VerticalAlignment="Center"/>
+        </WrapPanel>
 
-                <!-- Quality -->
-                <WrapPanel>
-                    <TextBlock Text="JPEG Quality:" VerticalAlignment="Center" Width="110"/>
-                    <Slider x:Name="QualitySlider" Width="260" Minimum="10" Maximum="100" SmallChange="1" LargeChange="5" Margin="6,0,12,0"/>
-                    <TextBlock x:Name="QualityLabel" Width="40" VerticalAlignment="Center" TextAlignment="Center"/>
-                </WrapPanel>
-            </StackPanel>
+        <!-- Quality -->
+        <WrapPanel>
+          <TextBlock Text="JPEG Quality:" VerticalAlignment="Center" Width="110"/>
+          <Slider x:Name="QualitySlider" Width="260" Minimum="10" Maximum="100" SmallChange="1" LargeChange="5" Margin="6,0,12,0"/>
+          <TextBlock x:Name="QualityLabel" Width="40" VerticalAlignment="Center" TextAlignment="Center"/>
+        </WrapPanel>
+      </StackPanel>
 
-            <!-- Row 1: Actions (Wrap to new lines when narrow) -->
-            <WrapPanel Grid.Row="1" Margin="0,0,0,12">
-                <Button x:Name="SaveBtn"  Content="Save"  MinWidth="110" Margin="0,0,8,8" Click="SaveBtn_Click"/>
-                <Button x:Name="StartBtn" Content="Start" MinWidth="110" Margin="0,0,8,8" Click="StartBtn_Click"/>
-                <Button x:Name="StopBtn"  Content="Stop"  MinWidth="110" Margin="0,0,12,8" Click="StopBtn_Click"/>
+      <!-- Row 1: Actions (wrap to new lines when narrow) -->
+      <WrapPanel Grid.Row="1" Margin="0,0,0,12">
+        <Button x:Name="SaveBtn"  Content="Save"  MinWidth="110" Margin="0,0,8,8" Click="SaveBtn_Click"/>
+        <Button x:Name="StartBtn" Content="Start" MinWidth="110" Margin="0,0,8,8" Click="StartBtn_Click"/>
+        <Button x:Name="StopBtn"  Content="Stop"  MinWidth="110" Margin="0,0,12,8" Click="StopBtn_Click"/>
 
-                <Button x:Name="SendTestBtn"
-                        Content="Send Test Tribe Event (Stage)"
-                        MinWidth="220" Margin="0,0,12,8"
-                        Click="SendTestBtn_Click"/>
+        <Button x:Name="SendTestBtn"
+                Content="Send Test Tribe Event (Stage)"
+                MinWidth="220" Margin="0,0,12,8"
+                Click="SendTestBtn_Click"/>
 
-                <Button x:Name="SendParsedBtn"
-                        Content="Send Pasted Log Line (Stage)"
-                        MinWidth="230" Margin="0,0,8,8"
-                        Click="SendParsedBtn_Click"/>
+        <Button x:Name="SendParsedBtn"
+                Content="Send Pasted Log Line (Stage)"
+                MinWidth="230" Margin="0,0,8,8"
+                Click="SendParsedBtn_Click"/>
 
-                <Button x:Name="RefreshRecentBtn"
-                        Content="Refresh Recent"
-                        MinWidth="150" Margin="8,0,8,8"
-                        Click="RefreshRecentBtn_Click"/>
+        <Button x:Name="RefreshRecentBtn"
+                Content="Refresh Recent"
+                MinWidth="150" Margin="8,0,8,8"
+                Click="RefreshRecentBtn_Click"/>
 
-                <Button x:Name="SelectCropBtn"
-                        Content="Select Log Area…"
-                        MinWidth="150" Margin="8,0,8,8"
-                        Click="SelectCropBtn_Click"/>
+        <Button x:Name="SelectCropBtn"
+                Content="Select Log Area…"
+                MinWidth="150" Margin="8,0,8,8"
+                Click="SelectCropBtn_Click"/>
 
-                <Button x:Name="PreviewCropBtn"
-                        Content="Preview Crop"
-                        MinWidth="130" Margin="8,0,8,8"
-                        Click="PreviewCropBtn_Click"/>
+        <Button x:Name="PreviewCropBtn"
+                Content="Preview Crop"
+                MinWidth="130" Margin="8,0,8,8"
+                Click="PreviewCropBtn_Click"/>
 
-                <Button x:Name="OcrCropBtn"
-                        Content="OCR Crop → Paste"
-                        MinWidth="150" Margin="8,0,8,8"
-                        Click="OcrCropBtn_Click"/>
+        <Button x:Name="OcrCropBtn"
+                Content="OCR Crop → Paste"
+                MinWidth="150" Margin="8,0,8,8"
+                Click="OcrCropBtn_Click"/>
 
-                <!-- Auto ingest toggles -->
-                <StackPanel Orientation="Horizontal" Margin="12,0,0,8" VerticalAlignment="Center">
-                    <CheckBox x:Name="AutoOcrCheck" Content="Auto OCR ingest (Stage)" Margin="0,0,12,0"/>
-                    <CheckBox x:Name="RedOnlyCheck" Content="Post only red logs" />
-                </StackPanel>
-            </WrapPanel>
+        <!-- Auto ingest toggles -->
+        <StackPanel Orientation="Horizontal" Margin="12,0,0,8" VerticalAlignment="Center">
+          <CheckBox x:Name="AutoOcrCheck" Content="Auto OCR ingest (Stage)" Margin="0,0,12,0"/>
+          <CheckBox x:Name="RedOnlyCheck" Content="Post only red logs" />
+        </StackPanel>
 
-            <!-- Row 2: Paste + Recent grid -->
-            <Grid Grid.Row="2">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
+        <!-- Category filters -->
+        <StackPanel Orientation="Horizontal" Margin="12,0,0,8" VerticalAlignment="Center">
+          <TextBlock Text="Filters:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+          <CheckBox x:Name="FilterTameCheck"   Content="Tame deaths"            IsChecked="True" Margin="0,0,8,0"/>
+          <CheckBox x:Name="FilterStructCheck" Content="Structures destroyed"   IsChecked="True" Margin="0,0,8,0"/>
+          <CheckBox x:Name="FilterTribeCheck"  Content="Tribe-mate deaths"      IsChecked="True"/>
+        </StackPanel>
+      </WrapPanel>
 
-                <Border Grid.Row="0" BorderBrush="#22000000" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,0,8">
-                    <DockPanel LastChildFill="True">
-                        <TextBlock Text="Paste a tribe log line:" DockPanel.Dock="Top" Margin="0,0,0,6"/>
-                        <TextBox x:Name="LogLineBox"
-                                 AcceptsReturn="True"
-                                 TextWrapping="Wrap"
-                                 VerticalScrollBarVisibility="Auto"
-                                 FontFamily="Consolas"
-                                 Height="140"/>
-                    </DockPanel>
-                </Border>
+      <!-- Row 2: Paste + Recent grid -->
+      <Grid Grid.Row="2">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-                <DataGrid x:Name="RecentGrid"
-                          Grid.Row="1"
-                          AutoGenerateColumns="False"
-                          CanUserAddRows="False"
-                          IsReadOnly="True"
-                          HeadersVisibility="Column"
-                          FontSize="12">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Header="ID" Binding="{Binding id}" Width="60"/>
-                        <DataGridTextColumn Header="When (UTC)" Binding="{Binding ingested_at}" Width="170"/>
-                        <DataGridTextColumn Header="Severity" Binding="{Binding severity}" Width="90"/>
-                        <DataGridTextColumn Header="Category" Binding="{Binding category}" Width="150"/>
-                        <DataGridTextColumn Header="Actor" Binding="{Binding actor}" Width="220"/>
-                        <DataGridTextColumn Header="Message" Binding="{Binding message}" Width="*"/>
-                    </DataGrid.Columns>
-                </DataGrid>
-            </Grid>
+        <Border Grid.Row="0" BorderBrush="#22000000" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,0,8">
+          <DockPanel LastChildFill="True">
+            <TextBlock Text="Paste a tribe log line:" DockPanel.Dock="Top" Margin="0,0,0,6"/>
+            <TextBox x:Name="LogLineBox"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto"
+                     FontFamily="Consolas"
+                     Height="140"/>
+          </DockPanel>
+        </Border>
 
-            <!-- Row 3: Status bar -->
-            <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,12,0,0">
-                <TextBlock Text="Status:" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                <TextBlock x:Name="StatusText" VerticalAlignment="Center"/>
-            </DockPanel>
-        </Grid>
-    </ScrollViewer>
+        <DataGrid x:Name="RecentGrid"
+                  Grid.Row="1"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  IsReadOnly="True"
+                  HeadersVisibility="Column"
+                  FontSize="12">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="ID" Binding="{Binding id}" Width="60"/>
+            <DataGridTextColumn Header="When (UTC)" Binding="{Binding ingested_at}" Width="170"/>
+            <DataGridTextColumn Header="Severity" Binding="{Binding severity}" Width="90"/>
+            <DataGridTextColumn Header="Category" Binding="{Binding category}" Width="150"/>
+            <DataGridTextColumn Header="Actor" Binding="{Binding actor}" Width="220"/>
+            <DataGridTextColumn Header="Message" Binding="{Binding message}" Width="*"/>
+          </DataGrid.Columns>
+        </DataGrid>
+      </Grid>
+
+      <!-- Row 3: Status bar -->
+      <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,12,0,0">
+        <TextBlock Text="Status:" Margin="0,0,6,0" VerticalAlignment="Center"/>
+        <TextBlock x:Name="StatusText" VerticalAlignment="Center"/>
+      </DockPanel>
+    </Grid>
+  </ScrollViewer>
 </Window>
