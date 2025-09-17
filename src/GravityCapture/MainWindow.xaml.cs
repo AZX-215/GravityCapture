@@ -5,7 +5,7 @@ using System.Timers;
 using System.Windows;
 using System.Windows.Interop;
 using System.Runtime.InteropServices;
-using System.Windows.Input;                 // for Mouse
+using System.Windows.Input;
 using GravityCapture.Models;
 using GravityCapture.Services;
 
@@ -18,13 +18,11 @@ namespace GravityCapture
 {
     public partial class MainWindow : Window
     {
-        // ── DWM dark title bar (Win10/11) ─────────────────────────────────────
         private const int DWMWA_USE_IMMERSIVE_DARK_MODE_NEW = 20;
         private const int DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
 
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
-        // ──────────────────────────────────────────────────────────────────────
 
         private readonly AppSettings _settings;
         private readonly System.Timers.Timer _timer;
@@ -33,8 +31,6 @@ namespace GravityCapture
         public MainWindow()
         {
             InitializeComponent();
-
-            // Apply dark title bar once the HWND exists
             SourceInitialized += (_, __) => ApplyDarkTitleBar();
 
             _settings = AppSettings.Load();
@@ -46,7 +42,6 @@ namespace GravityCapture
             ActiveWindowCheck.IsChecked = _settings.CaptureActiveWindow;
             QualitySlider.Value = _settings.JpegQuality;
             QualityLabel.Text = _settings.JpegQuality.ToString();
-
             QualitySlider.ValueChanged += (_, __) => QualityLabel.Text = ((int)QualitySlider.Value).ToString();
 
             _timer = new System.Timers.Timer { AutoReset = true, Enabled = false };
@@ -61,15 +56,11 @@ namespace GravityCapture
             {
                 var hwnd = new WindowInteropHelper(this).Handle;
                 if (hwnd == IntPtr.Zero) return;
-
                 int enable = 1;
                 _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_NEW, ref enable, sizeof(int));
                 _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref enable, sizeof(int));
             }
-            catch
-            {
-                // best-effort
-            }
+            catch { }
         }
 
         private void SaveBtn_Click(object sender, RoutedEventArgs e)
@@ -105,7 +96,7 @@ namespace GravityCapture
             StartBtn.IsEnabled = false; 
             StopBtn.IsEnabled = true;
             Status($"Running – every {_settings.IntervalMinutes} min.");
-            _ = CaptureOnceAsync(); // fire first shot immediately
+            _ = CaptureOnceAsync();
         }
 
         private void StopCapture()
@@ -137,12 +128,10 @@ namespace GravityCapture
 
         private void Status(string s) => Dispatcher.Invoke(() => StatusText.Text = s);
 
-        // ──────────────────────────────────────────────────────────────────────
-        // Stage test button handler (uses explicit WPF types via aliases)
+        // Existing stage test button
         private async void SendTestBtn_Click(object sender, RoutedEventArgs e)
         {
-            SaveSettings(); // ensure any UI edits are saved
-
+            SaveSettings();
             WpfMouse.OverrideCursor = WpfCursors.Wait;
             Status("Posting stage test…");
             try
@@ -166,6 +155,57 @@ namespace GravityCapture
                 WpfMouse.OverrideCursor = null;
             }
         }
-        // ──────────────────────────────────────────────────────────────────────
+
+        // NEW: Paste-&-Send handler
+        private async void SendParsedBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var raw = (LogLineBox.Text ?? "").Trim();
+            var server = (ServerBox.Text ?? "").Trim();
+            var tribe  = (TribeBox.Text ?? "").Trim();
+
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                WpfMessageBox.Show("Paste a tribe log line first.", "Gravity Capture",
+                    MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(tribe))
+            {
+                WpfMessageBox.Show("Enter Server and Tribe (top of the window).", "Gravity Capture",
+                    MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                return;
+            }
+
+            var (okParse, evt, parseErr) = LogLineParser.TryParse(raw, server, tribe);
+            if (!okParse || evt == null)
+            {
+                WpfMessageBox.Show($"Couldn't parse that line.\n\n{parseErr}", "Gravity Capture",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            WpfMouse.OverrideCursor = WpfCursors.Wait;
+            Status("Posting parsed event…");
+            try
+            {
+                var (ok, error) = await LogIngestClient.PostEventAsync(evt);
+                if (ok)
+                {
+                    Status("Parsed event posted ✅");
+                    WpfMessageBox.Show("Posted to staging API ✅", "Gravity Capture",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    Status("Post failed ❌");
+                    WpfMessageBox.Show($"Failed to post.\n\n{error}", "Gravity Capture",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            finally
+            {
+                WpfMouse.OverrideCursor = null;
+            }
+        }
     }
 }
