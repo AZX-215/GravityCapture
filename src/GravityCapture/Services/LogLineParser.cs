@@ -5,37 +5,38 @@ using GravityCapture.Models;
 namespace GravityCapture.Services
 {
     /// <summary>
-    /// Parses OCR'ed tribe log lines into a TribeEvent ready for the Log API.
+    /// Parses OCR'ed tribe log lines into a TribeEvent suitable for posting.
     /// Emits string severities ("CRITICAL" | "WARNING" | "INFO") and category strings.
     /// </summary>
     public static class LogLineParser
     {
-        // Day header: "Day 6022, 03:59:40: <message>"
+        // "Day 6022, 03:59:40: <message>"
         private static readonly Regex RxHeader = new(
             @"^\s*Day\s*(?<day>\d+)\s*,\s*(?<time>\d{1,2}:\d{2}:\d{2})\s*:\s*(?<body>.+?)\s*$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-        // Tribemate killed (multiple wordings):
-        // "Tribemember AZX - Lvl 195 was killed!" / "Your Tribemate Bob - Lvl 100 was killed!"
+        // Tribemate killed:
+        //  "Tribemember AZX - Lvl 195 was killed!"
+        //  "Your Tribemate Bob - Lvl 100 was killed!"
         private static readonly Regex RxTribeMateKilled = new(
             @"^(?:(?:Your\s+)?Tribe(?:mate|member)\s+)(?<name>.+?)\s*-\s*Lvl\s*(?<lvl>\d+)\s*was\s+killed!?$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         // Tame killed:
-        // "Your Pegomastax - Lvl 264 (Pegomastax) was killed!"
+        //  "Your Pegomastax - Lvl 264 (Pegomastax) was killed!"
         private static readonly Regex RxTameKilled = new(
             @"^(?:Your\s+)?(?<actor>[^-]+?)\s*-\s*Lvl\s*(?<lvl>\d+).*?was\s+killed!?$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         // Structure destroyed:
-        // "Your Auto Turret was destroyed!"
+        //  "Your Auto Turret was destroyed!"
         private static readonly Regex RxStructureDestroyed = new(
             @"^(?:Your\s+)?(?<thing>.+?)\s+was\s+destroyed!?$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-        // Structure damaged (various wordings):
-        // "Your Stone Wall took damage from Bob - Lvl 205 (Rifle)"
-        // "Your Stone Wall was damaged by Bob - Lvl 205"
+        // Structure damaged:
+        //  "Your Stone Wall took damage from Bob - Lvl 205 (Rifle)"
+        //  "Your Stone Wall was damaged by Bob - Lvl 205"
         private static readonly Regex RxStructureDamaged = new(
             @"^(?:Your\s+)?(?<thing>.+?)\s+(?:took\s+damage|was\s+damaged)(?:\s+(?:from|by)\s+(?<by>.+?))?[.!]?$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
@@ -97,7 +98,7 @@ namespace GravityCapture.Services
             if (dmg.Success)
             {
                 category = "STRUCTURE_DAMAGE";
-                severity = "WARNING";
+                severity = "WARNING"; // downgraded vs destroyed
                 var thing = dmg.Groups["thing"].Value.Trim();
                 var by = dmg.Groups["by"].Success ? dmg.Groups["by"].Value.Trim() : "";
                 actor = string.IsNullOrEmpty(by) ? thing : $"{thing} ← {by}";
