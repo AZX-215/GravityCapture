@@ -48,7 +48,7 @@ namespace GravityCapture
             QualityLabel.Text = _settings.JpegQuality.ToString();
             QualitySlider.ValueChanged += (_, __) => QualityLabel.Text = ((int)QualitySlider.Value).ToString();
 
-            // NEW: window title hint
+            // Window-title hint used to find ASA even if GC is foreground
             TitleHintBox.Text = _settings.TargetWindowHint;
 
             _timer = new System.Timers.Timer { AutoReset = true, Enabled = false };
@@ -93,7 +93,7 @@ namespace GravityCapture
             _settings.JpegQuality = (int)QualitySlider.Value;
             _settings.ChannelId = ulong.TryParse(ChannelBox.Text, out var ch) ? ch : 0;
 
-            // NEW: window title hint
+            // window title hint (e.g., "ARK: Survival Ascended")
             _settings.TargetWindowHint = TitleHintBox.Text ?? "";
 
             _settings.Save();
@@ -277,11 +277,19 @@ namespace GravityCapture
 
         private async void SelectCropBtn_Click(object sender, RoutedEventArgs e)
         {
+            // Ensure current UI (incl. TitleHintBox) is saved before resolving target
+            SaveSettings();
+
             var dlg = new RegionSelectorWindow();
             var ok = dlg.ShowDialog() == true;
             if (!ok) return;
 
             var hwnd = ResolveTargetWindow();
+            var chosenTitle = WindowUtil.GetWindowTitle(hwnd);
+            Status(string.IsNullOrWhiteSpace(chosenTitle)
+                ? "Target window: <unknown>"
+                : $"Target window: {chosenTitle}");
+
             if (!WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int cx, out int cy, out int cw, out int ch, out _))
             {
                 System.Windows.MessageBox.Show("Could not resolve game window client area.", "Gravity Capture",
@@ -289,7 +297,8 @@ namespace GravityCapture
                 return;
             }
 
-            var s = dlg.SelectedRect; // screen coords
+            // Selection was made in SCREEN coordinates; clamp to target window's client rect
+            var s = dlg.SelectedRect;
             var sx = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X)));
             var sy = Math.Max(cy, Math.Min(cy + ch, (int)Math.Round(s.Y)));
             var ex = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X + s.Width)));
@@ -304,7 +313,7 @@ namespace GravityCapture
             _settings.UseCrop = true;
             _settings.Save();
 
-            Status($"Saved crop: x={_settings.CropX:F3} y={_settings.CropY:F3} w={_settings.CropW:F3} h={_settings.CropH:F3}");
+            Status($"Saved crop for '{chosenTitle}': x={_settings.CropX:F3} y={_settings.CropY:F3} w={_settings.CropW:F3} h={_settings.CropH:F3}");
             WpfMessageBox.Show("Saved crop. Click 'Preview Crop' to verify.", "Gravity Capture",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             await System.Threading.Tasks.Task.CompletedTask;
@@ -312,24 +321,37 @@ namespace GravityCapture
 
         private void PreviewCropBtn_Click(object sender, RoutedEventArgs e)
         {
+            // Apply any edits (like title hint) before resolving target
+            SaveSettings();
+
             if (!_settings.UseCrop)
             {
                 WpfMessageBox.Show("No crop saved. Click 'Select Log Area…' first.", "Gravity Capture",
                     MessageBoxButton.OK, MessageBoxImage.Exclamation);
                 return;
             }
+
             var hwnd = ResolveTargetWindow();
+            var chosenTitle = WindowUtil.GetWindowTitle(hwnd);
+            Status(string.IsNullOrWhiteSpace(chosenTitle)
+                ? "Preview target: <unknown>"
+                : $"Preview target: {chosenTitle}");
+
             try
             {
-                using var bmp = ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
+                using var bmp = ScreenCapture.CaptureCropNormalized(
+                    hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
+
                 var w = new Window { Title = "Crop Preview", Width = Math.Min(900, bmp.Width + 24), Height = Math.Min(700, bmp.Height + 48) };
                 var img = new System.Windows.Controls.Image();
                 using var ms = new MemoryStream();
                 bmp.Save(ms, ImageFormat.Png);
                 ms.Position = 0;
+
                 var bi = new BitmapImage();
                 bi.BeginInit(); bi.CacheOption = BitmapCacheOption.OnLoad; bi.StreamSource = ms; bi.EndInit();
                 img.Source = bi;
+
                 w.Content = new System.Windows.Controls.ScrollViewer { Content = img };
                 w.ShowDialog();
             }
