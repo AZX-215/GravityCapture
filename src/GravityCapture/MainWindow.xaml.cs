@@ -5,6 +5,7 @@ using System.Timers;
 using System.Windows;
 using System.Windows.Interop;
 using System.Runtime.InteropServices;
+using System.Windows.Input;                 // ← added for Cursors (optional)
 using GravityCapture.Models;
 using GravityCapture.Services;
 
@@ -132,5 +133,37 @@ namespace GravityCapture
         }
 
         private void Status(string s) => Dispatcher.Invoke(() => StatusText.Text = s);
+
+        // ──────────────────────────────────────────────────────────────────────
+        // NEW: staging test button handler
+        // Wire this to a Button named SendTestBtn in MainWindow.xaml
+        private async void SendTestBtn_Click(object sender, RoutedEventArgs e)
+        {
+            SaveSettings(); // make sure current keys/URL are saved
+
+            Mouse.OverrideCursor = Cursors.Wait;
+            Status("Posting stage test…");
+            try
+            {
+                var (ok, error) = await LogIngestClient.SendTestAsync();
+                if (ok)
+                {
+                    Status("Stage test event posted ✅");
+                    MessageBox.Show("Posted to staging API ✅", "Gravity Capture",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    Status("Stage test failed ❌");
+                    MessageBox.Show($"Failed to post test event.\n\n{error}", "Gravity Capture",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
+            }
+        }
+        // ──────────────────────────────────────────────────────────────────────
     }
 }
