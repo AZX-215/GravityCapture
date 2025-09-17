@@ -11,12 +11,21 @@ namespace GravityCapture.Services
         [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
         [DllImport("user32.dll")] static extern int  GetDpiForWindow(IntPtr hWnd);
 
-        // Find by title
+        // Enumerate / title / visibility
         [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
         internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-        [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr hWnd);
-        [DllImport("user32.dll")] static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
+        [DllImport("user32.dll")] static extern int  GetWindowTextLength(IntPtr hWnd);
+        [DllImport("user32.dll")] static extern int  GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
         [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
+
+        // Hit-testing / ancestry / class
+        [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT pt);
+        [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+        const uint GA_PARENT = 1;
+        const uint GA_ROOT = 2;
+        const uint GA_ROOTOWNER = 3;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct RECT { public int Left, Top, Right, Bottom; }
@@ -29,16 +38,23 @@ namespace GravityCapture.Services
             if (hwnd == IntPtr.Zero) return false;
             if (!GetClientRect(hwnd, out var r)) return false;      // client size (px)
             var pt = new POINT { X = 0, Y = 0 };
-            if (!ClientToScreen(hwnd, ref pt)) return false;        // client origin in screen coords (px)
+            if (!ClientToScreen(hwnd, ref pt)) return false;        // client origin (screen px)
             x = pt.X; y = pt.Y; w = r.Right - r.Left; h = r.Bottom - r.Top;
             var dpi = GetDpiForWindow(hwnd);
             scale = dpi > 0 ? dpi / 96.0 : 1.0;
             return w > 0 && h > 0;
         }
 
-        /// <summary>
+        /// Returns the top-level window at the given screen point.
+        public static IntPtr GetTopLevelWindowFromPoint(int screenX, int screenY)
+        {
+            var pt = new POINT { X = screenX, Y = screenY };
+            var h = WindowFromPoint(pt);
+            if (h == IntPtr.Zero) return IntPtr.Zero;
+            return GetAncestor(h, GA_ROOT);
+        }
+
         /// Returns the title (caption) of a window, or empty if none.
-        /// </summary>
         public static string GetWindowTitle(IntPtr hwnd)
         {
             if (hwnd == IntPtr.Zero) return string.Empty;
@@ -49,10 +65,21 @@ namespace GravityCapture.Services
             return sb.ToString();
         }
 
-        /// <summary>
+        /// Returns the Win32 class name (useful for debugging/identifying borderless games).
+        public static string GetWindowClass(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return string.Empty;
+            var sb = new StringBuilder(256);
+            _ = GetClassName(hwnd, sb, sb.Capacity);
+            return sb.ToString();
+        }
+
+        /// Friendly debug string: "Title [Class]"
+        public static string GetWindowDebugName(IntPtr hwnd)
+            => $"{GetWindowTitle(hwnd)} [{GetWindowClass(hwnd)}]";
+
         /// Finds the best visible top-level window whose title contains the provided hint (case-insensitive).
-        /// Picks the one with the largest client area if multiple match. Returns IntPtr.Zero if none found.
-        /// </summary>
+        /// Picks the one with the largest client area if multiple match.
         public static IntPtr FindBestWindowByTitleHint(string? hint)
         {
             if (string.IsNullOrWhiteSpace(hint)) return IntPtr.Zero;
@@ -65,14 +92,13 @@ namespace GravityCapture.Services
                 if (!IsWindowVisible(hwnd)) return true;
 
                 int len = GetWindowTextLength(hwnd);
-                if (len <= 0) return true;
+                if (len <= 0) return true; // many borderless games have blank titles; we’ll handle by hit-test path
 
                 var sb = new StringBuilder(len + 1);
                 _ = GetWindowText(hwnd, sb, sb.Capacity);
                 var title = sb.ToString();
                 if (title.IndexOf(needle, StringComparison.OrdinalIgnoreCase) < 0) return true;
 
-                // explicit locals avoid 'out nint' inference on some toolchains
                 int x, y, w, h; double scale;
                 if (TryGetClientBoundsOnScreen(hwnd, out x, out y, out w, out h, out scale))
                 {
