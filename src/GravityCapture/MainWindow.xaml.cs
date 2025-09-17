@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -111,7 +111,7 @@ namespace GravityCapture
             _settings.LogEnvironment = CurrentEnv;
             LoadEnvFieldsIntoTextBoxes();
             LogIngestClient.Configure(_settings);
-            Status($"Switched log environment → {CurrentEnv}");
+            Status($"Switched log environment â†’ {CurrentEnv}");
         }
 
         // ---------- Save/Start/Stop ----------
@@ -159,7 +159,7 @@ namespace GravityCapture
             _timer.Start();
             StartBtn.IsEnabled = false;
             StopBtn.IsEnabled  = true;
-            Status($"Running – every {_settings.IntervalMinutes} min.");
+            Status($"Running â€“ every {_settings.IntervalMinutes} min.");
         }
 
         private void StopCapture()
@@ -239,19 +239,19 @@ namespace GravityCapture
         {
             SaveSettings();
             WpfMouse.OverrideCursor = WpfCursors.Wait;
-            Status($"Posting test to {CurrentEnv}…");
+            Status($"Posting test to {CurrentEnv}â€¦");
             try
             {
                 var (ok, error) = await LogIngestClient.SendTestAsync();
                 if (ok)
                 {
-                    Status("Test event posted ✅");
-                    WpfMessageBox.Show($"Posted to {CurrentEnv} ✅", "Gravity Capture",
+                    Status("Test event posted âœ…");
+                    WpfMessageBox.Show($"Posted to {CurrentEnv} âœ…", "Gravity Capture",
                         MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
                 {
-                    Status("Test failed ❌");
+                    Status("Test failed âŒ");
                     WpfMessageBox.Show($"Failed to post.\n\n{error}", "Gravity Capture",
                         MessageBoxButton.OK, MessageBoxImage.Error);
                 }
@@ -287,19 +287,19 @@ namespace GravityCapture
             }
 
             WpfMouse.OverrideCursor = WpfCursors.Wait;
-            Status($"Posting parsed event to {CurrentEnv}…");
+            Status($"Posting parsed event to {CurrentEnv}â€¦");
             try
             {
                 var (ok, error) = await LogIngestClient.PostEventAsync(evt);
                 if (ok)
                 {
-                    Status("Parsed event posted ✅");
-                    WpfMessageBox.Show($"Posted to {CurrentEnv} ✅", "Gravity Capture",
+                    Status("Parsed event posted âœ…");
+                    WpfMessageBox.Show($"Posted to {CurrentEnv} âœ…", "Gravity Capture",
                         MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
                 {
-                    Status("Post failed ❌");
+                    Status("Post failed âŒ");
                     WpfMessageBox.Show($"Failed to post.\n\n{error}", "Gravity Capture",
                         MessageBoxButton.OK, MessageBoxImage.Error);
                 }
@@ -319,13 +319,13 @@ namespace GravityCapture
             }
 
             WpfMouse.OverrideCursor = WpfCursors.Wait;
-            Status($"Loading recent events from {CurrentEnv}…");
+            Status($"Loading recent events from {CurrentEnv}â€¦");
             try
             {
                 var (ok, items, err) = await LogIngestClient.GetRecentAsync(server, tribe, 25);
                 if (!ok || items == null)
                 {
-                    Status("Load failed ❌");
+                    Status("Load failed âŒ");
                     WpfMessageBox.Show(err ?? "Unknown error.", "Gravity Capture",
                         MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
@@ -405,7 +405,7 @@ namespace GravityCapture
 
             if (!_settings.UseCrop)
             {
-                WpfMessageBox.Show("No crop saved. Click 'Select Log Area…' first.", "Gravity Capture",
+                WpfMessageBox.Show("No crop saved. Click 'Select Log Areaâ€¦' first.", "Gravity Capture",
                     MessageBoxButton.OK, MessageBoxImage.Exclamation);
                 return;
             }
@@ -444,7 +444,7 @@ namespace GravityCapture
             SaveSettings();
             if (!_settings.UseCrop)
             {
-                WpfMessageBox.Show("No crop saved. Click 'Select Log Area…' first.", "Gravity Capture",
+                WpfMessageBox.Show("No crop saved. Click 'Select Log Areaâ€¦' first.", "Gravity Capture",
                     MessageBoxButton.OK, MessageBoxImage.Exclamation);
                 return;
             }
@@ -480,7 +480,7 @@ namespace GravityCapture
             if (!_settings.UseCrop)
             {
                 WpfMessageBox.Show(
-                    "No crop saved. Click 'Select Log Area…' first.",
+                    "No crop saved. Click 'Select Log Areaâ€¦' first.",
                     "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Exclamation);
                 return;
             }
@@ -499,7 +499,7 @@ namespace GravityCapture
             try
             {
                 WpfMouse.OverrideCursor = WpfCursors.Wait;
-                Status("OCR: capturing…");
+                Status("OCR: capturingâ€¦");
 
                 var hwnd = _lastCropHwnd != IntPtr.Zero ? _lastCropHwnd : ResolveTargetWindow();
 
@@ -529,7 +529,7 @@ namespace GravityCapture
                     return;
                 }
 
-                // Put it in the textbox so you can see exactly what we’re posting
+                // Put it in the textbox so you can see exactly what weâ€™re posting
                 LogLineBox.Text = candidate;
 
                 // Parse
@@ -538,13 +538,13 @@ namespace GravityCapture
                 {
                     Status("Parse failed.");
                     WpfMessageBox.Show(
-                        $"Couldn't parse the OCR’d line:\n\n{candidate}\n\n{parseErr}",
+                        $"Couldn't parse the OCRâ€™d line:\n\n{candidate}\n\n{parseErr}",
                         "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
 
-                // Apply “Post only red logs” filter if enabled
-                if (_settings.PostOnlyCritical && !evt.Severity.Equals("CRITICAL", StringComparison.OrdinalIgnoreCase))
+                // Apply â€œPost only red logsâ€ filter if enabled
+                if (_settings.PostOnlyCritical && !GetSeverityValue(evt).Equals("CRITICAL", StringComparison.OrdinalIgnoreCase))
                 {
                     Status("Filtered (not critical).");
                     WpfMessageBox.Show(
@@ -554,19 +554,19 @@ namespace GravityCapture
                 }
 
                 // Post to selected env (client is already configured by SaveSettings/Env switch)
-                Status($"Posting to {(_settings.LogEnvironment ?? "Stage")}…");
+                Status($"Posting to {(_settings.LogEnvironment ?? "Stage")}â€¦");
                 var (ok, error) = await LogIngestClient.PostEventAsync(evt);
 
                 if (ok)
                 {
-                    Status("Posted ✅");
+                    Status("Posted âœ…");
                     WpfMessageBox.Show(
-                        $"Posted to {(_settings.LogEnvironment ?? "Stage")} ✅",
+                        $"Posted to {(_settings.LogEnvironment ?? "Stage")} âœ…",
                         "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
                 {
-                    Status("Post failed ❌");
+                    Status("Post failed âŒ");
                     WpfMessageBox.Show($"Post failed.\n\n{error}",
                         "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
@@ -583,4 +583,23 @@ namespace GravityCapture
             }
         }
     }
+
+        // Returns the severity/level string from a TribeEvent-like object, regardless of property casing/name.
+        private static string? GetSeverityValue(object evt)
+        {
+            var t = evt.GetType();
+            var flags = System.Reflection.BindingFlags.Instance |
+                        System.Reflection.BindingFlags.Public |
+                        System.Reflection.BindingFlags.IgnoreCase;
+
+            var p = t.GetProperty("Severity", flags)
+                 ?? t.GetProperty("Level", flags)
+                 ?? t.GetProperty("severity", flags)
+                 ?? t.GetProperty("level", flags);
+
+            var val = p?.GetValue(evt)?.ToString();
+            return string.IsNullOrWhiteSpace(val) ? null : val;
+        }
+
 }
+
