@@ -18,32 +18,36 @@ namespace GravityCapture.Services
             {
                 if (_engine != null) return;
 
-                // Look for tessdata next to the app
-                // (we copy Assets/tessdata/* to output at build time)
+                // tessdata is copied next to the exe (Assets/tessdata -> tessdata)
                 var baseDir = AppDomain.CurrentDomain.BaseDirectory;
                 var tessPath = Path.Combine(baseDir, "tessdata");
                 if (!Directory.Exists(tessPath))
                     throw new DirectoryNotFoundException($"tessdata folder not found at: {tessPath}");
 
-                // "eng" is enough for ASA logs. EngineMode.LstmOnly is fast & accurate.
                 _engine = new TesseractEngine(tessPath, "eng", EngineMode.LstmOnly);
-                // Logs are light text on dark background → improve contrast by telling Tesseract it's "single block"
-                _engine.SetVariable("user_defined_dpi", "300");
+                _engine.SetVariable("user_defined_dpi", "300"); // helps on game UIs
+                _engine.DefaultPageSegMode = PageSegMode.Auto;  // good general default
             }
         }
 
-        /// <summary>Run OCR and return non-empty lines (trimmed).</summary>
+        /// <summary>Run OCR on a bitmap and return trimmed, non-empty lines.</summary>
         public static IList<string> ReadLines(Bitmap bmp)
         {
             EnsureEngine();
-            using var pix = PixConverter.ToPix(bmp);
-            using var page = _engine!.Process(pix);
-            var text = page.GetText() ?? string.Empty;
 
+            // Encode to PNG in memory, then let Tesseract/Leptonica load it
+            using var ms = new MemoryStream();
+            bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            var bytes = ms.ToArray();
+
+            using var pix = Pix.LoadFromMemory(bytes);
+            using var page = _engine!.Process(pix);
+
+            var text = page.GetText() ?? string.Empty;
             var lines = new List<string>();
-            using var reader = new StringReader(text);
+            using var sr = new StringReader(text);
             string? line;
-            while ((line = reader.ReadLine()) != null)
+            while ((line = sr.ReadLine()) != null)
             {
                 line = line.Trim();
                 if (!string.IsNullOrEmpty(line))
