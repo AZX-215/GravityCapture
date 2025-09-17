@@ -5,9 +5,8 @@ using GravityCapture.Models;
 namespace GravityCapture.Services
 {
     /// <summary>
-    /// Parses OCR'ed tribe log lines into a TribeEvent suitable for posting to the Log API.
-    /// Uses string severities ("CRITICAL" | "WARNING" | "INFO") and category strings like
-    /// "TAME_DEATH", "TRIBE_MATE_DEATH", "STRUCTURE_DESTROYED", "STRUCTURE_DAMAGE".
+    /// Parses OCR'ed tribe log lines into a TribeEvent ready for the Log API.
+    /// Emits string severities ("CRITICAL" | "WARNING" | "INFO") and category strings.
     /// </summary>
     public static class LogLineParser
     {
@@ -17,34 +16,33 @@ namespace GravityCapture.Services
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         // Tribemate killed (multiple wordings):
-        //  "Tribemember AZX - Lvl 195 was killed!"
-        //  "Your Tribemate Bob - Lvl 100 was killed!"
+        // "Tribemember AZX - Lvl 195 was killed!" / "Your Tribemate Bob - Lvl 100 was killed!"
         private static readonly Regex RxTribeMateKilled = new(
             @"^(?:(?:Your\s+)?Tribe(?:mate|member)\s+)(?<name>.+?)\s*-\s*Lvl\s*(?<lvl>\d+)\s*was\s+killed!?$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         // Tame killed:
-        //  "Your Pegomastax - Lvl 264 (Pegomastax) was killed!"
+        // "Your Pegomastax - Lvl 264 (Pegomastax) was killed!"
         private static readonly Regex RxTameKilled = new(
             @"^(?:Your\s+)?(?<actor>[^-]+?)\s*-\s*Lvl\s*(?<lvl>\d+).*?was\s+killed!?$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         // Structure destroyed:
-        //  "Your Auto Turret was destroyed!"
+        // "Your Auto Turret was destroyed!"
         private static readonly Regex RxStructureDestroyed = new(
             @"^(?:Your\s+)?(?<thing>.+?)\s+was\s+destroyed!?$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-        // Structure damaged (various wordings observed):
-        //  "Your Stone Wall took damage from Bob - Lvl 205 (Rifle)"
-        //  "Your Stone Wall was damaged by Bob - Lvl 205"
+        // Structure damaged (various wordings):
+        // "Your Stone Wall took damage from Bob - Lvl 205 (Rifle)"
+        // "Your Stone Wall was damaged by Bob - Lvl 205"
         private static readonly Regex RxStructureDamaged = new(
             @"^(?:Your\s+)?(?<thing>.+?)\s+(?:took\s+damage|was\s+damaged)(?:\s+(?:from|by)\s+(?<by>.+?))?[.!]?$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         /// <summary>
-        /// Try to parse a single OCR line that begins with "Day ...".
-        /// Returns (ok, evt, error). On success, evt is fully populated for posting.
+        /// Try to parse one OCR line (must start with "Day ...").
+        /// Returns (ok, evt, error). On success, evt is ready to post.
         /// </summary>
         public static (bool ok, TribeEvent? evt, string? error) TryParse(string rawLine, string server, string tribe)
         {
@@ -59,6 +57,7 @@ namespace GravityCapture.Services
             string arkTime = m.Groups["time"].Value.Trim();
             string body = m.Groups["body"].Value.Trim();
 
+            // Defaults
             string category = "UNKNOWN";
             string severity = "INFO";
             string actor = string.Empty;
@@ -98,7 +97,7 @@ namespace GravityCapture.Services
             if (dmg.Success)
             {
                 category = "STRUCTURE_DAMAGE";
-                severity = "WARNING"; // downgrade vs. destroyed
+                severity = "WARNING";
                 var thing = dmg.Groups["thing"].Value.Trim();
                 var by = dmg.Groups["by"].Success ? dmg.Groups["by"].Value.Trim() : "";
                 actor = string.IsNullOrEmpty(by) ? thing : $"{thing} ← {by}";
@@ -112,18 +111,7 @@ namespace GravityCapture.Services
         private static TribeEvent NewEvent(
             string server, string tribe, int arkDay, string arkTime,
             string severity, string category, string actor, string message, string rawLine)
-            => new TribeEvent
-            {
-                server = server,
-                tribe = tribe,
-                ark_day = arkDay,
-                ark_time = arkTime,
-                severity = severity,
-                category = category,
-                actor = actor,
-                message = message,
-                raw_line = rawLine
-            };
+            => new TribeEvent(server, tribe, arkDay, arkTime, severity, category, actor, message, rawLine);
 
         private static int SafeInt(string s) => int.TryParse(s, out var i) ? i : 0;
     }
