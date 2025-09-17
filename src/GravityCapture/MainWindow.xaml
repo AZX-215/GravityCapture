@@ -39,7 +39,7 @@
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                 <TextBlock Text="Window title contains:" VerticalAlignment="Center" Width="160"/>
                 <TextBox x:Name="TitleHintBox" MinWidth="360" Margin="6,0,0,0"
-                         ToolTip="If set, GravityCapture targets the visible window whose title contains this text. Otherwise it uses the window under your selection or the foreground window."/>
+                         ToolTip="If set, targets the window whose title contains this text. Otherwise uses the window under your crop selection or the foreground window."/>
             </StackPanel>
 
             <!-- Channel + Interval + Active Window -->
@@ -90,11 +90,16 @@
                     Width="140" Margin="8,0,0,0"
                     Click="PreviewCropBtn_Click"/>
 
-            <!-- NEW: OCR test button -->
             <Button x:Name="OcrCropBtn"
                     Content="OCR Crop → Paste"
                     Width="160" Margin="8,0,0,0"
                     Click="OcrCropBtn_Click"/>
+
+            <!-- Auto ingest toggles -->
+            <StackPanel Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
+                <CheckBox x:Name="AutoOcrCheck" Content="Auto OCR ingest (Stage)" Margin="0,0,12,0"/>
+                <CheckBox x:Name="RedOnlyCheck" Content="Post only red logs" />
+            </StackPanel>
         </StackPanel>
 
         <!-- Row 2: Paste + Recent grid -->
