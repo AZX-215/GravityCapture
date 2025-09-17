@@ -4,10 +4,8 @@
         Title="Gravity Capture" Height="580" Width="980"
         MinWidth="820" MinHeight="520"
         WindowStartupLocation="CenterScreen">
-  <!-- Allow vertical scrolling so smaller windows still show all controls -->
   <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid Margin="12">
-      <!-- Background image as embedded Resource -->
       <Grid.Background>
         <ImageBrush ImageSource="pack://application:,,,/Assets/Gravity_Logs_Background.png"
                     Stretch="UniformToFill" Opacity="0.18"/>
@@ -22,8 +20,14 @@
 
       <!-- Row 0: Settings -->
       <StackPanel Orientation="Vertical" Grid.Row="0" Margin="0,0,0,12">
-        <!-- API URL + Key -->
+
+        <!-- NEW: Log environment selector -->
         <WrapPanel Margin="0,0,0,6">
+          <TextBlock Text="Log Env:" VerticalAlignment="Center" Width="80"/>
+          <ComboBox x:Name="EnvBox" Width="140" Margin="6,0,24,0" SelectionChanged="EnvBox_SelectionChanged">
+            <ComboBoxItem Content="Stage"/>
+            <ComboBoxItem Content="Prod"/>
+          </ComboBox>
           <TextBlock Text="API URL:" VerticalAlignment="Center" Width="80"/>
           <TextBox x:Name="ApiUrlBox" MinWidth="360" Margin="6,0,24,0"/>
           <TextBlock Text="API Key:" VerticalAlignment="Center" Width="80"/>
@@ -62,20 +66,20 @@
         </WrapPanel>
       </StackPanel>
 
-      <!-- Row 1: Actions (wrap to new lines when narrow) -->
+      <!-- Row 1: Actions (wrap) -->
       <WrapPanel Grid.Row="1" Margin="0,0,0,12">
         <Button x:Name="SaveBtn"  Content="Save"  MinWidth="110" Margin="0,0,8,8" Click="SaveBtn_Click"/>
         <Button x:Name="StartBtn" Content="Start" MinWidth="110" Margin="0,0,8,8" Click="StartBtn_Click"/>
         <Button x:Name="StopBtn"  Content="Stop"  MinWidth="110" Margin="0,0,12,8" Click="StopBtn_Click"/>
 
         <Button x:Name="SendTestBtn"
-                Content="Send Test Tribe Event (Stage)"
-                MinWidth="220" Margin="0,0,12,8"
+                Content="Send Test Tribe Event (Stage/Prod)"
+                MinWidth="250" Margin="0,0,12,8"
                 Click="SendTestBtn_Click"/>
 
         <Button x:Name="SendParsedBtn"
-                Content="Send Pasted Log Line (Stage)"
-                MinWidth="230" Margin="0,0,8,8"
+                Content="Send Pasted Log Line (Stage/Prod)"
+                MinWidth="260" Margin="0,0,8,8"
                 Click="SendParsedBtn_Click"/>
 
         <Button x:Name="RefreshRecentBtn"
@@ -98,13 +102,11 @@
                 MinWidth="150" Margin="8,0,8,8"
                 Click="OcrCropBtn_Click"/>
 
-        <!-- Auto ingest toggles -->
         <StackPanel Orientation="Horizontal" Margin="12,0,0,8" VerticalAlignment="Center">
-          <CheckBox x:Name="AutoOcrCheck" Content="Auto OCR ingest (Stage)" Margin="0,0,12,0"/>
+          <CheckBox x:Name="AutoOcrCheck" Content="Auto OCR ingest" Margin="0,0,12,0"/>
           <CheckBox x:Name="RedOnlyCheck" Content="Post only red logs" />
         </StackPanel>
 
-        <!-- Category filters -->
         <StackPanel Orientation="Horizontal" Margin="12,0,0,8" VerticalAlignment="Center">
           <TextBlock Text="Filters:" VerticalAlignment="Center" Margin="0,0,8,0"/>
           <CheckBox x:Name="FilterTameCheck"   Content="Tame deaths"            IsChecked="True" Margin="0,0,8,0"/>
@@ -150,7 +152,7 @@
         </DataGrid>
       </Grid>
 
-      <!-- Row 3: Status bar -->
+      <!-- Row 3: Status -->
       <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,12,0,0">
         <TextBlock Text="Status:" Margin="0,0,6,0" VerticalAlignment="Center"/>
         <TextBlock x:Name="StatusText" VerticalAlignment="Center"/>
