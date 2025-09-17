@@ -1,10 +1,9 @@
 <Window x:Class="GravityCapture.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Gravity Capture" Height="520" Width="920"
+        Title="Gravity Capture" Height="580" Width="980"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="12">
-        <!-- Correct way to declare multiple row definitions -->
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -17,9 +16,17 @@
             <!-- API URL + Key -->
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                 <TextBlock Text="API URL:" VerticalAlignment="Center" Width="80"/>
-                <TextBox x:Name="ApiUrlBox" MinWidth="360" Margin="6,0,24,0"/>
+                <TextBox x:Name="ApiUrlBox" MinWidth="400" Margin="6,0,24,0"/>
                 <TextBlock Text="API Key:" VerticalAlignment="Center" Width="80"/>
-                <TextBox x:Name="ApiKeyBox" MinWidth="260" Margin="6,0,0,0"/>
+                <TextBox x:Name="ApiKeyBox" MinWidth="320" Margin="6,0,0,0"/>
+            </StackPanel>
+
+            <!-- Server + Tribe -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="Server:" VerticalAlignment="Center" Width="80"/>
+                <TextBox x:Name="ServerBox" MinWidth="320" Margin="6,0,24,0" />
+                <TextBlock Text="Tribe:" VerticalAlignment="Center" Width="80"/>
+                <TextBox x:Name="TribeBox" MinWidth="220" Margin="6,0,0,0" />
             </StackPanel>
 
             <!-- Channel + Interval + Active Window -->
@@ -45,18 +52,33 @@
         <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,0,0,12">
             <Button x:Name="SaveBtn"  Content="Save"  Width="110" Margin="0,0,8,0" Click="SaveBtn_Click"/>
             <Button x:Name="StartBtn" Content="Start" Width="110" Margin="0,0,8,0" Click="StartBtn_Click"/>
-            <Button x:Name="StopBtn"  Content="Stop"  Width="110" Margin="0,0,8,0" Click="StopBtn_Click"/>
+            <Button x:Name="StopBtn"  Content="Stop"  Width="110" Margin="0,0,12,0" Click="StopBtn_Click"/>
 
             <!-- Stage test trigger -->
             <Button x:Name="SendTestBtn"
                     Content="Send Test Tribe Event (Stage)"
                     Width="230"
+                    Margin="0,0,12,0"
                     Click="SendTestBtn_Click"/>
+
+            <!-- Paste-&-Send -->
+            <Button x:Name="SendParsedBtn"
+                    Content="Send Pasted Log Line (Stage)"
+                    Width="250"
+                    Click="SendParsedBtn_Click"/>
         </StackPanel>
 
-        <!-- Row 2: spacer / future content -->
-        <Border Grid.Row="2" BorderBrush="#22000000" BorderThickness="1" CornerRadius="6">
-            <Grid/>
+        <!-- Row 2: Paste area -->
+        <Border Grid.Row="2" BorderBrush="#22000000" BorderThickness="1" CornerRadius="6" Padding="8">
+            <DockPanel LastChildFill="True">
+                <TextBlock Text="Paste a tribe log line:" DockPanel.Dock="Top" Margin="0,0,0,6"/>
+                <TextBox x:Name="LogLineBox"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         FontFamily="Consolas"
+                         Height="140"/>
+            </DockPanel>
         </Border>
 
         <!-- Row 3: Status bar -->
