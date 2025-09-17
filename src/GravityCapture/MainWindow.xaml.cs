@@ -48,6 +48,9 @@ namespace GravityCapture
             QualityLabel.Text = _settings.JpegQuality.ToString();
             QualitySlider.ValueChanged += (_, __) => QualityLabel.Text = ((int)QualitySlider.Value).ToString();
 
+            // NEW: window title hint
+            TitleHintBox.Text = _settings.TargetWindowHint;
+
             _timer = new System.Timers.Timer { AutoReset = true, Enabled = false };
             _timer.Elapsed += OnTick;
 
@@ -89,6 +92,10 @@ namespace GravityCapture
             _settings.IntervalMinutes = int.TryParse(IntervalBox.Text, out var m) ? Math.Max(1, m) : 5;
             _settings.JpegQuality = (int)QualitySlider.Value;
             _settings.ChannelId = ulong.TryParse(ChannelBox.Text, out var ch) ? ch : 0;
+
+            // NEW: window title hint
+            _settings.TargetWindowHint = TitleHintBox.Text ?? "";
+
             _settings.Save();
         }
 
@@ -118,9 +125,8 @@ namespace GravityCapture
             if (_api == null) return;
             try
             {
-                // Capture: if crop saved, use normalized crop against foreground window.
                 Bitmap bmp;
-                var hwnd = WindowUtil.GetForegroundWindow();
+                var hwnd = ResolveTargetWindow();
                 if (_settings.UseCrop)
                     bmp = ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
                 else
@@ -144,7 +150,6 @@ namespace GravityCapture
 
         // -------- Buttons --------
 
-        // Stage test button
         private async void SendTestBtn_Click(object sender, RoutedEventArgs e)
         {
             SaveSettings();
@@ -172,7 +177,6 @@ namespace GravityCapture
             }
         }
 
-        // Paste-&-Send handler
         private async void SendParsedBtn_Click(object sender, RoutedEventArgs e)
         {
             var raw = (LogLineBox.Text ?? "").Trim();
@@ -224,7 +228,6 @@ namespace GravityCapture
             }
         }
 
-        // Recent fetch handler
         private async void RefreshRecentBtn_Click(object sender, RoutedEventArgs e)
         {
             var server = (ServerBox.Text ?? "").Trim();
@@ -257,22 +260,27 @@ namespace GravityCapture
             }
         }
 
-        // ---------- New: window-relative crop ----------
+        // ---------- Target window resolution ----------
 
         private IntPtr ResolveTargetWindow()
         {
-            // For now we use the foreground window; later we can add title matching via TargetWindowHint
+            var hint = _settings.TargetWindowHint?.Trim();
+            if (!string.IsNullOrEmpty(hint))
+            {
+                var byTitle = WindowUtil.FindBestWindowByTitleHint(hint);
+                if (byTitle != IntPtr.Zero) return byTitle;
+            }
             return WindowUtil.GetForegroundWindow();
         }
 
+        // ---------- Crop selection & preview ----------
+
         private async void SelectCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Ask user to bring ASA to foreground, then let them drag a rectangle
             var dlg = new RegionSelectorWindow();
             var ok = dlg.ShowDialog() == true;
             if (!ok) return;
 
-            // Convert the selected screen rect to a normalized client rectangle for the current foreground window
             var hwnd = ResolveTargetWindow();
             if (!WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int cx, out int cy, out int cw, out int ch, out _))
             {
@@ -281,7 +289,7 @@ namespace GravityCapture
                 return;
             }
 
-            var s = dlg.SelectedRect; // in screen coords
+            var s = dlg.SelectedRect; // screen coords
             var sx = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X)));
             var sy = Math.Max(cy, Math.Min(cy + ch, (int)Math.Round(s.Y)));
             var ex = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X + s.Width)));
@@ -314,7 +322,6 @@ namespace GravityCapture
             try
             {
                 using var bmp = ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
-                // Show a quick preview window
                 var w = new Window { Title = "Crop Preview", Width = Math.Min(900, bmp.Width + 24), Height = Math.Min(700, bmp.Height + 48) };
                 var img = new System.Windows.Controls.Image();
                 using var ms = new MemoryStream();
