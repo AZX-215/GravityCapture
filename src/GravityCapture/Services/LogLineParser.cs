@@ -5,6 +5,8 @@ namespace GravityCapture.Services
 {
     /// <summary>
     /// Parses raw ASA tribe log lines into a payload we can POST.
+    /// Targets red items (tame death, structure destroyed, tribe-mate death),
+    /// but also labels other common lines.
     /// </summary>
     public static class LogLineParser
     {
@@ -13,21 +15,38 @@ namespace GravityCapture.Services
             new Regex(@"^\s*Day\s+(?<day>\d+),\s*(?<time>\d{1,2}:\d{2}:\d{2}):\s*(?<msg>.+)\s*$",
                       RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-        // Common message patterns
+        // Tame died (generic and "killed by")
         private static readonly Regex YourWasKilledRx =
             new Regex(@"^\s*Your\s+(?<actor>.+?)\s+was killed!\s*$",
                       RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+        private static readonly Regex YourWasKilledByRx =
+            new Regex(@"^\s*Your\s+(?<actor>.+?)\s+was killed by\s+(?<killer>.+?)!\s*$",
+                      RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+        // Tame starved (usually not red)
         private static readonly Regex StarvedToDeathRx =
             new Regex(@"^\s*(?<actor>.+?)\s+starved to death!\s*$",
                       RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+        // Tribe killed someone (PvP killfeed line)
         private static readonly Regex TribeKilledRx =
             new Regex(@"^\s*Your\s+Tribe\s+killed\s+(?<actor>.+?)\s*!",
                       RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+        // Claimed tame
         private static readonly Regex ClaimedRx =
             new Regex(@"^\s*Human\s+claimed\s+'(?<actor>.+?)'!",
+                      RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+        // Structure destroyed (with or without "by")
+        private static readonly Regex StructureDestroyedRx =
+            new Regex(@"^\s*Your\s+(?<actor>.+?)\s+was destroyed(?: by .+?)?!\s*$",
+                      RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+        // Tribemate death (variants: Tribe Member / Tribemate)
+        private static readonly Regex TribeMateKilledRx =
+            new Regex(@"^\s*Your\s+Tribe(?:\s*Member|mate)\s+(?<actor>.+?)\s+was killed(?: by .+?)?!\s*$",
                       RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         public static (bool ok, TribeEvent? evt, string? error) TryParse(string rawLine, string server, string tribe)
@@ -53,11 +72,39 @@ namespace GravityCapture.Services
             string category = "GENERAL";
             string actor = "Unknown";
 
-            if (YourWasKilledRx.IsMatch(message))
+            if (YourWasKilledByRx.IsMatch(message))
+            {
+                actor = YourWasKilledByRx.Match(message).Groups["actor"].Value;
+                severity = "CRITICAL";
+                category = "TAME_DEATH";
+            }
+            else if (YourWasKilledRx.IsMatch(message))
             {
                 actor = YourWasKilledRx.Match(message).Groups["actor"].Value;
                 severity = "CRITICAL";
                 category = "TAME_DEATH";
+            }
+            else if (StructureDestroyedRx.IsMatch(message) ||
+                     message.Contains("was destroyed", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("destroyed by", StringComparison.OrdinalIgnoreCase))
+            {
+                // Try to extract the structure name (actor)
+                var sm = StructureDestroyedRx.Match(message);
+                if (sm.Success) actor = sm.Groups["actor"].Value;
+                else if (message.StartsWith("Your ", StringComparison.OrdinalIgnoreCase))
+                {
+                    var idx = message.IndexOf("was destroyed", StringComparison.OrdinalIgnoreCase);
+                    if (idx > 5) actor = message.Substring(5, idx - 5).Trim();
+                }
+
+                severity = "CRITICAL";
+                category = "STRUCTURE_DESTROYED";
+            }
+            else if (TribeMateKilledRx.IsMatch(message))
+            {
+                actor = TribeMateKilledRx.Match(message).Groups["actor"].Value;
+                severity = "CRITICAL";
+                category = "TRIBE_MATE_DEATH";
             }
             else if (StarvedToDeathRx.IsMatch(message))
             {
@@ -76,15 +123,6 @@ namespace GravityCapture.Services
                 actor = ClaimedRx.Match(message).Groups["actor"].Value;
                 severity = "INFO";
                 category = "CLAIM";
-            }
-            else if (message.Contains("was destroyed", StringComparison.OrdinalIgnoreCase) ||
-                     message.Contains("destroyed by", StringComparison.OrdinalIgnoreCase))
-            {
-                severity = "CRITICAL";
-                category = "STRUCTURE_DESTROYED";
-                var idx = message.IndexOf("was destroyed", StringComparison.OrdinalIgnoreCase);
-                if (idx > 5 && message.StartsWith("Your ", StringComparison.OrdinalIgnoreCase))
-                    actor = message.Substring(5, idx - 5).Trim();
             }
             else
             {
