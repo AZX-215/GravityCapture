@@ -4,36 +4,54 @@ using System.Text.Json;
 
 namespace GravityCapture.Models
 {
-    public class AppSettings
+    public sealed class AppSettings
     {
-        public string ApiUrl { get; set; } = "http://localhost:8080/api/screenshots";
-        public string ApiKey { get; set; } = "CHANGE_ME";
-        public ulong ChannelId { get; set; } = 0;
+        public string ApiUrl { get; set; } = "";
+        public string ApiKey { get; set; } = "";
+        public ulong ChannelId { get; set; }
         public int IntervalMinutes { get; set; } = 5;
-        public bool CaptureActiveWindow { get; set; } = false;
+        public bool CaptureActiveWindow { get; set; } = true;
         public int JpegQuality { get; set; } = 85;
         public bool Autostart { get; set; } = false;
 
-        public static string SettingsPath =>
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                        "GravityCapture", "settings.json");
+        // --- New: crop settings (normalized to window client rect) ---
+        // Target window hint (substring match on window title; leave blank = use foreground)
+        public string TargetWindowHint { get; set; } = "ARK: Survival Ascended";
+        public bool UseCrop { get; set; } = false;
+        public double CropX { get; set; } = 0;   // 0..1
+        public double CropY { get; set; } = 0;
+        public double CropW { get; set; } = 1;
+        public double CropH { get; set; } = 1;
 
-        public void Save()
-        {
-            var dir = Path.GetDirectoryName(SettingsPath)!;
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(SettingsPath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
-        }
+        public static string Path =>
+            System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                                   "GravityCapture", "settings.json");
 
         public static AppSettings Load()
         {
-            if (File.Exists(SettingsPath))
+            try
             {
-                try {
-                    return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath)) ?? new AppSettings();
-                } catch { }
+                if (File.Exists(Path))
+                {
+                    var json = File.ReadAllText(Path);
+                    var s = JsonSerializer.Deserialize<AppSettings>(json);
+                    if (s != null) return s;
+                }
             }
+            catch { }
             return new AppSettings();
+        }
+
+        public void Save()
+        {
+            try
+            {
+                var dir = System.IO.Path.GetDirectoryName(Path)!;
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(Path, json);
+            }
+            catch { }
         }
     }
 }
