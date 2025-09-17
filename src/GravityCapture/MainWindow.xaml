@@ -4,7 +4,7 @@
         Title="Gravity Capture" Height="580" Width="980"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="12">
-        <!-- Background -->
+        <!-- Background image as embedded Resource -->
         <Grid.Background>
             <ImageBrush ImageSource="pack://application:,,,/Assets/Gravity_Logs_Background.png"
                         Stretch="UniformToFill" Opacity="0.18"/>
@@ -19,6 +19,7 @@
 
         <!-- Row 0: Settings -->
         <StackPanel Orientation="Vertical" Grid.Row="0" Margin="0,0,0,12">
+            <!-- API URL + Key -->
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                 <TextBlock Text="API URL:" VerticalAlignment="Center" Width="80"/>
                 <TextBox x:Name="ApiUrlBox" MinWidth="400" Margin="6,0,24,0"/>
@@ -26,6 +27,7 @@
                 <TextBox x:Name="ApiKeyBox" MinWidth="320" Margin="6,0,0,0"/>
             </StackPanel>
 
+            <!-- Server + Tribe -->
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                 <TextBlock Text="Server:" VerticalAlignment="Center" Width="80"/>
                 <TextBox x:Name="ServerBox" MinWidth="320" Margin="6,0,24,0" />
@@ -33,11 +35,14 @@
                 <TextBox x:Name="TribeBox" MinWidth="220" Margin="6,0,0,0" />
             </StackPanel>
 
+            <!-- Window title hint -->
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                 <TextBlock Text="Window title contains:" VerticalAlignment="Center" Width="160"/>
-                <TextBox x:Name="TitleHintBox" MinWidth="360" Margin="6,0,0,0"/>
+                <TextBox x:Name="TitleHintBox" MinWidth="360" Margin="6,0,0,0"
+                         ToolTip="If set, GravityCapture targets the visible window whose title contains this text. Otherwise it uses the window under your selection or the foreground window."/>
             </StackPanel>
 
+            <!-- Channel + Interval + Active Window -->
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                 <TextBlock Text="Channel ID:" VerticalAlignment="Center" Width="80"/>
                 <TextBox x:Name="ChannelBox" MinWidth="160" Margin="6,0,24,0"/>
@@ -46,6 +51,7 @@
                 <CheckBox x:Name="ActiveWindowCheck" Content="Capture Active Window Only" VerticalAlignment="Center"/>
             </StackPanel>
 
+            <!-- Quality -->
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="JPEG Quality:" VerticalAlignment="Center" Width="110"/>
                 <Slider x:Name="QualitySlider" Width="260" Minimum="10" Maximum="100" SmallChange="1" LargeChange="5" Margin="6,0,12,0"/>
@@ -128,7 +134,7 @@
             </DataGrid>
         </Grid>
 
-        <!-- Row 3: Status -->
+        <!-- Row 3: Status bar -->
         <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,12,0,0">
             <TextBlock Text="Status:" Margin="0,0,6,0" VerticalAlignment="Center"/>
             <TextBlock x:Name="StatusText" VerticalAlignment="Center"/>
