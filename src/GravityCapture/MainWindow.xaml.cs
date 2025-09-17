@@ -376,5 +376,42 @@ namespace GravityCapture
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
+        // ---------- NEW: OCR Crop → Paste ----------
+
+        private void OcrCropBtn_Click(object sender, RoutedEventArgs e)
+        {
+            SaveSettings();
+            if (!_settings.UseCrop)
+            {
+                WpfMessageBox.Show("No crop saved. Click 'Select Log Area…' first.", "Gravity Capture",
+                    MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                return;
+            }
+
+            try
+            {
+                // Prefer the last crop window used this session so OCR matches your preview
+                var hwnd = _lastCropHwnd != IntPtr.Zero ? _lastCropHwnd : ResolveTargetWindow();
+                using var bmp = ScreenCapture.CaptureCropNormalized(
+                    hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
+
+                var lines = OcrService.ReadLines(bmp);
+                if (lines.Count == 0)
+                {
+                    Status("OCR: no text detected.");
+                    return;
+                }
+
+                // Paste OCR text into the big box so you can edit/test-send
+                LogLineBox.Text = string.Join(Environment.NewLine, lines);
+                Status($"OCR: {lines.Count} line(s). Review/edit then click 'Send Pasted Log Line (Stage)'.");
+            }
+            catch (Exception ex)
+            {
+                WpfMessageBox.Show("OCR failed: " + ex.Message, "Gravity Capture",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
     }
 }
