@@ -128,84 +128,8 @@ namespace GravityCapture
 
         private void Status(string s) => Dispatcher.Invoke(() => StatusText.Text = s);
 
-        // Existing stage test button
+        // Stage test button
         private async void SendTestBtn_Click(object sender, RoutedEventArgs e)
         {
             SaveSettings();
             WpfMouse.OverrideCursor = WpfCursors.Wait;
-            Status("Posting stage test…");
-            try
-            {
-                var (ok, error) = await LogIngestClient.SendTestAsync();
-                if (ok)
-                {
-                    Status("Stage test event posted ✅");
-                    WpfMessageBox.Show("Posted to staging API ✅", "Gravity Capture",
-                        MessageBoxButton.OK, MessageBoxImage.Information);
-                }
-                else
-                {
-                    Status("Stage test failed ❌");
-                    WpfMessageBox.Show($"Failed to post test event.\n\n{error}", "Gravity Capture",
-                        MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
-            finally
-            {
-                WpfMouse.OverrideCursor = null;
-            }
-        }
-
-        // NEW: Paste-&-Send handler
-        private async void SendParsedBtn_Click(object sender, RoutedEventArgs e)
-        {
-            var raw = (LogLineBox.Text ?? "").Trim();
-            var server = (ServerBox.Text ?? "").Trim();
-            var tribe  = (TribeBox.Text ?? "").Trim();
-
-            if (string.IsNullOrWhiteSpace(raw))
-            {
-                WpfMessageBox.Show("Paste a tribe log line first.", "Gravity Capture",
-                    MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(tribe))
-            {
-                WpfMessageBox.Show("Enter Server and Tribe (top of the window).", "Gravity Capture",
-                    MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                return;
-            }
-
-            var (okParse, evt, parseErr) = LogLineParser.TryParse(raw, server, tribe);
-            if (!okParse || evt == null)
-            {
-                WpfMessageBox.Show($"Couldn't parse that line.\n\n{parseErr}", "Gravity Capture",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            WpfMouse.OverrideCursor = WpfCursors.Wait;
-            Status("Posting parsed event…");
-            try
-            {
-                var (ok, error) = await LogIngestClient.PostEventAsync(evt);
-                if (ok)
-                {
-                    Status("Parsed event posted ✅");
-                    WpfMessageBox.Show("Posted to staging API ✅", "Gravity Capture",
-                        MessageBoxButton.OK, MessageBoxImage.Information);
-                }
-                else
-                {
-                    Status("Post failed ❌");
-                    WpfMessageBox.Show($"Failed to post.\n\n{error}", "Gravity Capture",
-                        MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
-            finally
-            {
-                WpfMouse.OverrideCursor = null;
-            }
-        }
-    }
-}
