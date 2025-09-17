@@ -66,20 +66,51 @@
                     Content="Send Pasted Log Line (Stage)"
                     Width="250"
                     Click="SendParsedBtn_Click"/>
+
+            <!-- Recent fetch -->
+            <Button x:Name="RefreshRecentBtn"
+                    Content="Refresh Recent"
+                    Width="160"
+                    Margin="12,0,0,0"
+                    Click="RefreshRecentBtn_Click"/>
         </StackPanel>
 
-        <!-- Row 2: Paste area -->
-        <Border Grid.Row="2" BorderBrush="#22000000" BorderThickness="1" CornerRadius="6" Padding="8">
-            <DockPanel LastChildFill="True">
-                <TextBlock Text="Paste a tribe log line:" DockPanel.Dock="Top" Margin="0,0,0,6"/>
-                <TextBox x:Name="LogLineBox"
-                         AcceptsReturn="True"
-                         TextWrapping="Wrap"
-                         VerticalScrollBarVisibility="Auto"
-                         FontFamily="Consolas"
-                         Height="140"/>
-            </DockPanel>
-        </Border>
+        <!-- Row 2: Paste + Recent grid -->
+        <Grid Grid.Row="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" BorderBrush="#22000000" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,0,8">
+                <DockPanel LastChildFill="True">
+                    <TextBlock Text="Paste a tribe log line:" DockPanel.Dock="Top" Margin="0,0,0,6"/>
+                    <TextBox x:Name="LogLineBox"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto"
+                             FontFamily="Consolas"
+                             Height="140"/>
+                </DockPanel>
+            </Border>
+
+            <DataGrid x:Name="RecentGrid"
+                      Grid.Row="1"
+                      AutoGenerateColumns="False"
+                      CanUserAddRows="False"
+                      IsReadOnly="True"
+                      HeadersVisibility="Column"
+                      FontSize="12">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="ID" Binding="{Binding id}" Width="60"/>
+                    <DataGridTextColumn Header="When (UTC)" Binding="{Binding ingested_at}" Width="170"/>
+                    <DataGridTextColumn Header="Severity" Binding="{Binding severity}" Width="90"/>
+                    <DataGridTextColumn Header="Category" Binding="{Binding category}" Width="150"/>
+                    <DataGridTextColumn Header="Actor" Binding="{Binding actor}" Width="220"/>
+                    <DataGridTextColumn Header="Message" Binding="{Binding message}" Width="*"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Grid>
 
         <!-- Row 3: Status bar -->
         <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,12,0,0">
