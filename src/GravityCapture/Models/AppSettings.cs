@@ -14,6 +14,10 @@ namespace GravityCapture.Models
         public int JpegQuality { get; set; } = 85;
         public string TargetWindowHint { get; set; } = "";
         public bool Autostart { get; set; } = false;
+        public bool FilterTameDeath { get; set; } = true;
+        public bool FilterStructureDestroyed { get; set; } = true;
+        public bool FilterTribeMateDeath { get; set; } = true;
+
 
         // Crop
         public bool UseCrop { get; set; } = false;
