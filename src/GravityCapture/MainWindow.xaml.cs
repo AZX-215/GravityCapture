@@ -6,8 +6,12 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Runtime.InteropServices;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
+using System.Drawing.Imaging;
+
 using GravityCapture.Models;
 using GravityCapture.Services;
+using GravityCapture.Views; // RegionSelectorWindow
 
 // Aliases to disambiguate WPF vs WinForms types
 using WpfMessageBox = System.Windows.MessageBox;
@@ -114,11 +118,21 @@ namespace GravityCapture
             if (_api == null) return;
             try
             {
-                using Bitmap bmp = ScreenCapture.Capture(_settings.CaptureActiveWindow);
-                var bytes = ScreenCapture.ToJpegBytes(bmp, _settings.JpegQuality);
-                string fname = $"gravity_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
-                bool ok = await _api.SendScreenshotAsync(bytes, fname, _settings.ChannelId, "Gravity capture");
-                Status(ok ? $"Sent {fname}" : "Send failed (HTTP)");
+                // Capture: if crop saved, use normalized crop against foreground window.
+                Bitmap bmp;
+                var hwnd = WindowUtil.GetForegroundWindow();
+                if (_settings.UseCrop)
+                    bmp = ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
+                else
+                    bmp = ScreenCapture.Capture(_settings.CaptureActiveWindow);
+
+                using (bmp)
+                {
+                    var bytes = ScreenCapture.ToJpegBytes(bmp, _settings.JpegQuality);
+                    string fname = $"gravity_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
+                    bool ok = await _api.SendScreenshotAsync(bytes, fname, _settings.ChannelId, "Gravity capture");
+                    Status(ok ? $"Sent {fname}" : "Send failed (HTTP)");
+                }
             }
             catch (Exception ex)
             {
@@ -240,6 +254,82 @@ namespace GravityCapture
             finally
             {
                 WpfMouse.OverrideCursor = null;
+            }
+        }
+
+        // ---------- New: window-relative crop ----------
+
+        private IntPtr ResolveTargetWindow()
+        {
+            // For now we use the foreground window; later we can add title matching via TargetWindowHint
+            return WindowUtil.GetForegroundWindow();
+        }
+
+        private async void SelectCropBtn_Click(object sender, RoutedEventArgs e)
+        {
+            // Ask user to bring ASA to foreground, then let them drag a rectangle
+            var dlg = new RegionSelectorWindow();
+            var ok = dlg.ShowDialog() == true;
+            if (!ok) return;
+
+            // Convert the selected screen rect to a normalized client rectangle for the current foreground window
+            var hwnd = ResolveTargetWindow();
+            if (!WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int cx, out int cy, out int cw, out int ch, out _))
+            {
+                System.Windows.MessageBox.Show("Could not resolve game window client area.", "Gravity Capture",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            var s = dlg.SelectedRect; // in screen coords
+            var sx = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X)));
+            var sy = Math.Max(cy, Math.Min(cy + ch, (int)Math.Round(s.Y)));
+            var ex = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X + s.Width)));
+            var ey = Math.Max(cy, Math.Min(cy + ch, (int)Math.Round(s.Y + s.Height)));
+            var selW = Math.Max(1, ex - sx);
+            var selH = Math.Max(1, ey - sy);
+
+            _settings.CropX = (double)(sx - cx) / cw;
+            _settings.CropY = (double)(sy - cy) / ch;
+            _settings.CropW = (double)selW / cw;
+            _settings.CropH = (double)selH / ch;
+            _settings.UseCrop = true;
+            _settings.Save();
+
+            Status($"Saved crop: x={_settings.CropX:F3} y={_settings.CropY:F3} w={_settings.CropW:F3} h={_settings.CropH:F3}");
+            WpfMessageBox.Show("Saved crop. Click 'Preview Crop' to verify.", "Gravity Capture",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            await System.Threading.Tasks.Task.CompletedTask;
+        }
+
+        private void PreviewCropBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_settings.UseCrop)
+            {
+                WpfMessageBox.Show("No crop saved. Click 'Select Log Area…' first.", "Gravity Capture",
+                    MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                return;
+            }
+            var hwnd = ResolveTargetWindow();
+            try
+            {
+                using var bmp = ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
+                // Show a quick preview window
+                var w = new Window { Title = "Crop Preview", Width = Math.Min(900, bmp.Width + 24), Height = Math.Min(700, bmp.Height + 48) };
+                var img = new System.Windows.Controls.Image();
+                using var ms = new MemoryStream();
+                bmp.Save(ms, ImageFormat.Png);
+                ms.Position = 0;
+                var bi = new BitmapImage();
+                bi.BeginInit(); bi.CacheOption = BitmapCacheOption.OnLoad; bi.StreamSource = ms; bi.EndInit();
+                img.Source = bi;
+                w.Content = new System.Windows.Controls.ScrollViewer { Content = img };
+                w.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                WpfMessageBox.Show("Preview failed: " + ex.Message, "Gravity Capture",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }
