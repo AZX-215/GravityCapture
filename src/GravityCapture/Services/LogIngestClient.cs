@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace GravityCapture.Services
 {
@@ -18,6 +19,20 @@ namespace GravityCapture.Services
         string raw_line
     );
 
+    // For GET /api/tribe-events/recent
+    public record TribeEventRow(
+        int id,
+        DateTimeOffset ingested_at,
+        string server,
+        string tribe,
+        int ark_day,
+        string ark_time,
+        string severity,
+        string category,
+        string actor,
+        string message
+    );
+
     public static class LogIngestClient
     {
         private static readonly HttpClient Http = new HttpClient();
@@ -28,7 +43,7 @@ namespace GravityCapture.Services
         };
 
         /// <summary>
-        /// POSTS a tribe event to the API configured in AppConfig.
+        /// POST a tribe event to the API configured in AppConfig.
         /// Returns (ok, errorMessage).
         /// </summary>
         public static async Task<(bool ok, string? error)> PostEventAsync(TribeEvent evt)
@@ -61,11 +76,11 @@ namespace GravityCapture.Services
 
         /// <summary>
         /// Convenience helper to send the same test payload you used from PowerShell.
-        /// Adds a unique suffix to raw_line to avoid de-dup on repeated clicks.
+        /// Adds a unique suffix to raw_line to avoid de-dup on repeated clicks (server will also de-dupe).
         /// </summary>
         public static Task<(bool ok, string? error)> SendTestAsync()
         {
-            var suffix = DateTime.UtcNow.Ticks; // unique so it inserts every time
+            var suffix = DateTime.UtcNow.Ticks; // unique so you can insert repeatedly
             var evt = new TribeEvent(
                 server:   "NA-PVP-SmallTribes-TheCenter9306",
                 tribe:    "Gravity",
@@ -78,6 +93,42 @@ namespace GravityCapture.Services
                 raw_line: $"Day 6006, 19:43:49: Your 43 WT F - Lvl 262 (Argentavis) was killed! (test {suffix})"
             );
             return PostEventAsync(evt);
+        }
+
+        /// <summary>
+        /// GET recent rows for a server/tribe from the stage API (no auth).
+        /// limit clamped to 1..100 (default 20).
+        /// </summary>
+        public static async Task<(bool ok, List<TribeEventRow>? items, string? error)>
+            GetRecentAsync(string? server, string? tribe, int limit = 20)
+        {
+            if (string.IsNullOrWhiteSpace(AppConfig.ApiBaseUrl))
+                return (false, null, "ApiBaseUrl is empty.");
+
+            if (limit < 1 || limit > 100) limit = Math.Clamp(limit, 1, 100);
+
+            var baseUrl = AppConfig.ApiBaseUrl.TrimEnd('/');
+            var qs = new List<string>();
+            if (!string.IsNullOrWhiteSpace(server)) qs.Add("server=" + Uri.EscapeDataString(server));
+            if (!string.IsNullOrWhiteSpace(tribe))  qs.Add("tribe=" + Uri.EscapeDataString(tribe));
+            qs.Add("limit=" + limit);
+            var url = $"{baseUrl}/api/tribe-events/recent?{string.Join("&", qs)}";
+
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                var resp = await Http.SendAsync(req);
+                var body = await resp.Content.ReadAsStringAsync();
+                if (!resp.IsSuccessStatusCode)
+                    return (false, null, $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {body}");
+
+                var items = JsonSerializer.Deserialize<List<TribeEventRow>>(body, JsonOpts) ?? new();
+                return (true, items, null);
+            }
+            catch (Exception ex)
+            {
+                return (false, null, $"{ex.GetType().Name}: {ex.Message}");
+            }
         }
     }
 }
