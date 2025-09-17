@@ -8,6 +8,7 @@ namespace GravityCapture.Services
 {
     /// <summary>
     /// Keeps a rolling set of recently-seen OCR lines and posts newly-seen ones.
+    /// Honors red-only and per-category filters from AppSettings.
     /// </summary>
     public sealed class OcrIngestor
     {
@@ -26,7 +27,7 @@ namespace GravityCapture.Services
             string tribe,
             Func<string, Task> statusSink)
         {
-            if (_busy) return; // re-entrancy guard
+            if (_busy) return; // reentrancy guard
             _busy = true;
             try
             {
@@ -36,7 +37,9 @@ namespace GravityCapture.Services
                     return;
                 }
 
-                using Bitmap bmp = ScreenCapture.CaptureCropNormalized(hwnd, settings.CropX, settings.CropY, settings.CropW, settings.CropH);
+                using Bitmap bmp = ScreenCapture.CaptureCropNormalized(
+                    hwnd, settings.CropX, settings.CropY, settings.CropW, settings.CropH);
+
                 var lines = OcrService.ReadLines(bmp);
 
                 int posted = 0, parsed = 0;
@@ -50,7 +53,13 @@ namespace GravityCapture.Services
 
                     parsed++;
 
-                    if (settings.PostOnlyCritical && !string.Equals(evt.severity, "CRITICAL", StringComparison.OrdinalIgnoreCase))
+                    // Red-only filter
+                    if (settings.PostOnlyCritical &&
+                        !string.Equals(evt.severity, "CRITICAL", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    // Per-category filters
+                    if (!IsCategoryAllowed(evt.category, settings))
                         continue;
 
                     var (postedOk, perr) = await LogIngestClient.PostEventAsync(evt);
@@ -60,7 +69,34 @@ namespace GravityCapture.Services
 
                 if (posted > 0) await statusSink($"Auto OCR: posted {posted} of {parsed} parsed line(s).");
             }
-            finally { _busy = false; }
+            finally
+            {
+                _busy = false;
+            }
+        }
+
+        private static bool IsCategoryAllowed(string? category, AppSettings settings)
+        {
+            if (string.IsNullOrWhiteSpace(category)) return true;
+
+            switch (category.Trim().ToUpperInvariant())
+            {
+                case "TAME_DEATH":
+                    return settings.FilterTameDeath;
+
+                case "STRUCTURE_DESTROYED":
+                case "STRUCTURE_DAMAGE":
+                    return settings.FilterStructureDestroyed;
+
+                case "TRIBE_MATE_DEATH":
+                case "TRIBE_MEMBER_DEATH":
+                case "TRIBE_DEATH":
+                    return settings.FilterTribeMateDeath;
+
+                default:
+                    // Allow unknowns for now; you can tighten later as we add more categories.
+                    return true;
+            }
         }
 
         private bool AlreadySeen(string s)
@@ -77,6 +113,7 @@ namespace GravityCapture.Services
         }
 
         private static string Normalize(string s)
-            => s.Trim().Replace("  ", " "); // cheap normalize; parser does the heavy lifting
+            => s.Trim().Replace("  ", " ");
     }
 }
+
