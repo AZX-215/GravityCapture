@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
+using System.Text.RegularExpressions; // <-- added for picking the newest 'Day ...' line
 
 using GravityCapture.Models;
 using GravityCapture.Services;
@@ -468,6 +469,117 @@ namespace GravityCapture
             {
                 WpfMessageBox.Show("OCR failed: " + ex.Message, "Gravity Capture",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // ---------- NEW: One-click OCR & post newest visible line ----------
+        private async void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
+        {
+            SaveSettings(); // persist current UI values & ensure client/env are configured
+
+            if (!_settings.UseCrop)
+            {
+                WpfMessageBox.Show(
+                    "No crop saved. Click 'Select Log Area…' first.",
+                    "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                return;
+            }
+
+            // Snapshot these safely (no cross-thread UI access later)
+            var server = (ServerBox.Text ?? "").Trim();
+            var tribe  = (TribeBox.Text  ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(tribe))
+            {
+                WpfMessageBox.Show(
+                    "Enter Server and Tribe (top of the window) before posting.",
+                    "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                return;
+            }
+
+            try
+            {
+                WpfMouse.OverrideCursor = WpfCursors.Wait;
+                Status("OCR: capturing…");
+
+                var hwnd = _lastCropHwnd != IntPtr.Zero ? _lastCropHwnd : ResolveTargetWindow();
+
+                using var bmp = ScreenCapture.CaptureCropNormalized(
+                    hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
+
+                var lines = OcrService.ReadLines(bmp);
+                if (lines.Count == 0)
+                {
+                    Status("OCR: no text detected.");
+                    WpfMessageBox.Show("OCR returned no text. Try a tighter crop or adjust brightness/contrast.",
+                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                // Pick the newest visible log line: topmost line that starts with "Day <digits>"
+                // Fallback: first non-empty line.
+                var reDay = new Regex(@"^\s*Day\s+\d+", RegexOptions.IgnoreCase);
+                var candidate = lines.Find(l => reDay.IsMatch(l)) ?? lines.Find(l => !string.IsNullOrWhiteSpace(l));
+
+                if (string.IsNullOrWhiteSpace(candidate))
+                {
+                    Status("OCR: couldn't find a 'Day ...' line.");
+                    WpfMessageBox.Show(
+                        "Couldn't find a line starting with 'Day ...' in the OCR result.",
+                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                // Put it in the textbox so you can see exactly what we’re posting
+                LogLineBox.Text = candidate;
+
+                // Parse
+                var (okParse, evt, parseErr) = LogLineParser.TryParse(candidate, server, tribe);
+                if (!okParse || evt == null)
+                {
+                    Status("Parse failed.");
+                    WpfMessageBox.Show(
+                        $"Couldn't parse the OCR’d line:\n\n{candidate}\n\n{parseErr}",
+                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                // Apply “Post only red logs” filter if enabled
+                if (_settings.PostOnlyCritical && !evt.Severity.Equals("CRITICAL", StringComparison.OrdinalIgnoreCase))
+                {
+                    Status("Filtered (not critical).");
+                    WpfMessageBox.Show(
+                        "Parsed line is not CRITICAL and was filtered by your settings.",
+                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                // Post to selected env (client is already configured by SaveSettings/Env switch)
+                Status($"Posting to {(_settings.LogEnvironment ?? "Stage")}…");
+                var (ok, error) = await LogIngestClient.PostEventAsync(evt);
+
+                if (ok)
+                {
+                    Status("Posted ✅");
+                    WpfMessageBox.Show(
+                        $"Posted to {(_settings.LogEnvironment ?? "Stage")} ✅",
+                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    Status("Post failed ❌");
+                    WpfMessageBox.Show($"Post failed.\n\n{error}",
+                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                Status("Error: " + ex.Message);
+                WpfMessageBox.Show("OCR & Post failed:\n\n" + ex.Message,
+                    "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                WpfMouse.OverrideCursor = null;
             }
         }
     }
