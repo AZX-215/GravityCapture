@@ -54,25 +54,36 @@
             <Button x:Name="StartBtn" Content="Start" Width="110" Margin="0,0,8,0" Click="StartBtn_Click"/>
             <Button x:Name="StopBtn"  Content="Stop"  Width="110" Margin="0,0,12,0" Click="StopBtn_Click"/>
 
-            <!-- Stage test trigger -->
+            <!-- Stage test triggers -->
             <Button x:Name="SendTestBtn"
                     Content="Send Test Tribe Event (Stage)"
                     Width="230"
                     Margin="0,0,12,0"
                     Click="SendTestBtn_Click"/>
 
-            <!-- Paste-&-Send -->
             <Button x:Name="SendParsedBtn"
                     Content="Send Pasted Log Line (Stage)"
                     Width="250"
                     Click="SendParsedBtn_Click"/>
 
-            <!-- Recent fetch -->
             <Button x:Name="RefreshRecentBtn"
                     Content="Refresh Recent"
                     Width="160"
                     Margin="12,0,0,0"
                     Click="RefreshRecentBtn_Click"/>
+
+            <!-- New: crop tools -->
+            <Button x:Name="SelectCropBtn"
+                    Content="Select Log Area…"
+                    Width="160"
+                    Margin="12,0,0,0"
+                    Click="SelectCropBtn_Click"/>
+
+            <Button x:Name="PreviewCropBtn"
+                    Content="Preview Crop"
+                    Width="140"
+                    Margin="8,0,0,0"
+                    Click="PreviewCropBtn_Click"/>
         </StackPanel>
 
         <!-- Row 2: Paste + Recent grid -->
