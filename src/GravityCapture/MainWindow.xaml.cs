@@ -5,16 +5,20 @@ using System.Timers;
 using System.Windows;
 using System.Windows.Interop;
 using System.Runtime.InteropServices;
-using System.Windows.Input;                 // ← added for Cursors (optional)
+using System.Windows.Input;                 // for Mouse
 using GravityCapture.Models;
 using GravityCapture.Services;
+
+// Aliases to disambiguate WPF vs WinForms types
+using WpfMessageBox = System.Windows.MessageBox;
+using WpfCursors    = System.Windows.Input.Cursors;
+using WpfMouse      = System.Windows.Input.Mouse;
 
 namespace GravityCapture
 {
     public partial class MainWindow : Window
     {
         // ── DWM dark title bar (Win10/11) ─────────────────────────────────────
-        // Some Windows builds use 19, newer use 20
         private const int DWMWA_USE_IMMERSIVE_DARK_MODE_NEW = 20;
         private const int DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
 
@@ -51,7 +55,6 @@ namespace GravityCapture
             if (_settings.Autostart) StartCapture();
         }
 
-        // Enable the OS-provided dark title bar (non-client area)
         private void ApplyDarkTitleBar()
         {
             try
@@ -60,13 +63,12 @@ namespace GravityCapture
                 if (hwnd == IntPtr.Zero) return;
 
                 int enable = 1;
-                // Try new attr id then old one (no-ops if unsupported)
                 _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_NEW, ref enable, sizeof(int));
                 _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref enable, sizeof(int));
             }
             catch
             {
-                // best-effort; ignore on unsupported systems
+                // best-effort
             }
         }
 
@@ -100,16 +102,17 @@ namespace GravityCapture
             _api = new ApiClient(_settings.ApiUrl, _settings.ApiKey);
             _timer.Interval = TimeSpan.FromMinutes(_settings.IntervalMinutes).TotalMilliseconds;
             _timer.Start();
-            StartBtn.IsEnabled = false; StopBtn.IsEnabled = true;
+            StartBtn.IsEnabled = false; 
+            StopBtn.IsEnabled = true;
             Status($"Running – every {_settings.IntervalMinutes} min.");
-            // fire first shot immediately
-            _ = CaptureOnceAsync();
+            _ = CaptureOnceAsync(); // fire first shot immediately
         }
 
         private void StopCapture()
         {
             _timer.Stop();
-            StartBtn.IsEnabled = true; StopBtn.IsEnabled = false;
+            StartBtn.IsEnabled = true; 
+            StopBtn.IsEnabled = false;
             Status("Stopped.");
         }
 
@@ -135,13 +138,12 @@ namespace GravityCapture
         private void Status(string s) => Dispatcher.Invoke(() => StatusText.Text = s);
 
         // ──────────────────────────────────────────────────────────────────────
-        // NEW: staging test button handler
-        // Wire this to a Button named SendTestBtn in MainWindow.xaml
+        // Stage test button handler (uses explicit WPF types via aliases)
         private async void SendTestBtn_Click(object sender, RoutedEventArgs e)
         {
-            SaveSettings(); // make sure current keys/URL are saved
+            SaveSettings(); // ensure any UI edits are saved
 
-            Mouse.OverrideCursor = Cursors.Wait;
+            WpfMouse.OverrideCursor = WpfCursors.Wait;
             Status("Posting stage test…");
             try
             {
@@ -149,19 +151,19 @@ namespace GravityCapture
                 if (ok)
                 {
                     Status("Stage test event posted ✅");
-                    MessageBox.Show("Posted to staging API ✅", "Gravity Capture",
+                    WpfMessageBox.Show("Posted to staging API ✅", "Gravity Capture",
                         MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
                 {
                     Status("Stage test failed ❌");
-                    MessageBox.Show($"Failed to post test event.\n\n{error}", "Gravity Capture",
+                    WpfMessageBox.Show($"Failed to post test event.\n\n{error}", "Gravity Capture",
                         MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             finally
             {
-                Mouse.OverrideCursor = null;
+                WpfMouse.OverrideCursor = null;
             }
         }
         // ──────────────────────────────────────────────────────────────────────
