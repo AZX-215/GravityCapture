@@ -73,10 +73,14 @@ namespace GravityCapture.Services
             var url = $"{_baseUrl}/api/tribe-events";
             try
             {
+                // ✅ Use generic overload (or named args) so options bind correctly.
                 using var req = WithAuth(new HttpRequestMessage(HttpMethod.Post, url)
                 {
-                    Content = JsonContent.Create(evt, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })
+                    Content = JsonContent.Create<TribeEvent>(
+                        evt,
+                        options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })
                 });
+
                 using var res = await _http.SendAsync(req);
                 if (!res.IsSuccessStatusCode)
                     return (false, $"HTTP {(int)res.StatusCode}: {await res.Content.ReadAsStringAsync()}");
