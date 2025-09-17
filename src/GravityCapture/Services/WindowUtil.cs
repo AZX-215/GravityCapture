@@ -27,9 +27,9 @@ namespace GravityCapture.Services
         {
             x = y = w = h = 0; scale = 1.0;
             if (hwnd == IntPtr.Zero) return false;
-            if (!GetClientRect(hwnd, out var r)) return false;
+            if (!GetClientRect(hwnd, out var r)) return false;      // client size (px)
             var pt = new POINT { X = 0, Y = 0 };
-            if (!ClientToScreen(hwnd, ref pt)) return false;
+            if (!ClientToScreen(hwnd, ref pt)) return false;        // client origin in screen coords (px)
             x = pt.X; y = pt.Y; w = r.Right - r.Left; h = r.Bottom - r.Top;
             var dpi = GetDpiForWindow(hwnd);
             scale = dpi > 0 ? dpi / 96.0 : 1.0;
@@ -38,8 +38,7 @@ namespace GravityCapture.Services
 
         /// <summary>
         /// Finds the best visible top-level window whose title contains the provided hint (case-insensitive).
-        /// Picks the one with the largest client area if multiple match.
-        /// Returns IntPtr.Zero if none found.
+        /// Picks the one with the largest client area if multiple match. Returns IntPtr.Zero if none found.
         /// </summary>
         public static IntPtr FindBestWindowByTitleHint(string? hint)
         {
@@ -60,7 +59,10 @@ namespace GravityCapture.Services
                 var title = sb.ToString();
                 if (title.IndexOf(needle, StringComparison.OrdinalIgnoreCase) < 0) return true;
 
-                if (TryGetClientBoundsOnScreen(hwnd, out _, out _, out int w, out int h, out _))
+                // ---- explicit locals to avoid 'out nint' inference ----
+                int x, y, w, h;
+                double scale;
+                if (TryGetClientBoundsOnScreen(hwnd, out x, out y, out w, out h, out scale))
                 {
                     long area = (long)w * h;
                     if (area > bestArea)
