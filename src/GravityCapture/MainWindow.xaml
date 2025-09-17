@@ -4,6 +4,15 @@
         Title="Gravity Capture" Height="580" Width="980"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="12">
+        <!-- Background image as WPF Resource -->
+        <Grid.Background>
+            <!-- If your image is at src/GravityCapture/Assets/Gravity_Logs_Background.png
+                 and Build Action = Resource, this pack URI will work in all configs -->
+            <ImageBrush ImageSource="pack://application:,,,/Assets/Gravity_Logs_Background.png"
+                        Stretch="UniformToFill"
+                        Opacity="0.18"/>
+        </Grid.Background>
+
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
