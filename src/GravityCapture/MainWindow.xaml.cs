@@ -172,19 +172,36 @@ namespace GravityCapture
         // ---------- Timer ----------
         private async void OnTick(object? s, ElapsedEventArgs e)
         {
-            if (_settings.AutoOcrEnabled)
+            try
             {
-                var hwnd = ResolveTargetWindow();
-                await _ingestor.ScanAndPostAsync(
-                    hwnd,
-                    _settings,
-                    ServerBox.Text?.Trim() ?? "",
-                    TribeBox.Text?.Trim() ?? "",
-                    async msg => await Dispatcher.InvokeAsync(() => Status(msg)));
+                // Snapshot UI values on the UI thread to avoid cross-thread access
+                var (server, tribe) = await Dispatcher.InvokeAsync(() =>
+                {
+                    var srv = ServerBox.Text?.Trim() ?? "";
+                    var trb = TribeBox.Text?.Trim() ?? "";
+                    return (srv, trb);
+                });
+
+                if (_settings.AutoOcrEnabled)
+                {
+                    var hwnd = ResolveTargetWindow();
+                    await _ingestor.ScanAndPostAsync(
+                        hwnd,
+                        _settings,
+                        server,
+                        tribe,
+                        async msg => await Dispatcher.InvokeAsync(() => Status(msg))
+                    );
+                }
+                else
+                {
+                    await CaptureOnceAsync();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                await CaptureOnceAsync();
+                // Never allow the timer thread to crash/freeze the app
+                await Dispatcher.InvokeAsync(() => Status($"Timer error: {ex.Message}"));
             }
         }
 
