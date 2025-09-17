@@ -5,121 +5,126 @@ using GravityCapture.Models;
 namespace GravityCapture.Services
 {
     /// <summary>
-    /// Turns OCR'd tribe-log text lines into structured TribeEvent objects.
-    /// This version recognizes "Tribemember/Tribemate was killed" variants and sets severity from category.
+    /// Parses OCR'ed tribe log lines into a TribeEvent suitable for posting to the Log API.
+    /// Uses string severities ("CRITICAL" | "WARNING" | "INFO") and category strings like
+    /// "TAME_DEATH", "TRIBE_MATE_DEATH", "STRUCTURE_DESTROYED", "STRUCTURE_DAMAGE".
     /// </summary>
     public static class LogLineParser
     {
-        // Day header: Day 6022, 03:59:40: <message>
+        // Day header: "Day 6022, 03:59:40: <message>"
         private static readonly Regex RxHeader = new(
-            @"^\s*Day\s*(\d+)\s*,\s*(\d{1,2}:\d{2}:\d{2})\s*:\s*(.+?)\s*$",
+            @"^\s*Day\s*(?<day>\d+)\s*,\s*(?<time>\d{1,2}:\d{2}:\d{2})\s*:\s*(?<body>.+?)\s*$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-        // Tame death:
-        //   Your Pegomastax - Lvl 264 (Pegomastax) was killed!
-        private static readonly Regex RxTameKilled = new(
-            @"^(?:Your\s+)?(?<actor>[^-]+?)\s*-\s*Lvl\s*(?<lvl>\d+).*?was\s+killed!?$",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
-
-        // Tribe-mate death (multiple wordings seen across ASA/servers):
-        //   Tribemember AZX - Lvl 195 was killed!
-        //   Your Tribemate Bob - Lvl 100 was killed!
+        // Tribemate killed (multiple wordings):
+        //  "Tribemember AZX - Lvl 195 was killed!"
+        //  "Your Tribemate Bob - Lvl 100 was killed!"
         private static readonly Regex RxTribeMateKilled = new(
             @"^(?:(?:Your\s+)?Tribe(?:mate|member)\s+)(?<name>.+?)\s*-\s*Lvl\s*(?<lvl>\d+)\s*was\s+killed!?$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+        // Tame killed:
+        //  "Your Pegomastax - Lvl 264 (Pegomastax) was killed!"
+        private static readonly Regex RxTameKilled = new(
+            @"^(?:Your\s+)?(?<actor>[^-]+?)\s*-\s*Lvl\s*(?<lvl>\d+).*?was\s+killed!?$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
         // Structure destroyed:
-        //   Your Auto Turret was destroyed!
+        //  "Your Auto Turret was destroyed!"
         private static readonly Regex RxStructureDestroyed = new(
             @"^(?:Your\s+)?(?<thing>.+?)\s+was\s+destroyed!?$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+        // Structure damaged (various wordings observed):
+        //  "Your Stone Wall took damage from Bob - Lvl 205 (Rifle)"
+        //  "Your Stone Wall was damaged by Bob - Lvl 205"
+        private static readonly Regex RxStructureDamaged = new(
+            @"^(?:Your\s+)?(?<thing>.+?)\s+(?:took\s+damage|was\s+damaged)(?:\s+(?:from|by)\s+(?<by>.+?))?[.!]?$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
         /// <summary>
         /// Try to parse a single OCR line that begins with "Day ...".
+        /// Returns (ok, evt, error). On success, evt is fully populated for posting.
         /// </summary>
-        public static bool TryParse(string rawLine, out TribeEvent ev)
+        public static (bool ok, TribeEvent? evt, string? error) TryParse(string rawLine, string server, string tribe)
         {
-            ev = null!;
-            if (string.IsNullOrWhiteSpace(rawLine)) return false;
+            if (string.IsNullOrWhiteSpace(rawLine))
+                return (false, null, "empty");
 
             var m = RxHeader.Match(rawLine);
-            if (!m.Success) return false;
+            if (!m.Success)
+                return (false, null, "no-day-header");
 
-            var arkDay   = SafeInt(m.Groups[1].Value);
-            var arkTime  = m.Groups[2].Value.Trim();
-            var message  = m.Groups[3].Value.Trim();
+            int arkDay = SafeInt(m.Groups["day"].Value);
+            string arkTime = m.Groups["time"].Value.Trim();
+            string body = m.Groups["body"].Value.Trim();
 
-            // --- classify message body
-            TribeEventCategory category = TribeEventCategory.Unknown;
+            string category = "UNKNOWN";
+            string severity = "INFO";
             string actor = string.Empty;
 
-            // 1) Tribe-mate killed
-            var tm = RxTribeMateKilled.Match(message);
+            // 1) Tribemate death
+            var tm = RxTribeMateKilled.Match(body);
             if (tm.Success)
             {
-                category = TribeEventCategory.TribemateDeath;
-                actor    = $"Tribemate {tm.Groups["name"].Value.Trim()} - Lvl {tm.Groups["lvl"].Value}";
-                ev = Make(arkDay, arkTime, category, actor, message, Severity.Critical);
-                return true;
+                category = "TRIBE_MATE_DEATH";
+                severity = "CRITICAL";
+                actor = $"Tribemate {tm.Groups["name"].Value.Trim()} - Lvl {tm.Groups["lvl"].Value}";
+                return (true, NewEvent(server, tribe, arkDay, arkTime, severity, category, actor, body, rawLine), null);
             }
 
-            // 2) Tame killed
-            var tk = RxTameKilled.Match(message);
+            // 2) Tame death
+            var tk = RxTameKilled.Match(body);
             if (tk.Success)
             {
-                // Heuristic: if it looks like a living thing (has Lvl … was killed) but not a Tribemate,
-                // treat as tame death.
-                category = TribeEventCategory.TameDeath;
-                actor    = $"{tk.Groups["actor"].Value.Trim()} - Lvl {tk.Groups["lvl"].Value}";
-                ev = Make(arkDay, arkTime, category, actor, message, Severity.Critical);
-                return true;
+                category = "TAME_DEATH";
+                severity = "CRITICAL";
+                actor = $"{tk.Groups["actor"].Value.Trim()} - Lvl {tk.Groups["lvl"].Value}";
+                return (true, NewEvent(server, tribe, arkDay, arkTime, severity, category, actor, body, rawLine), null);
             }
 
             // 3) Structure destroyed
-            var sd = RxStructureDestroyed.Match(message);
+            var sd = RxStructureDestroyed.Match(body);
             if (sd.Success)
             {
-                category = TribeEventCategory.StructureDestroyed;
-                actor    = sd.Groups["thing"].Value.Trim();
-                ev = Make(arkDay, arkTime, category, actor, message, Severity.Critical);
-                return true;
+                category = "STRUCTURE_DESTROYED";
+                severity = "CRITICAL";
+                actor = sd.Groups["thing"].Value.Trim();
+                return (true, NewEvent(server, tribe, arkDay, arkTime, severity, category, actor, body, rawLine), null);
             }
 
-            // Fallback: keep the text, mark as Info
-            ev = Make(arkDay, arkTime, TribeEventCategory.Unknown, string.Empty, message, Severity.Info);
-            return true;
+            // 4) Structure damaged
+            var dmg = RxStructureDamaged.Match(body);
+            if (dmg.Success)
+            {
+                category = "STRUCTURE_DAMAGE";
+                severity = "WARNING"; // downgrade vs. destroyed
+                var thing = dmg.Groups["thing"].Value.Trim();
+                var by = dmg.Groups["by"].Success ? dmg.Groups["by"].Value.Trim() : "";
+                actor = string.IsNullOrEmpty(by) ? thing : $"{thing} ← {by}";
+                return (true, NewEvent(server, tribe, arkDay, arkTime, severity, category, actor, body, rawLine), null);
+            }
+
+            // Fallback (unclassified)
+            return (true, NewEvent(server, tribe, arkDay, arkTime, "INFO", "UNKNOWN", "", body, rawLine), null);
         }
 
-        private static TribeEvent Make(
-            int arkDay,
-            string arkTime,
-            TribeEventCategory category,
-            string actor,
-            string message,
-            Severity severity)
-        {
-            return new TribeEvent
+        private static TribeEvent NewEvent(
+            string server, string tribe, int arkDay, string arkTime,
+            string severity, string category, string actor, string message, string rawLine)
+            => new TribeEvent
             {
-                ArkDay   = arkDay,
-                ArkTime  = arkTime,
-                Category = category.ToString().ToUpperInvariant(),
-                Actor    = actor,
-                Message  = message,
-                Severity = severity
+                server = server,
+                tribe = tribe,
+                ark_day = arkDay,
+                ark_time = arkTime,
+                severity = severity,
+                category = category,
+                actor = actor,
+                message = message,
+                raw_line = rawLine
             };
-        }
 
         private static int SafeInt(string s) => int.TryParse(s, out var i) ? i : 0;
-    }
-
-    /// <summary>
-    /// Categories we emit (align with what your API expects).
-    /// </summary>
-    public enum TribeEventCategory
-    {
-        Unknown = 0,
-        TameDeath,
-        TribemateDeath,
-        StructureDestroyed
     }
 }
