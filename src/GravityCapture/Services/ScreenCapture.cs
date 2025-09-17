@@ -1,78 +1,101 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
-using System.Windows.Forms;
+using System.IO;
+using System.Linq;
+using System.Windows.Forms;                    // Screen / SystemInformation
+using Point = System.Drawing.Point;            // Disambiguate
+using GravityCapture.Services;                 // WindowUtil
 
 namespace GravityCapture.Services
 {
     public static class ScreenCapture
     {
-        [DllImport("user32.dll")] static extern IntPtr GetDesktopWindow();
-        [DllImport("user32.dll")] static extern IntPtr GetWindowDC(IntPtr hWnd);
-        [DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr hdcDest, int nXDest, int nYDest, int nWidth, int nHeight,
-                                                           IntPtr hdcSrc, int nXSrc, int nYSrc, int dwRop);
-        [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
-
-        const int SRCCOPY = 0x00CC0020;
-
+        /// <summary>
+        /// Capture either the active window's client area, or the whole virtual desktop.
+        /// </summary>
         public static Bitmap Capture(bool activeWindowOnly)
         {
             if (activeWindowOnly)
             {
                 var hwnd = WindowUtil.GetForegroundWindow();
-                // ---- explicit locals to avoid 'out nint' inference ----
-                int x, y, w, h; double scale;
-                if (WindowUtil.TryGetClientBoundsOnScreen(hwnd, out x, out y, out w, out h, out scale))
-                    return CaptureScreenRect(new Rectangle(x, y, w, h));
+                if (hwnd != IntPtr.Zero &&
+                    WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int x, out int y, out int w, out int h, out _))
+                {
+                    return CopyFromScreenRect(new Rectangle(x, y, w, h));
+                }
+                // If we can't resolve the foreground window, continue to full desktop fallback.
             }
-            // Fallback: entire primary screen
-            var b = Screen.PrimaryScreen.Bounds;
-            return CaptureScreenRect(b);
+
+            // Multi-monitor safe: use the virtual desktop rectangle.
+            var vs = SystemInformation.VirtualScreen; // Never null on Windows; but guard anyway
+            var rect = vs.Width > 0 && vs.Height > 0 ? vs : new Rectangle(0, 0, 1920, 1080);
+            return CopyFromScreenRect(rect);
         }
 
+        /// <summary>
+        /// Capture a normalized crop (0..1) of a window's client area.
+        /// </summary>
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
         {
-            // ---- explicit locals to avoid 'out nint' inference ----
-            int x, y, w, h; double scale;
-            if (!WindowUtil.TryGetClientBoundsOnScreen(hwnd, out x, out y, out w, out h, out scale))
-                throw new InvalidOperationException("Could not get client bounds.");
+            // Resolve to a valid window client rect; if not, fallback to virtual screen.
+            if (!WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int cx, out int cy, out int cw, out int ch, out _)
+                || cw <= 0 || ch <= 0)
+            {
+                var vs = SystemInformation.VirtualScreen;
+                int vx = vs.X, vy = vs.Y, vw = Math.Max(1, vs.Width), vh = Math.Max(1, vs.Height);
 
-            nx = Clamp01(nx); ny = Clamp01(ny); nw = Clamp01(nw); nh = Clamp01(nh);
+                int sx = vx + Clamp((int)Math.Round(nx * vw), 0, vw - 1);
+                int sy = vy + Clamp((int)Math.Round(ny * vh), 0, vh - 1);
+                int sw = Clamp((int)Math.Round(nw * vw), 1, vw - (sx - vx));
+                int sh = Clamp((int)Math.Round(nh * vh), 1, vh - (sy - vy));
 
-            int cw = Math.Max(1, (int)Math.Round(w * nw));
-            int ch = Math.Max(1, (int)Math.Round(h * nh));
-            int cx = x + Math.Max(0, (int)Math.Round(w * nx));
-            int cy = y + Math.Max(0, (int)Math.Round(h * ny));
-            return CaptureScreenRect(new Rectangle(cx, cy, cw, ch));
+                return CopyFromScreenRect(new Rectangle(sx, sy, sw, sh));
+            }
+
+            // Crop inside the window client rect.
+            int x = cx + Clamp((int)Math.Round(nx * cw), 0, cw - 1);
+            int y = cy + Clamp((int)Math.Round(ny * ch), 0, ch - 1);
+            int w = Clamp((int)Math.Round(nw * cw), 1, cw - (x - cx));
+            int h = Clamp((int)Math.Round(nh * ch), 1, ch - (y - cy));
+
+            return CopyFromScreenRect(new Rectangle(x, y, w, h));
         }
 
+        /// <summary>
+        /// Encode a bitmap to JPEG with quality (10..100).
+        /// </summary>
         public static byte[] ToJpegBytes(Bitmap bmp, int quality)
         {
-            using var ms = new System.IO.MemoryStream();
-            var enc = GetJpegEncoder();
-            var ep = new EncoderParameters(1);
-            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality,
-                                               Math.Max(1, Math.Min(100, quality)));
+            int q = Math.Clamp(quality, 10, 100);
+            using var ms = new MemoryStream();
+            var enc = ImageCodecInfo.GetImageEncoders().FirstOrDefault(e => e.MimeType == "image/jpeg");
+            if (enc == null)
+            {
+                // Fallback: PNG if JPEG encoder not found (rare).
+                bmp.Save(ms, ImageFormat.Png);
+                return ms.ToArray();
+            }
+
+            using var ep = new EncoderParameters(1);
+            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)q);
             bmp.Save(ms, enc, ep);
             return ms.ToArray();
         }
 
-        private static Bitmap CaptureScreenRect(Rectangle r)
+        // ----- helpers -----
+
+        private static Bitmap CopyFromScreenRect(Rectangle r)
         {
-            var bmp = new Bitmap(r.Width, r.Height, PixelFormat.Format32bppArgb);
-            using var g = Graphics.FromImage(bmp);
-            g.CopyFromScreen(r.Left, r.Top, 0, 0, r.Size, CopyPixelOperation.SourceCopy);
+            // GDI CopyFromScreen grabs SDR-tonemapped pixels on HDR desktops (expected).
+            var bmp = new Bitmap(r.Width, r.Height, PixelFormat.Format24bppRgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.CopyFromScreen(new Point(r.X, r.Y), Point.Empty, r.Size, CopyPixelOperation.SourceCopy);
+            }
             return bmp;
         }
 
-        private static ImageCodecInfo GetJpegEncoder()
-        {
-            foreach (var c in ImageCodecInfo.GetImageEncoders())
-                if (c.FormatID == ImageFormat.Jpeg.Guid) return c;
-            throw new Exception("JPEG encoder not found");
-        }
-
-        private static double Clamp01(double v) => v < 0 ? 0 : (v > 1 ? 1 : v);
+        private static int Clamp(int v, int min, int max) => v < min ? min : (v > max ? max : v);
     }
 }
