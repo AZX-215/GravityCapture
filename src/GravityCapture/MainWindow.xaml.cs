@@ -57,6 +57,11 @@ namespace GravityCapture
             AutoOcrCheck.IsChecked = _settings.AutoOcrEnabled;
             RedOnlyCheck.IsChecked = _settings.PostOnlyCritical;
 
+            // NEW: category filters
+            FilterTameCheck.IsChecked   = _settings.FilterTameDeath;
+            FilterStructCheck.IsChecked = _settings.FilterStructureDestroyed;
+            FilterTribeCheck.IsChecked  = _settings.FilterTribeMateDeath;
+
             _timer = new System.Timers.Timer { AutoReset = true, Enabled = false };
             _timer.Elapsed += OnTick;
 
@@ -101,8 +106,13 @@ namespace GravityCapture
             _settings.ChannelId = ulong.TryParse(ChannelBox.Text, out var ch) ? ch : 0;
             _settings.TargetWindowHint = TitleHintBox.Text ?? "";
 
-            _settings.AutoOcrEnabled  = AutoOcrCheck.IsChecked == true;
+            _settings.AutoOcrEnabled   = AutoOcrCheck.IsChecked == true;
             _settings.PostOnlyCritical = RedOnlyCheck.IsChecked == true;
+
+            // NEW: persist category filters
+            _settings.FilterTameDeath          = FilterTameCheck.IsChecked == true;
+            _settings.FilterStructureDestroyed = FilterStructCheck.IsChecked == true;
+            _settings.FilterTribeMateDeath     = FilterTribeCheck.IsChecked == true;
 
             _settings.Save();
         }
