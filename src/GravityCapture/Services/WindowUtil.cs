@@ -37,6 +37,19 @@ namespace GravityCapture.Services
         }
 
         /// <summary>
+        /// Returns the title (caption) of a window, or empty if none.
+        /// </summary>
+        public static string GetWindowTitle(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return string.Empty;
+            int len = GetWindowTextLength(hwnd);
+            if (len <= 0) return string.Empty;
+            var sb = new StringBuilder(len + 1);
+            _ = GetWindowText(hwnd, sb, sb.Capacity);
+            return sb.ToString();
+        }
+
+        /// <summary>
         /// Finds the best visible top-level window whose title contains the provided hint (case-insensitive).
         /// Picks the one with the largest client area if multiple match. Returns IntPtr.Zero if none found.
         /// </summary>
@@ -59,9 +72,8 @@ namespace GravityCapture.Services
                 var title = sb.ToString();
                 if (title.IndexOf(needle, StringComparison.OrdinalIgnoreCase) < 0) return true;
 
-                // ---- explicit locals to avoid 'out nint' inference ----
-                int x, y, w, h;
-                double scale;
+                // explicit locals avoid 'out nint' inference on some toolchains
+                int x, y, w, h; double scale;
                 if (TryGetClientBoundsOnScreen(hwnd, out x, out y, out w, out h, out scale))
                 {
                     long area = (long)w * h;
