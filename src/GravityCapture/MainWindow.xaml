@@ -12,47 +12,46 @@
         </Grid.RowDefinitions>
 
         <!-- Row 0: Settings -->
-<StackPanel Orientation="Vertical" Grid.Row="0" Margin="0,0,0,12">
-  <!-- API URL + Key -->
-  <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-    <TextBlock Text="API URL:" VerticalAlignment="Center" Width="80"/>
-    <TextBox x:Name="ApiUrlBox" MinWidth="400" Margin="6,0,24,0"/>
-    <TextBlock Text="API Key:" VerticalAlignment="Center" Width="80"/>
-    <TextBox x:Name="ApiKeyBox" MinWidth="320" Margin="6,0,0,0"/>
-  </StackPanel>
+        <StackPanel Orientation="Vertical" Grid.Row="0" Margin="0,0,0,12">
+            <!-- API URL + Key -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="API URL:" VerticalAlignment="Center" Width="80"/>
+                <TextBox x:Name="ApiUrlBox" MinWidth="400" Margin="6,0,24,0"/>
+                <TextBlock Text="API Key:" VerticalAlignment="Center" Width="80"/>
+                <TextBox x:Name="ApiKeyBox" MinWidth="320" Margin="6,0,0,0"/>
+            </StackPanel>
 
-  <!-- Server + Tribe -->
-  <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-    <TextBlock Text="Server:" VerticalAlignment="Center" Width="80"/>
-    <TextBox x:Name="ServerBox" MinWidth="320" Margin="6,0,24,0" />
-    <TextBlock Text="Tribe:" VerticalAlignment="Center" Width="80"/>
-    <TextBox x:Name="TribeBox" MinWidth="220" Margin="6,0,0,0" />
-  </StackPanel>
+            <!-- Server + Tribe -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="Server:" VerticalAlignment="Center" Width="80"/>
+                <TextBox x:Name="ServerBox" MinWidth="320" Margin="6,0,24,0" />
+                <TextBlock Text="Tribe:" VerticalAlignment="Center" Width="80"/>
+                <TextBox x:Name="TribeBox" MinWidth="220" Margin="6,0,0,0" />
+            </StackPanel>
 
-  <!-- Window title hint (for target selection) -->
-  <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-    <TextBlock Text="Window title contains:" VerticalAlignment="Center" Width="160"/>
-    <TextBox x:Name="TitleHintBox" MinWidth="360" Margin="6,0,0,0"
-             ToolTip="If set, GravityCapture will target the visible window whose title contains this text (largest client area wins). Otherwise it uses the foreground window."/>
-  </StackPanel>
+            <!-- Window title hint -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="Window title contains:" VerticalAlignment="Center" Width="160"/>
+                <TextBox x:Name="TitleHintBox" MinWidth="360" Margin="6,0,0,0"
+                         ToolTip="If set, GravityCapture targets the visible window whose title contains this text (largest client area wins). Otherwise it uses the foreground window."/>
+            </StackPanel>
 
-  <!-- Channel + Interval + Active Window -->
-  <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-    <TextBlock Text="Channel ID:" VerticalAlignment="Center" Width="80"/>
-    <TextBox x:Name="ChannelBox" MinWidth="160" Margin="6,0,24,0"/>
-    <TextBlock Text="Interval (min):" VerticalAlignment="Center" Width="110"/>
-    <TextBox x:Name="IntervalBox" MinWidth="80" Margin="6,0,24,0"/>
-    <CheckBox x:Name="ActiveWindowCheck" Content="Capture Active Window Only" VerticalAlignment="Center"/>
-  </StackPanel>
+            <!-- Channel + Interval + Active Window -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="Channel ID:" VerticalAlignment="Center" Width="80"/>
+                <TextBox x:Name="ChannelBox" MinWidth="160" Margin="6,0,24,0"/>
+                <TextBlock Text="Interval (min):" VerticalAlignment="Center" Width="110"/>
+                <TextBox x:Name="IntervalBox" MinWidth="80" Margin="6,0,24,0"/>
+                <CheckBox x:Name="ActiveWindowCheck" Content="Capture Active Window Only" VerticalAlignment="Center"/>
+            </StackPanel>
 
-  <!-- Quality -->
-  <StackPanel Orientation="Horizontal">
-    <TextBlock Text="JPEG Quality:" VerticalAlignment="Center" Width="110"/>
-    <Slider x:Name="QualitySlider" Width="260" Minimum="10" Maximum="100" SmallChange="1" LargeChange="5" Margin="6,0,12,0"/>
-    <TextBlock x:Name="QualityLabel" Width="40" VerticalAlignment="Center" TextAlignment="Center"/>
-  </StackPanel>
-</StackPanel>
-
+            <!-- Quality -->
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="JPEG Quality:" VerticalAlignment="Center" Width="110"/>
+                <Slider x:Name="QualitySlider" Width="260" Minimum="10" Maximum="100" SmallChange="1" LargeChange="5" Margin="6,0,12,0"/>
+                <TextBlock x:Name="QualityLabel" Width="40" VerticalAlignment="Center" TextAlignment="Center"/>
+            </StackPanel>
+        </StackPanel>
 
         <!-- Row 1: Actions -->
         <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,0,0,12">
@@ -60,11 +59,9 @@
             <Button x:Name="StartBtn" Content="Start" Width="110" Margin="0,0,8,0" Click="StartBtn_Click"/>
             <Button x:Name="StopBtn"  Content="Stop"  Width="110" Margin="0,0,12,0" Click="StopBtn_Click"/>
 
-            <!-- Stage test triggers -->
             <Button x:Name="SendTestBtn"
                     Content="Send Test Tribe Event (Stage)"
-                    Width="230"
-                    Margin="0,0,12,0"
+                    Width="230" Margin="0,0,12,0"
                     Click="SendTestBtn_Click"/>
 
             <Button x:Name="SendParsedBtn"
@@ -74,21 +71,18 @@
 
             <Button x:Name="RefreshRecentBtn"
                     Content="Refresh Recent"
-                    Width="160"
-                    Margin="12,0,0,0"
+                    Width="160" Margin="12,0,0,0"
                     Click="RefreshRecentBtn_Click"/>
 
-            <!-- New: crop tools -->
+            <!-- Crop tools -->
             <Button x:Name="SelectCropBtn"
                     Content="Select Log Area…"
-                    Width="160"
-                    Margin="12,0,0,0"
+                    Width="160" Margin="12,0,0,0"
                     Click="SelectCropBtn_Click"/>
 
             <Button x:Name="PreviewCropBtn"
                     Content="Preview Crop"
-                    Width="140"
-                    Margin="8,0,0,0"
+                    Width="140" Margin="8,0,0,0"
                     Click="PreviewCropBtn_Click"/>
         </StackPanel>
 
