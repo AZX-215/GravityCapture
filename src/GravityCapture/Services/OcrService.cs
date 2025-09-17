@@ -149,9 +149,10 @@ namespace GravityCapture.Services
         private static Pix BitmapToPix(Bitmap bmp)
         {
             using var ms = new MemoryStream();
-            bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            bmp.Save(ms, System.Drawing.Imaging.System.Drawing.Imaging.ImageFormat.Png);
             return Pix.LoadFromMemory(ms.ToArray());
         }
     }
 }
+
 
