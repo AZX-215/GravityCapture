@@ -11,7 +11,7 @@ namespace GravityCapture
         public static string SharedKey  { get; internal set; } = "";
     }
 
-    public partial class App : Application
+    public partial class App : System.Windows.Application
     {
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -38,7 +38,7 @@ namespace GravityCapture
             if (string.IsNullOrWhiteSpace(AppConfig.SharedKey))
                 AppConfig.SharedKey = Environment.GetEnvironmentVariable("GC_GL_SHARED_SECRET") ?? "";
 
-            // (Optional) quick sanity log
+            // (Optional) quick sanity log in Debug output
             System.Diagnostics.Debug.WriteLine(
                 $"[GC] ENV={env}, ApiBaseUrl={(string.IsNullOrEmpty(AppConfig.ApiBaseUrl) ? "<empty>" : AppConfig.ApiBaseUrl)}, KeyLen={AppConfig.SharedKey?.Length ?? 0}");
         }
