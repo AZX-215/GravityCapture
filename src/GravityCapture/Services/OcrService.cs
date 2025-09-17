@@ -43,25 +43,17 @@ namespace GravityCapture.Services
             using var pix = BitmapToPix(work);
             using var page = _engine!.Process(pix, PageSegMode.SingleBlock);
 
-            // Raw OCR text
             var text = page.GetText() ?? string.Empty;
 
-            // Split to lines and normalize whitespace
-            var lines = new List<string>();
-            using (var sr = new StringReader(text))
-            {
-                string? line;
-                while ((line = sr.ReadLine()) != null)
-                {
-                    line = line.Trim();
-                    if (!string.IsNullOrWhiteSpace(line))
-                        lines.Add(CleanupSpaces(line));
-                }
-            }
+            // Normalize whitespace so splitting is stable
+            text = Regex.Replace(text.Replace("\r", ""), @"[ \t]+", " ");
 
-            // Merge wrapped lines: if a line doesn't start with "Day N," it's a continuation
-            return MergeWrappedLines(lines);
+            // Turn the multi-line OCR text into real tribe-log entries.
+            return ExtractEntries(text);
         }
+
+        // Optional: use this to show users the SDR-like processed preview in your UI
+        public static Bitmap GetDebugPreview(Bitmap source) => PreprocessForLogs(source);
 
         // ------------------------------------------------------
         // Engine setup
@@ -120,30 +112,38 @@ namespace GravityCapture.Services
             // 2) Adaptive tone-map (only meaningfully changes frames that are blown out)
             if (ToneMapEnabled) ToneMapAutoInPlace(up);
 
-            // 3) Rec.709 luminance (preserves cyan/green/yellow text better than red-weighted)
+            // 3) Build a text mask in HSV:
+            //    - colored UI text: S >= ~0.25 AND V >= ~0.50
+            //    - gray timestamp:  S <= ~0.12 AND V >= ~0.85
+            //    This preserves the grey "Day N, HH:MM:SS:" and the colored message.
+            var mask = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+            BuildTextMaskHsv(up, mask, satColor: 0.25, valColor: 0.50, satGray: 0.12, valGray: 0.85);
+
+            // 4) Convert to Rec.709 luma grayscale
             var gray = new Bitmap(w, h, PixelFormat.Format24bppRgb);
             ToLuma709Safe(up, gray);
             up.Dispose();
 
-            // 4) Binarize (adaptive by default for mixed HDR regions; falls back to Otsu if disabled)
+            // 5) Apply mask (zero out background to reduce clutter before thresholding)
+            var masked = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+            ApplyMaskSafe(gray, mask, masked);
+            gray.Dispose();
+            mask.Dispose();
+
+            // 6) Binarize (adaptive by default for mixed HDR regions; falls back to Otsu if disabled)
             var bin = new Bitmap(w, h, PixelFormat.Format24bppRgb);
             if (AdaptiveEnabled)
-            {
-                // Window size ~31 gives good local contrast, c=7 biases slightly darker -> clearer strokes
-                AdaptiveMeanBinarizeSafe(gray, bin, window: 31, c: 7);
-            }
+                AdaptiveMeanBinarizeSafe(masked, bin, window: 31, c: 7);
             else
-            {
-                OtsuBinarizeSafe(gray, bin);
-            }
-            gray.Dispose();
+                OtsuBinarizeSafe(masked, bin);
+            masked.Dispose();
 
-            // 5) Light morphology to close tiny gaps (dilate then erode with 3x3 cross)
+            // 7) Light morphology to close tiny gaps (dilate then erode with 3x3 cross)
             var closed = new Bitmap(w, h, PixelFormat.Format24bppRgb);
             MorphClose3x3Safe(bin, closed);
             bin.Dispose();
 
-            // 6) Mild sharpen to reinforce edges
+            // 8) Mild sharpen to reinforce edges
             var sharp = new Bitmap(w, h, PixelFormat.Format24bppRgb);
             Convolve3x3Safe(closed, sharp, new float[,]
             {
@@ -154,6 +154,50 @@ namespace GravityCapture.Services
             closed.Dispose();
 
             return sharp;
+        }
+
+        // ------------------------------------------------------
+        // Turn OCR text into entries
+        // ------------------------------------------------------
+        private static List<string> ExtractEntries(string text)
+        {
+            // Split by "Day N, HH:MM:SS:" (keep the markers)
+            var rx = new Regex(@"(?<=^|\n)\s*Day\s*\d+\s*,\s*\d{1,2}:\d{2}:\d{2}\s*:", RegexOptions.IgnoreCase);
+            var matches = rx.Matches(text);
+
+            var results = new List<string>();
+            if (matches.Count == 0)
+            {
+                // Fallback: return non-empty lines
+                using var sr = new StringReader(text);
+                string? line;
+                while ((line = sr.ReadLine()) != null)
+                {
+                    line = line.Trim();
+                    if (!string.IsNullOrWhiteSpace(line)) results.Add(line);
+                }
+                return results;
+            }
+
+            for (int i = 0; i < matches.Count; i++)
+            {
+                int start = matches[i].Index;
+                int end = (i + 1 < matches.Count) ? matches[i + 1].Index : text.Length;
+
+                string block = text.Substring(start, end - start);
+
+                // Collapse internal newlines/spaces to avoid wrap issues ("…was\n ground up.")
+                block = Regex.Replace(block, @"\s+", " ").Trim();
+
+                // Heuristic: if there's more than one '!' inside, keep only up to the first '!' (avoid bleed)
+                int bang = block.IndexOf('!');
+                if (bang >= 0) block = block.Substring(0, bang + 1);
+
+                if (!string.IsNullOrWhiteSpace(block))
+                    results.Add(block);
+            }
+
+            return results;
         }
 
         // ------------------------------------------------------
@@ -178,32 +222,6 @@ namespace GravityCapture.Services
                 bmp.Save(path, SdImageFormat.Png);
             }
             catch { /* ignore */ }
-        }
-
-        private static string CleanupSpaces(string s)
-        {
-            // normalize weird interword gaps Tesseract sometimes emits
-            return Regex.Replace(s, @"\s{2,}", " ");
-        }
-
-        private static List<string> MergeWrappedLines(List<string> lines)
-        {
-            var merged = new List<string>();
-            var rxDay = new Regex(@"^\s*Day\s*\d+\s*,", RegexOptions.IgnoreCase);
-
-            foreach (var line in lines)
-            {
-                if (rxDay.IsMatch(line) || merged.Count == 0)
-                {
-                    merged.Add(line);
-                }
-                else
-                {
-                    // continuation of previous line (wrap) -> append with space
-                    merged[merged.Count - 1] = $"{merged[merged.Count - 1]} {line}";
-                }
-            }
-            return merged;
         }
 
         // ---------- SAFE image ops (no 'unsafe' blocks) ----------
@@ -283,6 +301,65 @@ namespace GravityCapture.Services
             }
         }
 
+        /// <summary>
+        /// Build a binary mask of likely text pixels using HSV heuristics.
+        /// Keeps both colored text (high saturation) and gray timestamps (low saturation but high value).
+        /// </summary>
+        private static void BuildTextMaskHsv(Bitmap src, Bitmap dst, double satColor, double valColor, double satGray, double valGray)
+        {
+            int w = src.Width, h = src.Height;
+            var rect = new Rectangle(0, 0, w, h);
+
+            var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+
+            try
+            {
+                int ss = sData.Stride, ds = dData.Stride;
+                int bytesS = Math.Abs(ss) * h;
+                int bytesD = Math.Abs(ds) * h;
+
+                var sbuf = new byte[bytesS];
+                var dbuf = new byte[bytesD];
+
+                Marshal.Copy(sData.Scan0, sbuf, 0, bytesS);
+
+                for (int y = 0; y < h; y++)
+                {
+                    int sRow = y * ss;
+                    int dRow = y * ds;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int si = sRow + x * 3;
+                        byte b = sbuf[si + 0];
+                        byte g = sbuf[si + 1];
+                        byte r = sbuf[si + 2];
+
+                        // Fast HSV (we only need S and V in [0..1])
+                        int max = Math.Max(r, Math.Max(g, b));
+                        int min = Math.Min(r, Math.Min(g, b));
+                        double V = max / 255.0;
+                        double S = max == 0 ? 0.0 : (max - min) / (double)max;
+
+                        bool colored = (S >= satColor) && (V >= valColor); // cyan/green/yellow/red text
+                        bool gray    = (S <= satGray)  && (V >= valGray);  // bright gray timestamp
+
+                        byte m = (byte)((colored || gray) ? 255 : 0);
+
+                        int di = dRow + x * 3;
+                        dbuf[di + 0] = m; dbuf[di + 1] = m; dbuf[di + 2] = m;
+                    }
+                }
+
+                Marshal.Copy(dbuf, 0, dData.Scan0, bytesD);
+            }
+            finally
+            {
+                src.UnlockBits(sData);
+                dst.UnlockBits(dData);
+            }
+        }
+
         /// <summary>RGB → Rec.709 luma grayscale (writes 24bppRgb with R=G=B=Y).</summary>
         private static void ToLuma709Safe(Bitmap src, Bitmap dst)
         {
@@ -314,7 +391,6 @@ namespace GravityCapture.Services
                         byte g = sbuf[si + 1];
                         byte r = sbuf[si + 2];
 
-                        // Rec.709 coefficients
                         int yv = (int)Math.Round(0.0722 * b + 0.7152 * g + 0.2126 * r);
                         if (yv < 0) yv = 0; if (yv > 255) yv = 255;
                         byte yy = (byte)yv;
@@ -331,6 +407,55 @@ namespace GravityCapture.Services
             finally
             {
                 src.UnlockBits(sData);
+                dst.UnlockBits(dData);
+            }
+        }
+
+        /// <summary>Apply binary mask: keep gray pixels where mask==255, else write 0.</summary>
+        private static void ApplyMaskSafe(Bitmap gray, Bitmap mask, Bitmap dst)
+        {
+            int w = gray.Width, h = gray.Height;
+            var rect = new Rectangle(0, 0, w, h);
+
+            var gData = gray.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            var mData = mask.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+
+            try
+            {
+                int gs = gData.Stride, ms = mData.Stride, ds = dData.Stride;
+                int bytesG = Math.Abs(gs) * h;
+                int bytesM = Math.Abs(ms) * h;
+                int bytesD = Math.Abs(ds) * h;
+
+                var gbuf = new byte[bytesG];
+                var mbuf = new byte[bytesM];
+                var dbuf = new byte[bytesD];
+
+                Marshal.Copy(gData.Scan0, gbuf, 0, bytesG);
+                Marshal.Copy(mData.Scan0, mbuf, 0, bytesM);
+
+                for (int y = 0; y < h; y++)
+                {
+                    int gr = y * gs;
+                    int mr = y * ms;
+                    int dr = y * ds;
+                    for (int x = 0; x < w; x++)
+                    {
+                        byte m = mbuf[mr + x * 3]; // 0 or 255
+                        byte v = (byte)(m == 0 ? 0 : gbuf[gr + x * 3]);
+
+                        int di = dr + x * 3;
+                        dbuf[di + 0] = v; dbuf[di + 1] = v; dbuf[di + 2] = v;
+                    }
+                }
+
+                Marshal.Copy(dbuf, 0, dData.Scan0, bytesD);
+            }
+            finally
+            {
+                gray.UnlockBits(gData);
+                mask.UnlockBits(mData);
                 dst.UnlockBits(dData);
             }
         }
@@ -491,8 +616,8 @@ namespace GravityCapture.Services
             var rect = new Rectangle(0, 0, w, h);
 
             var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-            var tmpData = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-            var tData = tmpData.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            var tmp = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+            var tData = tmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
             var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
 
             try
@@ -508,51 +633,38 @@ namespace GravityCapture.Services
 
                 Marshal.Copy(sData.Scan0, sbuf, 0, bytesS);
 
-                // DILATE
+                // DILATE (cross kernel)
                 for (int y = 0; y < h; y++)
                 {
-                    int tRow = y * ts;
+                    int tr = y * ts;
                     for (int x = 0; x < w; x++)
                     {
-                        byte max = 0;
-                        for (int ky = -1; ky <= 1; ky++)
-                        {
-                            int yy = y + ky; if (yy < 0 || yy >= h) continue;
-                            int sRow = yy * ss;
-                            for (int kx = -1; kx <= 1; kx++)
-                            {
-                                if (Math.Abs(kx) + Math.Abs(ky) != 1 && !(kx == 0 && ky == 0)) continue; // cross
-                                int xx = x + kx; if (xx < 0 || xx >= w) continue;
-                                byte v = sbuf[sRow + xx * 3];
-                                if (v > max) max = v;
-                            }
-                        }
-                        int ti = tRow + x * 3;
+                        byte max = sbuf[y * ss + x * 3]; // include center
+                        // neighbors: up/down/left/right
+                        if (y > 0)       max = Math.Max(max, sbuf[(y - 1) * ss + x * 3]);
+                        if (y < h - 1)   max = Math.Max(max, sbuf[(y + 1) * ss + x * 3]);
+                        if (x > 0)       max = Math.Max(max, sbuf[y * ss + (x - 1) * 3]);
+                        if (x < w - 1)   max = Math.Max(max, sbuf[y * ss + (x + 1) * 3]);
+
+                        int ti = tr + x * 3;
                         tbuf[ti + 0] = max; tbuf[ti + 1] = max; tbuf[ti + 2] = max;
                     }
                 }
                 Marshal.Copy(tbuf, 0, tData.Scan0, bytesT);
 
-                // ERODE
+                // ERODE (cross kernel)
                 for (int y = 0; y < h; y++)
                 {
-                    int dRow = y * ds;
+                    int dr = y * ds;
                     for (int x = 0; x < w; x++)
                     {
-                        byte min = 255;
-                        for (int ky = -1; ky <= 1; ky++)
-                        {
-                            int yy = y + ky; if (yy < 0 || yy >= h) continue;
-                            int tRow = yy * ts;
-                            for (int kx = -1; kx <= 1; kx++)
-                            {
-                                if (Math.Abs(kx) + Math.Abs(ky) != 1 && !(kx == 0 && ky == 0)) continue; // cross
-                                int xx = x + kx; if (xx < 0 || xx >= w) continue;
-                                byte v = tbuf[tRow + xx * 3];
-                                if (v < min) min = v;
-                            }
-                        }
-                        int di = dRow + x * 3;
+                        byte min = tbuf[y * ts + x * 3]; // include center
+                        if (y > 0)       min = Math.Min(min, tbuf[(y - 1) * ts + x * 3]);
+                        if (y < h - 1)   min = Math.Min(min, tbuf[(y + 1) * ts + x * 3]);
+                        if (x > 0)       min = Math.Min(min, tbuf[y * ts + (x - 1) * 3]);
+                        if (x < w - 1)   min = Math.Min(min, tbuf[y * ts + (x + 1) * 3]);
+
+                        int di = dr + x * 3;
                         dbuf[di + 0] = min; dbuf[di + 1] = min; dbuf[di + 2] = min;
                     }
                 }
@@ -561,56 +673,9 @@ namespace GravityCapture.Services
             finally
             {
                 src.UnlockBits(sData);
-                tmpData.UnlockBits(tData);
+                tmp.UnlockBits(tData);
                 dst.UnlockBits(dData);
-                tmpData.Dispose();
-            }
-        }
-
-        /// <summary>(Legacy) Red-weighted grayscale retained for reference (unused).</summary>
-        private static void RedWeightedGrayscaleSafe(Bitmap src, Bitmap dst)
-        {
-            var rect = new Rectangle(0, 0, src.Width, src.Height);
-            var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-            var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
-
-            try
-            {
-                int strideS = sData.Stride;
-                int strideD = dData.Stride;
-                int bytesS = Math.Abs(strideS) * src.Height;
-                int bytesD = Math.Abs(strideD) * dst.Height;
-
-                var sbuf = new byte[bytesS];
-                var dbuf = new byte[bytesD];
-
-                Marshal.Copy(sData.Scan0, sbuf, 0, bytesS);
-
-                for (int y = 0; y < src.Height; y++)
-                {
-                    int sRow = y * strideS;
-                    int dRow = y * strideD;
-                    for (int x = 0; x < src.Width; x++)
-                    {
-                        int si = sRow + x * 3;
-                        byte b = sbuf[si + 0];
-                        byte g = sbuf[si + 1];
-                        byte r = sbuf[si + 2];
-
-                        int val = (int)Math.Round(0.10 * b + 0.30 * g + 0.60 * r);
-                        if (val < 0) val = 0; if (val > 255) val = 255;
-                        byte v = (byte)val;
-
-                        int di = dRow + x * 3;
-                        dbuf[di + 0] = v; dbuf[di + 1] = v; dbuf[di + 2] = v;
-                    }
-                }
-                Marshal.Copy(dbuf, 0, dData.Scan0, bytesD);
-            }
-            finally
-            {
-                src.UnlockBits(sData);
-                dst.UnlockBits(dData);
+                tmp.Dispose();
             }
         }
 
