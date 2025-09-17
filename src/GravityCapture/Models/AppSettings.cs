@@ -1,57 +1,101 @@
 using System;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
-using System.Text.Json;
+using System.Linq;
+using System.Windows.Forms;                    // Screen / SystemInformation
+using Point = System.Drawing.Point;            // Disambiguate
+using GravityCapture.Services;                 // WindowUtil
 
-namespace GravityCapture.Models
+namespace GravityCapture.Services
 {
-    public sealed class AppSettings
+    public static class ScreenCapture
     {
-        public string ApiUrl { get; set; } = "";
-        public string ApiKey { get; set; } = "";
-        public ulong ChannelId { get; set; }
-        public int IntervalMinutes { get; set; } = 5;
-        public bool CaptureActiveWindow { get; set; } = true;
-        public int JpegQuality { get; set; } = 85;
-        public bool Autostart { get; set; } = false;
-
-        // --- New: crop settings (normalized to window client rect) ---
-        // Target window hint (substring match on window title; leave blank = use foreground)
-        public string TargetWindowHint { get; set; } = "ARK: Survival Ascended";
-        public bool UseCrop { get; set; } = false;
-        public double CropX { get; set; } = 0;   // 0..1
-        public double CropY { get; set; } = 0;
-        public double CropW { get; set; } = 1;
-        public double CropH { get; set; } = 1;
-
-        public static string Path =>
-            System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                                   "GravityCapture", "settings.json");
-
-        public static AppSettings Load()
+        /// <summary>
+        /// Capture either the active window's client area, or the whole virtual desktop.
+        /// </summary>
+        public static Bitmap Capture(bool activeWindowOnly)
         {
-            try
+            if (activeWindowOnly)
             {
-                if (File.Exists(Path))
+                var hwnd = WindowUtil.GetForegroundWindow();
+                if (hwnd != IntPtr.Zero &&
+                    WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int x, out int y, out int w, out int h, out _))
                 {
-                    var json = File.ReadAllText(Path);
-                    var s = JsonSerializer.Deserialize<AppSettings>(json);
-                    if (s != null) return s;
+                    return CopyFromScreenRect(new Rectangle(x, y, w, h));
                 }
+                // If we can't resolve the foreground window, continue to full desktop fallback.
             }
-            catch { }
-            return new AppSettings();
+
+            // Multi-monitor safe: use the virtual desktop rectangle.
+            var vs = SystemInformation.VirtualScreen; // Never null on Windows; but guard anyway
+            var rect = vs.Width > 0 && vs.Height > 0 ? vs : new Rectangle(0, 0, 1920, 1080);
+            return CopyFromScreenRect(rect);
         }
 
-        public void Save()
+        /// <summary>
+        /// Capture a normalized crop (0..1) of a window's client area.
+        /// </summary>
+        public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
         {
-            try
+            // Resolve to a valid window client rect; if not, fallback to virtual screen.
+            if (!WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int cx, out int cy, out int cw, out int ch, out _)
+                || cw <= 0 || ch <= 0)
             {
-                var dir = System.IO.Path.GetDirectoryName(Path)!;
-                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(Path, json);
+                var vs = SystemInformation.VirtualScreen;
+                int vx = vs.X, vy = vs.Y, vw = Math.Max(1, vs.Width), vh = Math.Max(1, vs.Height);
+
+                int sx = vx + Clamp((int)Math.Round(nx * vw), 0, vw - 1);
+                int sy = vy + Clamp((int)Math.Round(ny * vh), 0, vh - 1);
+                int sw = Clamp((int)Math.Round(nw * vw), 1, vw - (sx - vx));
+                int sh = Clamp((int)Math.Round(nh * vh), 1, vh - (sy - vy));
+
+                return CopyFromScreenRect(new Rectangle(sx, sy, sw, sh));
             }
-            catch { }
+
+            // Crop inside the window client rect.
+            int x = cx + Clamp((int)Math.Round(nx * cw), 0, cw - 1);
+            int y = cy + Clamp((int)Math.Round(ny * ch), 0, ch - 1);
+            int w = Clamp((int)Math.Round(nw * cw), 1, cw - (x - cx));
+            int h = Clamp((int)Math.Round(nh * ch), 1, ch - (y - cy));
+
+            return CopyFromScreenRect(new Rectangle(x, y, w, h));
         }
+
+        /// <summary>
+        /// Encode a bitmap to JPEG with quality (10..100).
+        /// </summary>
+        public static byte[] ToJpegBytes(Bitmap bmp, int quality)
+        {
+            int q = Math.Clamp(quality, 10, 100);
+            using var ms = new MemoryStream();
+            var enc = ImageCodecInfo.GetImageEncoders().FirstOrDefault(e => e.MimeType == "image/jpeg");
+            if (enc == null)
+            {
+                // Fallback: PNG if JPEG encoder not found (rare).
+                bmp.Save(ms, ImageFormat.Png);
+                return ms.ToArray();
+            }
+
+            using var ep = new EncoderParameters(1);
+            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)q);
+            bmp.Save(ms, enc, ep);
+            return ms.ToArray();
+        }
+
+        // ----- helpers -----
+
+        private static Bitmap CopyFromScreenRect(Rectangle r)
+        {
+            // GDI CopyFromScreen grabs SDR-tonemapped pixels on HDR desktops (expected).
+            var bmp = new Bitmap(r.Width, r.Height, PixelFormat.Format24bppRgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.CopyFromScreen(new Point(r.X, r.Y), Point.Empty, r.Size, CopyPixelOperation.SourceCopy);
+            }
+            return bmp;
+        }
+
+        private static int Clamp(int v, int min, int max) => v < min ? min : (v > max ? max : v);
     }
 }
