@@ -1,75 +1,71 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.IO;
-using System.Linq;
+using System.Windows.Forms;
 using System.Runtime.InteropServices;
-using WF = System.Windows.Forms;
 
 namespace GravityCapture.Services
 {
     public static class ScreenCapture
     {
-        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
-        [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+        [DllImport("user32.dll")] static extern IntPtr GetDesktopWindow();
+        [DllImport("user32.dll")] static extern IntPtr GetWindowDC(IntPtr hWnd);
+        [DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr hdcDest,int nXDest,int nYDest,int nWidth,int nHeight,
+                                                           IntPtr hdcSrc,int nXSrc,int nYSrc, int dwRop);
+        [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
 
-        [StructLayout(LayoutKind.Sequential)]
-        private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+        const int SRCCOPY = 0x00CC0020;
 
-        /// <summary>
-        /// Capture a screenshot.
-        /// If activeWindowOnly = true, captures the foreground window.
-        /// Otherwise, captures the PRIMARY monitor (not the whole virtual desktop).
-        /// </summary>
         public static Bitmap Capture(bool activeWindowOnly)
         {
-            Rectangle rect = activeWindowOnly ? GetActiveWindowRect() : GetPrimaryScreenRect();
-
-            // Use a known pixel format to avoid ambiguous Bitmap ctor overloads.
-            var bmp = new Bitmap(rect.Width, rect.Height, PixelFormat.Format32bppPArgb);
-            using (var g = Graphics.FromImage(bmp))
+            if (activeWindowOnly)
             {
-                g.CopyFromScreen(rect.Left, rect.Top, 0, 0,
-                                 new Size(rect.Width, rect.Height),
-                                 CopyPixelOperation.SourceCopy);
+                var hwnd = WindowUtil.GetForegroundWindow();
+                if (WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int x, out int y, out int w, out int h, out _))
+                    return CaptureScreenRect(new Rectangle(x, y, w, h));
             }
-            return bmp;
+            // Fallback: entire primary screen
+            var b = Screen.PrimaryScreen.Bounds;
+            return CaptureScreenRect(b);
         }
 
-        /// <summary>
-        /// Encode a Bitmap to JPEG bytes with quality clamped to [40..100].
-        /// </summary>
+        public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
+        {
+            if (!WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int x, out int y, out int w, out int h, out _))
+                throw new InvalidOperationException("Could not get client bounds.");
+            nx = Clamp01(nx); ny = Clamp01(ny); nw = Clamp01(nw); nh = Clamp01(nh);
+            int cw = Math.Max(1, (int)Math.Round(w * nw));
+            int ch = Math.Max(1, (int)Math.Round(h * nh));
+            int cx = x + Math.Max(0, (int)Math.Round(w * nx));
+            int cy = y + Math.Max(0, (int)Math.Round(h * ny));
+            return CaptureScreenRect(new Rectangle(cx, cy, cw, ch));
+        }
+
         public static byte[] ToJpegBytes(Bitmap bmp, int quality)
         {
-            using var ms = new MemoryStream();
+            using var ms = new System.IO.MemoryStream();
             var enc = GetJpegEncoder();
-            using var ep = new EncoderParameters(1);
-            ep.Param[0] = new EncoderParameter(Encoder.Quality, Math.Clamp(quality, 40, 100));
+            var ep = new EncoderParameters(1);
+            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, Math.Max(1, Math.Min(100, quality)));
             bmp.Save(ms, enc, ep);
             return ms.ToArray();
         }
 
-        // --- helpers ---------------------------------------------------------
-
-        // Primary monitor bounds (fixes “both monitors combined” issue)
-        private static Rectangle GetPrimaryScreenRect()
+        private static Bitmap CaptureScreenRect(Rectangle r)
         {
-            return WF.Screen.PrimaryScreen.Bounds;
-        }
-
-        // Foreground window bounds; fallback to primary screen if unavailable
-        private static Rectangle GetActiveWindowRect()
-        {
-            var h = GetForegroundWindow();
-            if (h == IntPtr.Zero || !GetWindowRect(h, out var r))
-                return GetPrimaryScreenRect();
-            return Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
+            var bmp = new Bitmap(r.Width, r.Height, PixelFormat.Format32bppArgb);
+            using var g = Graphics.FromImage(bmp);
+            g.CopyFromScreen(r.Left, r.Top, 0, 0, r.Size, CopyPixelOperation.SourceCopy);
+            return bmp;
         }
 
         private static ImageCodecInfo GetJpegEncoder()
         {
-            return ImageCodecInfo.GetImageEncoders()
-                                 .First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+            foreach (var c in ImageCodecInfo.GetImageEncoders())
+                if (c.FormatID == ImageFormat.Jpeg.Guid) return c;
+            throw new Exception("JPEG encoder not found");
         }
+
+        private static double Clamp01(double v) => v < 0 ? 0 : (v > 1 ? 1 : v);
     }
 }
