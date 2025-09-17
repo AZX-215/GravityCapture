@@ -32,6 +32,9 @@ namespace GravityCapture
         private readonly System.Timers.Timer _timer;
         private ApiClient? _api;
 
+        // Remember the window you selected a crop from (valid for this run only)
+        private IntPtr _lastCropHwnd = IntPtr.Zero;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -48,7 +51,6 @@ namespace GravityCapture
             QualityLabel.Text = _settings.JpegQuality.ToString();
             QualitySlider.ValueChanged += (_, __) => QualityLabel.Text = ((int)QualitySlider.Value).ToString();
 
-            // Window-title hint used to find ASA even if GC is foreground
             TitleHintBox.Text = _settings.TargetWindowHint;
 
             _timer = new System.Timers.Timer { AutoReset = true, Enabled = false };
@@ -262,8 +264,16 @@ namespace GravityCapture
 
         // ---------- Target window resolution ----------
 
+        /// Resolve a reasonable target when we haven't just captured from a known window.
         private IntPtr ResolveTargetWindow()
         {
+            // Reuse the last crop window if we still have it and it’s valid
+            if (_lastCropHwnd != IntPtr.Zero &&
+                WindowUtil.TryGetClientBoundsOnScreen(_lastCropHwnd, out _, out _, out _, out _, out _))
+            {
+                return _lastCropHwnd;
+            }
+
             var hint = _settings.TargetWindowHint?.Trim();
             if (!string.IsNullOrEmpty(hint))
             {
@@ -277,18 +287,25 @@ namespace GravityCapture
 
         private async void SelectCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Ensure current UI (incl. TitleHintBox) is saved before resolving target
+            // Make sure TitleHint and other UI are saved first
             SaveSettings();
 
             var dlg = new RegionSelectorWindow();
             var ok = dlg.ShowDialog() == true;
             if (!ok) return;
 
-            var hwnd = ResolveTargetWindow();
-            var chosenTitle = WindowUtil.GetWindowTitle(hwnd);
-            Status(string.IsNullOrWhiteSpace(chosenTitle)
-                ? "Target window: <unknown>"
-                : $"Target window: {chosenTitle}");
+            // The region is in SCREEN coordinates. Use its center to find the top-level window beneath.
+            var s = dlg.SelectedRect;
+            int midX = (int)Math.Round(s.X + s.Width  / 2.0);
+            int midY = (int)Math.Round(s.Y + s.Height / 2.0);
+            var underSelection = WindowUtil.GetTopLevelWindowFromPoint(midX, midY);
+
+            // Fallback: title-based or foreground
+            var hwnd = underSelection != IntPtr.Zero ? underSelection : ResolveTargetWindow();
+            _lastCropHwnd = hwnd;
+
+            var chosenName = WindowUtil.GetWindowDebugName(hwnd);
+            Status(string.IsNullOrWhiteSpace(chosenName) ? "Target window: <unknown>" : $"Target window: {chosenName}");
 
             if (!WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int cx, out int cy, out int cw, out int ch, out _))
             {
@@ -297,14 +314,13 @@ namespace GravityCapture
                 return;
             }
 
-            // Selection was made in SCREEN coordinates; clamp to target window's client rect
-            var s = dlg.SelectedRect;
-            var sx = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X)));
-            var sy = Math.Max(cy, Math.Min(cy + ch, (int)Math.Round(s.Y)));
-            var ex = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X + s.Width)));
-            var ey = Math.Max(cy, Math.Min(cy + ch, (int)Math.Round(s.Y + s.Height)));
-            var selW = Math.Max(1, ex - sx);
-            var selH = Math.Max(1, ey - sy);
+            // Clamp selection to that window's client rect
+            int sx = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X)));
+            int sy = Math.Max(cy, Math.Min(cy + ch, (int)Math.Round(s.Y)));
+            int ex = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X + s.Width)));
+            int ey = Math.Max(cy, Math.Min(cy + ch, (int)Math.Round(s.Y + s.Height)));
+            int selW = Math.Max(1, ex - sx);
+            int selH = Math.Max(1, ey - sy);
 
             _settings.CropX = (double)(sx - cx) / cw;
             _settings.CropY = (double)(sy - cy) / ch;
@@ -313,7 +329,7 @@ namespace GravityCapture
             _settings.UseCrop = true;
             _settings.Save();
 
-            Status($"Saved crop for '{chosenTitle}': x={_settings.CropX:F3} y={_settings.CropY:F3} w={_settings.CropW:F3} h={_settings.CropH:F3}");
+            Status($"Saved crop for '{chosenName}': x={_settings.CropX:F3} y={_settings.CropY:F3} w={_settings.CropW:F3} h={_settings.CropH:F3}");
             WpfMessageBox.Show("Saved crop. Click 'Preview Crop' to verify.", "Gravity Capture",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             await System.Threading.Tasks.Task.CompletedTask;
@@ -321,7 +337,6 @@ namespace GravityCapture
 
         private void PreviewCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Apply any edits (like title hint) before resolving target
             SaveSettings();
 
             if (!_settings.UseCrop)
@@ -331,11 +346,11 @@ namespace GravityCapture
                 return;
             }
 
-            var hwnd = ResolveTargetWindow();
-            var chosenTitle = WindowUtil.GetWindowTitle(hwnd);
-            Status(string.IsNullOrWhiteSpace(chosenTitle)
-                ? "Preview target: <unknown>"
-                : $"Preview target: {chosenTitle}");
+            // Prefer the last crop window for this session; else normal resolution
+            var hwnd = _lastCropHwnd != IntPtr.Zero ? _lastCropHwnd : ResolveTargetWindow();
+
+            var chosenName = WindowUtil.GetWindowDebugName(hwnd);
+            Status(string.IsNullOrWhiteSpace(chosenName) ? "Preview target: <unknown>" : $"Preview target: {chosenName}");
 
             try
             {
