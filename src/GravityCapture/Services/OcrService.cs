@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Imaging;          // needs System.Drawing.Common
+using System.Drawing.Imaging;              // System.Drawing.Common
 using System.IO;
 using System.Runtime.InteropServices;
 using Tesseract;
@@ -20,7 +20,7 @@ namespace GravityCapture.Services
         // Set GC_DEBUG_OCR=1 to dump preprocessed frames
         private static readonly bool DebugDump =
             string.Equals(Environment.GetEnvironmentVariable("GC_DEBUG_OCR"), "1",
-                          StringComparison.OrdinalIgnoreCase);
+                StringComparison.OrdinalIgnoreCase);
         private static int _debugIdx = 0;
 
         public static List<string> ReadLines(Bitmap source)
@@ -31,11 +31,10 @@ namespace GravityCapture.Services
             if (DebugDump) Dump(work);
 
             using var pix = BitmapToPix(work);
-            using var page = _engine!.Process(pix, PageSegMode.SingleColumn); // column of text
+            using var page = _engine!.Process(pix, PageSegMode.SingleColumn);
 
             var text = page.GetText() ?? string.Empty;
             var lines = new List<string>();
-
             using var sr = new StringReader(text);
             string? line;
             while ((line = sr.ReadLine()) != null)
@@ -44,7 +43,6 @@ namespace GravityCapture.Services
                 if (!string.IsNullOrWhiteSpace(line))
                     lines.Add(line);
             }
-
             return lines;
         }
 
@@ -53,7 +51,6 @@ namespace GravityCapture.Services
         private static void EnsureEngine()
         {
             if (_engine != null) return;
-
             lock (_lock)
             {
                 if (_engine != null) return;
@@ -79,7 +76,6 @@ namespace GravityCapture.Services
                 _engine = new TesseractEngine(_tessdataPath, "eng", EngineMode.LstmOnly);
                 _engine.DefaultPageSegMode = PageSegMode.SingleColumn;
 
-                // Bias toward ASCII punctuation and numerics used in logs
                 _engine.SetVariable("tessedit_char_whitelist",
                     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ,:+-()[]'!./");
                 _engine.SetVariable("preserve_interword_spaces", "1");
@@ -94,32 +90,32 @@ namespace GravityCapture.Services
         /// </summary>
         private static Bitmap PreprocessForLogs(Bitmap input)
         {
-            const double scale = 1.40; // light upscale helps OCR
-            var w = Math.Max(1, (int)Math.Round(input.Width * scale));
-            var h = Math.Max(1, (int)Math.Round(input.Height * scale));
+            const double scale = 1.40;
+            int w = Math.Max(1, (int)Math.Round(input.Width * scale));
+            int h = Math.Max(1, (int)Math.Round(input.Height * scale));
 
             // 1) upscale
             var up = new Bitmap(w, h, PixelFormat.Format24bppRgb);
             using (var g = Graphics.FromImage(up))
             {
                 g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                g.PixelOffsetMode  = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
                 g.DrawImage(input, new Rectangle(0, 0, w, h));
             }
 
-            // 2) red-weighted grayscale: 0.60R + 0.30G + 0.10B
+            // 2) red-weighted grayscale
             var gray = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-            RedWeightedGrayscale(up, gray);
+            RedWeightedGrayscaleSafe(up, gray);
             up.Dispose();
 
-            // 3) gentle sharpen kernel
+            // 3) mild sharpen
             var sharp = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-            Convolve3x3(gray, sharp, new float[,]
+            Convolve3x3Safe(gray, sharp, new float[,]
             {
                 { 0, -1,  0 },
                 { -1, 5, -1 },
                 { 0, -1,  0 }
-            }, 1f, 0f);
+            });
             gray.Dispose();
 
             return sharp;
@@ -139,7 +135,6 @@ namespace GravityCapture.Services
                 var dir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "GravityCapture", "ocr-dump");
-
                 Directory.CreateDirectory(dir);
                 var path = Path.Combine(dir, $"frame-{_debugIdx++:0000}.png");
                 bmp.Save(path, SdImageFormat.Png);
@@ -147,11 +142,12 @@ namespace GravityCapture.Services
             catch { /* ignore */ }
         }
 
-        // ---------- image helpers ----------
+        // ---------- SAFE image helpers (no 'unsafe' blocks) ----------
 
-        private static void RedWeightedGrayscale(Bitmap src, Bitmap dst)
+        private static void RedWeightedGrayscaleSafe(Bitmap src, Bitmap dst)
         {
             var rect = new Rectangle(0, 0, src.Width, src.Height);
+
             var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
             var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
 
@@ -159,34 +155,37 @@ namespace GravityCapture.Services
             {
                 int strideS = sData.Stride;
                 int strideD = dData.Stride;
+                int bytesS = Math.Abs(strideS) * src.Height;
+                int bytesD = Math.Abs(strideD) * dst.Height;
 
-                unsafe
+                var sbuf = new byte[bytesS];
+                var dbuf = new byte[bytesD];
+
+                Marshal.Copy(sData.Scan0, sbuf, 0, bytesS);
+
+                for (int y = 0; y < src.Height; y++)
                 {
-                    byte* sPtr = (byte*)sData.Scan0;
-                    byte* dPtr = (byte*)dData.Scan0;
-
-                    for (int y = 0; y < src.Height; y++)
+                    int sRow = y * strideS;
+                    int dRow = y * strideD;
+                    for (int x = 0; x < src.Width; x++)
                     {
-                        byte* sp = sPtr + y * strideS;
-                        byte* dp = dPtr + y * strideD;
+                        int si = sRow + x * 3;
+                        byte b = sbuf[si + 0];
+                        byte g = sbuf[si + 1];
+                        byte r = sbuf[si + 2];
 
-                        for (int x = 0; x < src.Width; x++)
-                        {
-                            // 24bpp: B G R
-                            byte b = sp[0], g = sp[1], r = sp[2];
+                        int val = (int)Math.Round(0.10 * b + 0.30 * g + 0.60 * r);
+                        if (val < 0) val = 0; if (val > 255) val = 255;
+                        byte v = (byte)val;
 
-                            // Stronger emphasis on red channel (HDR red text)
-                            int val = (int)Math.Round(0.10 * b + 0.30 * g + 0.60 * r);
-                            if (val < 0) val = 0; if (val > 255) val = 255;
-                            byte v = (byte)val;
-
-                            dp[0] = v; dp[1] = v; dp[2] = v;
-
-                            sp += 3;
-                            dp += 3;
-                        }
+                        int di = dRow + x * 3;
+                        dbuf[di + 0] = v;
+                        dbuf[di + 1] = v;
+                        dbuf[di + 2] = v;
                     }
                 }
+
+                Marshal.Copy(dbuf, 0, dData.Scan0, bytesD);
             }
             finally
             {
@@ -195,12 +194,10 @@ namespace GravityCapture.Services
             }
         }
 
-        /// <summary>
-        /// Simple 3x3 convolution for sharpening.
-        /// </summary>
-        private static void Convolve3x3(Bitmap src, Bitmap dst, float[,] k, float factor, float bias)
+        private static void Convolve3x3Safe(Bitmap src, Bitmap dst, float[,] k)
         {
             var rect = new Rectangle(0, 0, src.Width, src.Height);
+
             var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
             var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
 
@@ -208,50 +205,50 @@ namespace GravityCapture.Services
             {
                 int w = src.Width, h = src.Height;
                 int ss = sData.Stride, ds = dData.Stride;
+                int bytesS = Math.Abs(ss) * h;
+                int bytesD = Math.Abs(ds) * h;
 
-                unsafe
+                var sbuf = new byte[bytesS];
+                var dbuf = new byte[bytesD];
+
+                Marshal.Copy(sData.Scan0, sbuf, 0, bytesS);
+
+                // copy borders directly
+                Buffer.BlockCopy(sbuf, 0, dbuf, 0, ss);                              // top row
+                Buffer.BlockCopy(sbuf, (h - 1) * ss, dbuf, (h - 1) * ds, ss);        // bottom row
+
+                for (int y = 1; y < h - 1; y++)
                 {
-                    byte* sBase = (byte*)sData.Scan0;
-                    byte* dBase = (byte*)dData.Scan0;
+                    // left border pixel (copy)
+                    Buffer.BlockCopy(sbuf, y * ss, dbuf, y * ds, 3);
 
-                    for (int y = 1; y < h - 1; y++)
+                    for (int x = 1; x < w - 1; x++)
                     {
-                        for (int x = 1; x < w - 1; x++)
-                        {
-                            float sum = 0f;
+                        float sum =
+                            sbuf[(y - 1) * ss + (x - 1) * 3] * k[0, 0] +
+                            sbuf[(y - 1) * ss + (x    ) * 3] * k[0, 1] +
+                            sbuf[(y - 1) * ss + (x + 1) * 3] * k[0, 2] +
+                            sbuf[(y    ) * ss + (x - 1) * 3] * k[1, 0] +
+                            sbuf[(y    ) * ss + (x    ) * 3] * k[1, 1] +
+                            sbuf[(y    ) * ss + (x + 1) * 3] * k[1, 2] +
+                            sbuf[(y + 1) * ss + (x - 1) * 3] * k[2, 0] +
+                            sbuf[(y + 1) * ss + (x    ) * 3] * k[2, 1] +
+                            sbuf[(y + 1) * ss + (x + 1) * 3] * k[2, 2];
 
-                            // Neighborhood indices in bytes
-                            int i00 = (y - 1) * ss + (x - 1) * 3;
-                            int i01 = (y - 1) * ss + (x    ) * 3;
-                            int i02 = (y - 1) * ss + (x + 1) * 3;
+                        int v = (int)Math.Round(sum);
+                        if (v < 0) v = 0; if (v > 255) v = 255;
 
-                            int i10 = (y    ) * ss + (x - 1) * 3;
-                            int i11 = (y    ) * ss + (x    ) * 3;
-                            int i12 = (y    ) * ss + (x + 1) * 3;
-
-                            int i20 = (y + 1) * ss + (x - 1) * 3;
-                            int i21 = (y + 1) * ss + (x    ) * 3;
-                            int i22 = (y + 1) * ss + (x + 1) * 3;
-
-                            // grayscale, any channel
-                            sum += sBase[i00] * k[0,0] + sBase[i01] * k[0,1] + sBase[i02] * k[0,2];
-                            sum += sBase[i10] * k[1,0] + sBase[i11] * k[1,1] + sBase[i12] * k[1,2];
-                            sum += sBase[i20] * k[2,0] + sBase[i21] * k[2,1] + sBase[i22] * k[2,2];
-
-                            int v = (int)Math.Round(sum * factor + bias);
-                            if (v < 0) v = 0; if (v > 255) v = 255;
-
-                            int di = y * ds + x * 3;
-                            dBase[di + 0] = (byte)v;
-                            dBase[di + 1] = (byte)v;
-                            dBase[di + 2] = (byte)v;
-                        }
+                        int di = y * ds + x * 3;
+                        dbuf[di + 0] = (byte)v;
+                        dbuf[di + 1] = (byte)v;
+                        dbuf[di + 2] = (byte)v;
                     }
+
+                    // right border pixel (copy)
+                    Buffer.BlockCopy(sbuf, y * ss + (w - 1) * 3, dbuf, y * ds + (w - 1) * 3, 3);
                 }
 
-                // Copy borders without change
-                using var g = Graphics.FromImage(dst);
-                g.DrawImage(src, 0, 0);
+                Marshal.Copy(dbuf, 0, dData.Scan0, bytesD);
             }
             finally
             {
