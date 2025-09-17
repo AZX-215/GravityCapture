@@ -5,7 +5,6 @@ namespace GravityCapture.Services
 {
     /// <summary>
     /// Parses raw ASA tribe log lines into a payload we can POST.
-    /// Heuristics are simple on purpose; we can expand as you share more samples.
     /// </summary>
     public static class LogLineParser
     {
@@ -31,7 +30,7 @@ namespace GravityCapture.Services
             new Regex(@"^\s*Human\s+claimed\s+'(?<actor>.+?)'!",
                       RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-        public static (bool ok, LogIngestClient.TribeEvent? evt, string? error) TryParse(string rawLine, string server, string tribe)
+        public static (bool ok, TribeEvent? evt, string? error) TryParse(string rawLine, string server, string tribe)
         {
             if (string.IsNullOrWhiteSpace(rawLine))
                 return (false, null, "Empty log line.");
@@ -83,18 +82,16 @@ namespace GravityCapture.Services
             {
                 severity = "CRITICAL";
                 category = "STRUCTURE_DESTROYED";
-                // try to pull "Your <actor> was destroyed"
                 var idx = message.IndexOf("was destroyed", StringComparison.OrdinalIgnoreCase);
                 if (idx > 5 && message.StartsWith("Your ", StringComparison.OrdinalIgnoreCase))
                     actor = message.Substring(5, idx - 5).Trim();
             }
             else
             {
-                // Fallback – unknown category, keep INFO
                 category = "UNKNOWN";
             }
 
-            var evt = new LogIngestClient.TribeEvent(
+            var evt = new TribeEvent(
                 server: server,
                 tribe: tribe,
                 ark_day: arkDay,
