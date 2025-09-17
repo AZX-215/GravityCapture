@@ -3,7 +3,15 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Gravity Capture" Height="520" Width="920"
         WindowStartupLocation="CenterScreen">
-    <Grid Margin="12" RowDefinitions="Auto,Auto,*,Auto">
+    <Grid Margin="12">
+        <!-- Correct way to declare multiple row definitions -->
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
         <!-- Row 0: Settings -->
         <StackPanel Orientation="Vertical" Grid.Row="0" Margin="0,0,0,12">
             <!-- API URL + Key -->
@@ -39,14 +47,14 @@
             <Button x:Name="StartBtn" Content="Start" Width="110" Margin="0,0,8,0" Click="StartBtn_Click"/>
             <Button x:Name="StopBtn"  Content="Stop"  Width="110" Margin="0,0,8,0" Click="StopBtn_Click"/>
 
-            <!-- NEW: Stage test trigger -->
+            <!-- Stage test trigger -->
             <Button x:Name="SendTestBtn"
                     Content="Send Test Tribe Event (Stage)"
                     Width="230"
                     Click="SendTestBtn_Click"/>
         </StackPanel>
 
-        <!-- Row 2: (spacer / future content) -->
+        <!-- Row 2: spacer / future content -->
         <Border Grid.Row="2" BorderBrush="#22000000" BorderThickness="1" CornerRadius="6">
             <Grid/>
         </Border>
