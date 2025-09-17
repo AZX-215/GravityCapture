@@ -1,8 +1,8 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Windows.Forms;
 using System.Runtime.InteropServices;
+using System.Windows.Forms;
 
 namespace GravityCapture.Services
 {
@@ -10,8 +10,8 @@ namespace GravityCapture.Services
     {
         [DllImport("user32.dll")] static extern IntPtr GetDesktopWindow();
         [DllImport("user32.dll")] static extern IntPtr GetWindowDC(IntPtr hWnd);
-        [DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr hdcDest,int nXDest,int nYDest,int nWidth,int nHeight,
-                                                           IntPtr hdcSrc,int nXSrc,int nYSrc, int dwRop);
+        [DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr hdcDest, int nXDest, int nYDest, int nWidth, int nHeight,
+                                                           IntPtr hdcSrc, int nXSrc, int nYSrc, int dwRop);
         [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
 
         const int SRCCOPY = 0x00CC0020;
@@ -21,7 +21,9 @@ namespace GravityCapture.Services
             if (activeWindowOnly)
             {
                 var hwnd = WindowUtil.GetForegroundWindow();
-                if (WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int x, out int y, out int w, out int h, out _))
+                // ---- explicit locals to avoid 'out nint' inference ----
+                int x, y, w, h; double scale;
+                if (WindowUtil.TryGetClientBoundsOnScreen(hwnd, out x, out y, out w, out h, out scale))
                     return CaptureScreenRect(new Rectangle(x, y, w, h));
             }
             // Fallback: entire primary screen
@@ -31,9 +33,13 @@ namespace GravityCapture.Services
 
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
         {
-            if (!WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int x, out int y, out int w, out int h, out _))
+            // ---- explicit locals to avoid 'out nint' inference ----
+            int x, y, w, h; double scale;
+            if (!WindowUtil.TryGetClientBoundsOnScreen(hwnd, out x, out y, out w, out h, out scale))
                 throw new InvalidOperationException("Could not get client bounds.");
+
             nx = Clamp01(nx); ny = Clamp01(ny); nw = Clamp01(nw); nh = Clamp01(nh);
+
             int cw = Math.Max(1, (int)Math.Round(w * nw));
             int ch = Math.Max(1, (int)Math.Round(h * nh));
             int cx = x + Math.Max(0, (int)Math.Round(w * nx));
@@ -46,7 +52,8 @@ namespace GravityCapture.Services
             using var ms = new System.IO.MemoryStream();
             var enc = GetJpegEncoder();
             var ep = new EncoderParameters(1);
-            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, Math.Max(1, Math.Min(100, quality)));
+            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality,
+                                               Math.Max(1, Math.Min(100, quality)));
             bmp.Save(ms, enc, ep);
             return ms.ToArray();
         }
