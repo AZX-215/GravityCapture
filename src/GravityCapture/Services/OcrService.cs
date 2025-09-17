@@ -1,9 +1,12 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Imaging;
+using System.Drawing.Imaging;          // System.Drawing.Common
 using System.IO;
 using Tesseract;
+
+// Avoid any ambiguity with Tesseract.ImageFormat
+using SdImageFormat = System.Drawing.Imaging.ImageFormat;
 
 namespace GravityCapture.Services
 {
@@ -14,7 +17,7 @@ namespace GravityCapture.Services
         private static string? _tessdataPath;
 
         /// <summary>
-        /// OCR the given bitmap and return non-empty, trimmed lines, in order.
+        /// OCR the given bitmap and return non-empty, trimmed lines (in order).
         /// </summary>
         public static List<string> ReadLines(Bitmap source)
         {
@@ -41,10 +44,10 @@ namespace GravityCapture.Services
         // ---------------- internal helpers ----------------
 
         /// <summary>
-        /// Initialize tesseract engine once, locating tessdata near the executable.
-        /// Looks in:
-        ///   1) {AppContext.BaseDirectory}\tessdata
-        ///   2) {AppContext.BaseDirectory}\Assets\tessdata
+        /// Initialize Tesseract engine once, locating tessdata near the executable.
+        /// Checks:
+        ///   1) {BaseDir}\tessdata
+        ///   2) {BaseDir}\Assets\tessdata
         /// </summary>
         private static void EnsureEngine()
         {
@@ -54,7 +57,8 @@ namespace GravityCapture.Services
             {
                 if (_engine != null) return;
 
-                var baseDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var baseDir = AppContext.BaseDirectory
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
                 var candidates = new[]
                 {
@@ -77,19 +81,18 @@ namespace GravityCapture.Services
 
                 // Expect eng.traineddata inside _tessdataPath
                 _engine = new TesseractEngine(_tessdataPath, "eng", EngineMode.LstmOnly);
-                // Log text is monospaced-ish; forcing PSM SingleBlock often helps
                 _engine.DefaultPageSegMode = PageSegMode.SingleBlock;
             }
         }
 
         /// <summary>
-        /// Lightweight pre-processing that helps with HDR: scale up a bit,
-        /// convert to 24bpp, boost contrast slightly, and gray.
+        /// Light-weight pre-processing that helps with HDR:
+        /// upscale a bit, bump contrast slightly, and grayscale.
         /// </summary>
         private static Bitmap PreprocessForLogs(Bitmap input)
         {
-            // 1) upscale modestly to help OCR on small UI text
-            double scale = 1.35;
+            // 1) modest upscale to help OCR
+            const double scale = 1.35;
             var w = Math.Max(1, (int)Math.Round(input.Width * scale));
             var h = Math.Max(1, (int)Math.Round(input.Height * scale));
 
@@ -100,10 +103,9 @@ namespace GravityCapture.Services
                 g.DrawImage(input, new Rectangle(0, 0, w, h));
             }
 
-            // 2) apply a mild contrast boost via ColorMatrix
-            //    (kept simple; avoids unsafe/pixel loops)
+            // 2) mild contrast boost via ColorMatrix
             float c = 1.20f; // contrast
-            float t = 0.5f * (1f - c); // translate
+            float t = 0.5f * (1f - c);
             var cm = new ColorMatrix(new float[][]
             {
                 new float[] { c, 0, 0, 0, 0 },
@@ -122,7 +124,7 @@ namespace GravityCapture.Services
             }
             scaled.Dispose();
 
-            // 3) quick grayscale (ColorMatrix is already close; ensure neutral)
+            // 3) finalize as grayscale
             var gray = new Bitmap(w, h, PixelFormat.Format24bppRgb);
             using (var g = Graphics.FromImage(gray))
             {
@@ -144,15 +146,14 @@ namespace GravityCapture.Services
         }
 
         /// <summary>
-        /// Convert a Bitmap to Tesseract Pix by saving to memory (no PixConverter dependency).
+        /// Convert a Bitmap to Tesseract Pix by saving to PNG in-memory.
+        /// (No PixConverter dependency.)
         /// </summary>
         private static Pix BitmapToPix(Bitmap bmp)
         {
             using var ms = new MemoryStream();
-            bmp.Save(ms, System.Drawing.Imaging.System.Drawing.Imaging.ImageFormat.Png);
+            bmp.Save(ms, SdImageFormat.Png);   // <-- fixed
             return Pix.LoadFromMemory(ms.ToArray());
         }
     }
 }
-
-
