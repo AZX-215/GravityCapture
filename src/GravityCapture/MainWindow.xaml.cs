@@ -5,6 +5,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Timers;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
@@ -13,7 +14,6 @@ using GravityCapture.Models;
 using GravityCapture.Services;
 using GravityCapture.Views;
 
-// Disambiguate WPF vs WinForms types where names collide
 using WpfMessageBox = System.Windows.MessageBox;
 using WpfCursors    = System.Windows.Input.Cursors;
 using WpfMouse      = System.Windows.Input.Mouse;
@@ -33,7 +33,6 @@ namespace GravityCapture
         private readonly OcrIngestor _ingestor = new();
         private ApiClient? _api;
 
-        // remember window chosen for crop this session
         private IntPtr _lastCropHwnd = IntPtr.Zero;
 
         public MainWindow()
@@ -43,9 +42,12 @@ namespace GravityCapture
 
             _settings = AppSettings.Load();
 
-            // bind settings -> UI
-            ApiUrlBox.Text     = _settings.ApiUrl;
-            ApiKeyBox.Text     = _settings.ApiKey;
+            // --- env picker init ---
+            EnvBox.SelectedIndex = _settings.LogEnvironment.Equals("Prod", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            // load URL/Key for selected env into the textboxes
+            LoadEnvFieldsIntoTextBoxes();
+
+            // existing binds
             ChannelBox.Text    = _settings.ChannelId == 0 ? "" : _settings.ChannelId.ToString();
             IntervalBox.Text   = _settings.IntervalMinutes.ToString();
             ActiveWindowCheck.IsChecked = _settings.CaptureActiveWindow;
@@ -57,10 +59,12 @@ namespace GravityCapture
             AutoOcrCheck.IsChecked = _settings.AutoOcrEnabled;
             RedOnlyCheck.IsChecked = _settings.PostOnlyCritical;
 
-            // NEW: category filters
             FilterTameCheck.IsChecked   = _settings.FilterTameDeath;
             FilterStructCheck.IsChecked = _settings.FilterStructureDestroyed;
             FilterTribeCheck.IsChecked  = _settings.FilterTribeMateDeath;
+
+            // configure log client for current env
+            LogIngestClient.Configure(_settings);
 
             _timer = new System.Timers.Timer { AutoReset = true, Enabled = false };
             _timer.Elapsed += OnTick;
@@ -81,6 +85,34 @@ namespace GravityCapture
             catch { }
         }
 
+        // ---------- env helpers ----------
+        private string CurrentEnv => EnvBox.SelectedIndex == 1 ? "Prod" : "Stage";
+
+        private void LoadEnvFieldsIntoTextBoxes()
+        {
+            _settings.LogEnvironment = CurrentEnv;
+            var (url, key) = _settings.GetActiveLogApi();
+            ApiUrlBox.Text = url ?? "";
+            ApiKeyBox.Text = key ?? "";
+        }
+
+        private void SaveTextBoxesIntoEnvFields()
+        {
+            _settings.LogEnvironment = CurrentEnv;
+            _settings.SetActiveLogApi(ApiUrlBox.Text?.TrimEnd('/') ?? "", ApiKeyBox.Text ?? "");
+        }
+
+        private void EnvBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // Store current URL/Key to the previously selected env,
+            // then switch, load the new env, and reconfigure the client.
+            SaveTextBoxesIntoEnvFields();
+            _settings.LogEnvironment = CurrentEnv;
+            LoadEnvFieldsIntoTextBoxes();
+            LogIngestClient.Configure(_settings);
+            Status($"Switched log environment → {CurrentEnv}");
+        }
+
         // ---------- Save/Start/Stop ----------
         private void SaveBtn_Click(object sender, RoutedEventArgs e)
         {
@@ -98,28 +130,30 @@ namespace GravityCapture
 
         private void SaveSettings()
         {
-            _settings.ApiUrl = ApiUrlBox.Text.TrimEnd('/');
-            _settings.ApiKey = ApiKeyBox.Text.Trim();
-            _settings.CaptureActiveWindow = ActiveWindowCheck.IsChecked == true;
-            _settings.IntervalMinutes = int.TryParse(IntervalBox.Text, out var m) ? Math.Max(1, m) : 1;
-            _settings.JpegQuality = (int)QualitySlider.Value;
+            SaveTextBoxesIntoEnvFields();      // save env-specific url/key
             _settings.ChannelId = ulong.TryParse(ChannelBox.Text, out var ch) ? ch : 0;
+            _settings.IntervalMinutes = int.TryParse(IntervalBox.Text, out var m) ? Math.Max(1, m) : 1;
+            _settings.CaptureActiveWindow = ActiveWindowCheck.IsChecked == true;
+            _settings.JpegQuality = (int)QualitySlider.Value;
             _settings.TargetWindowHint = TitleHintBox.Text ?? "";
 
             _settings.AutoOcrEnabled   = AutoOcrCheck.IsChecked == true;
             _settings.PostOnlyCritical = RedOnlyCheck.IsChecked == true;
 
-            // NEW: persist category filters
             _settings.FilterTameDeath          = FilterTameCheck.IsChecked == true;
             _settings.FilterStructureDestroyed = FilterStructCheck.IsChecked == true;
             _settings.FilterTribeMateDeath     = FilterTribeCheck.IsChecked == true;
 
             _settings.Save();
+
+            LogIngestClient.Configure(_settings); // ensure client uses latest env/keys
         }
 
         private void StartCapture()
         {
+            // Note: your screenshot API (if used) still reads ApiUrl/ApiKey.
             _api = new ApiClient(_settings.ApiUrl, _settings.ApiKey);
+
             _timer.Interval = TimeSpan.FromMinutes(_settings.IntervalMinutes).TotalMilliseconds;
             _timer.Start();
             StartBtn.IsEnabled = false;
@@ -159,7 +193,7 @@ namespace GravityCapture
             if (_api == null) return;
             try
             {
-                Bitmap bmp;
+                System.Drawing.Bitmap bmp;
                 var hwnd = ResolveTargetWindow();
                 if (_settings.UseCrop)
                     bmp = ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
@@ -182,32 +216,29 @@ namespace GravityCapture
 
         private void Status(string s) => Dispatcher.Invoke(() => StatusText.Text = s);
 
-        // ---------- Manual stage test / paste / recent ----------
+        // ---------- Manual stage/prod test / paste / recent ----------
         private async void SendTestBtn_Click(object sender, RoutedEventArgs e)
         {
             SaveSettings();
             WpfMouse.OverrideCursor = WpfCursors.Wait;
-            Status("Posting stage test…");
+            Status($"Posting test to {CurrentEnv}…");
             try
             {
                 var (ok, error) = await LogIngestClient.SendTestAsync();
                 if (ok)
                 {
-                    Status("Stage test event posted ✅");
-                    WpfMessageBox.Show("Posted to staging API ✅", "Gravity Capture",
+                    Status("Test event posted ✅");
+                    WpfMessageBox.Show($"Posted to {CurrentEnv} ✅", "Gravity Capture",
                         MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
                 {
-                    Status("Stage test failed ❌");
-                    WpfMessageBox.Show($"Failed to post test event.\n\n{error}", "Gravity Capture",
+                    Status("Test failed ❌");
+                    WpfMessageBox.Show($"Failed to post.\n\n{error}", "Gravity Capture",
                         MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
-            finally
-            {
-                WpfMouse.OverrideCursor = null;
-            }
+            finally { WpfMouse.OverrideCursor = null; }
         }
 
         private async void SendParsedBtn_Click(object sender, RoutedEventArgs e)
@@ -238,14 +269,14 @@ namespace GravityCapture
             }
 
             WpfMouse.OverrideCursor = WpfCursors.Wait;
-            Status("Posting parsed event…");
+            Status($"Posting parsed event to {CurrentEnv}…");
             try
             {
                 var (ok, error) = await LogIngestClient.PostEventAsync(evt);
                 if (ok)
                 {
                     Status("Parsed event posted ✅");
-                    WpfMessageBox.Show("Posted to staging API ✅", "Gravity Capture",
+                    WpfMessageBox.Show($"Posted to {CurrentEnv} ✅", "Gravity Capture",
                         MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
@@ -255,10 +286,7 @@ namespace GravityCapture
                         MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
-            finally
-            {
-                WpfMouse.OverrideCursor = null;
-            }
+            finally { WpfMouse.OverrideCursor = null; }
         }
 
         private async void RefreshRecentBtn_Click(object sender, RoutedEventArgs e)
@@ -273,7 +301,7 @@ namespace GravityCapture
             }
 
             WpfMouse.OverrideCursor = WpfCursors.Wait;
-            Status("Loading recent events…");
+            Status($"Loading recent events from {CurrentEnv}…");
             try
             {
                 var (ok, items, err) = await LogIngestClient.GetRecentAsync(server, tribe, 25);
@@ -287,16 +315,12 @@ namespace GravityCapture
                 RecentGrid.ItemsSource = items;
                 Status($"Loaded {items.Count} rows.");
             }
-            finally
-            {
-                WpfMouse.OverrideCursor = null;
-            }
+            finally { WpfMouse.OverrideCursor = null; }
         }
 
-        // ---------- Window targeting ----------
+        // ---------- Window targeting, crop, preview, OCR ----------
         private IntPtr ResolveTargetWindow()
         {
-            // Prefer the window used when saving the crop, if still valid
             if (_lastCropHwnd != IntPtr.Zero &&
                 WindowUtil.TryGetClientBoundsOnScreen(_lastCropHwnd, out _, out _, out _, out _, out _))
                 return _lastCropHwnd;
@@ -310,7 +334,6 @@ namespace GravityCapture
             return WindowUtil.GetForegroundWindow();
         }
 
-        // ---------- Crop selection & preview ----------
         private async void SelectCropBtn_Click(object sender, RoutedEventArgs e)
         {
             SaveSettings();
@@ -337,7 +360,7 @@ namespace GravityCapture
                 return;
             }
 
-            // Clamp selection to client rect
+            // clamp selection
             int sx = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X)));
             int sy = Math.Max(cy, Math.Min(cy + ch, (int)Math.Round(s.Y)));
             int ex = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X + s.Width)));
@@ -370,7 +393,6 @@ namespace GravityCapture
             }
 
             var hwnd = _lastCropHwnd != IntPtr.Zero ? _lastCropHwnd : ResolveTargetWindow();
-
             var chosenName = WindowUtil.GetWindowDebugName(hwnd);
             Status(string.IsNullOrWhiteSpace(chosenName) ? "Preview target: <unknown>" : $"Preview target: {chosenName}");
 
@@ -399,7 +421,6 @@ namespace GravityCapture
             }
         }
 
-        // ---------- OCR Crop → Paste ----------
         private void OcrCropBtn_Click(object sender, RoutedEventArgs e)
         {
             SaveSettings();
@@ -424,7 +445,7 @@ namespace GravityCapture
                 }
 
                 LogLineBox.Text = string.Join(Environment.NewLine, lines);
-                Status($"OCR: {lines.Count} line(s). Review/edit then click 'Send Pasted Log Line (Stage)'.");
+                Status($"OCR: {lines.Count} line(s). Review/edit then click 'Send Pasted Log Line (Stage/Prod)'.");
             }
             catch (Exception ex)
             {
