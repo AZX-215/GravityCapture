@@ -1,0 +1,7 @@
+GetForegroundWindow
+GetClientRect
+ClientToScreen
+MonitorFromWindow
+MonitorFromPoint
+GetMonitorInfo
+D3D11CreateDevice
