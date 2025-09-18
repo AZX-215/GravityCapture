@@ -190,7 +190,6 @@ namespace GravityCapture.Services
         }
 
         // ---------- helpers ----------
-
         private static int SafeInt(string s) => int.TryParse(s, out var i) ? i : 0;
 
         private static string NormalizeMessage(string s)
