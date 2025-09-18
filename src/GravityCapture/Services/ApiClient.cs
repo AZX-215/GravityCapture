@@ -81,5 +81,3 @@ namespace GravityCapture.Services
         }
     }
 }
-
-}
