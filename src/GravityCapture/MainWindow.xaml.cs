@@ -56,6 +56,10 @@ namespace GravityCapture
             QualitySlider.ValueChanged += (_, __) => QualityLabel.Text = ((int)QualitySlider.Value).ToString();
             TitleHintBox.Text  = _settings.TargetWindowHint;
 
+            // NEW: hydrate server/tribe on startup  ⤵
+            ServerBox.Text = _settings.ServerName ?? "";
+            TribeBox.Text  = _settings.TribeName  ?? "";
+
             AutoOcrCheck.IsChecked = _settings.AutoOcrEnabled;
             RedOnlyCheck.IsChecked = _settings.PostOnlyCritical;
 
@@ -134,6 +138,10 @@ namespace GravityCapture
             _settings.CaptureActiveWindow = ActiveWindowCheck.IsChecked == true;
             _settings.JpegQuality = (int)QualitySlider.Value;
             _settings.TargetWindowHint = TitleHintBox.Text ?? "";
+
+            // NEW: persist server/tribe  ⤵
+            _settings.ServerName = ServerBox.Text?.Trim() ?? "";
+            _settings.TribeName  = TribeBox.Text?.Trim()  ?? "";
 
             _settings.AutoOcrEnabled   = AutoOcrCheck.IsChecked == true;
             _settings.PostOnlyCritical = RedOnlyCheck.IsChecked == true;
