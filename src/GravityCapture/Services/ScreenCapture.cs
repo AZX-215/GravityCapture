@@ -8,6 +8,10 @@ namespace GravityCapture.Services
 {
     public static class ScreenCapture
     {
+        // Toggle the mild post-capture contrast/gamma tweak via env var (default ON)
+        private static readonly bool ToneBoostEnabled =
+            !string.Equals(Environment.GetEnvironmentVariable("GC_OCR_TONEMAP"), "0", StringComparison.OrdinalIgnoreCase);
+
         // -------------------------
         // Public API (unchanged)
         // -------------------------
@@ -53,21 +57,21 @@ namespace GravityCapture.Services
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double x, double y, double w, double h)
         {
             using var baseBmp = Capture(hwnd);
-            int cx = Clamp((int)Math.Round(x * baseBmp.Width), 0, baseBmp.Width - 1);
+            int cx = Clamp((int)Math.Round(x * baseBmp.Width),  0, baseBmp.Width  - 1);
             int cy = Clamp((int)Math.Round(y * baseBmp.Height), 0, baseBmp.Height - 1);
-            int cw = Clamp((int)Math.Round(w * baseBmp.Width), 1, baseBmp.Width - cx);
+            int cw = Clamp((int)Math.Round(w * baseBmp.Width),  1, baseBmp.Width  - cx);
             int ch = Clamp((int)Math.Round(h * baseBmp.Height), 1, baseBmp.Height - cy);
 
             var rect = new Rectangle(cx, cy, cw, ch);
             var crop = new Bitmap(rect.Width, rect.Height, PixelFormat.Format24bppRgb);
-            using var g = Graphics.FromImage(crop);
-            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-            g.PixelOffsetMode   = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-            g.DrawImage(baseBmp, new Rectangle(0, 0, rect.Width, rect.Height), rect, GraphicsUnit.Pixel);
+            using (var g = Graphics.FromImage(crop))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode   = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.DrawImage(baseBmp, new Rectangle(0, 0, rect.Width, rect.Height), rect, GraphicsUnit.Pixel);
+            }
 
-            // Small, safe contrast/gamma touch to help OCR if the frame is “flat”.
-            GentleContrastBoostInPlace(crop);
-
+            if (ToneBoostEnabled) GentleContrastBoostInPlace(crop);
             return crop;
         }
 
@@ -96,7 +100,7 @@ namespace GravityCapture.Services
 
         private static Bitmap CopyScreenRect(RECT r)
         {
-            int w = Math.Max(1, r.right - r.left);
+            int w = Math.Max(1, r.right  - r.left);
             int h = Math.Max(1, r.bottom - r.top);
 
             var bmp = new Bitmap(w, h, PixelFormat.Format24bppRgb);
@@ -105,9 +109,7 @@ namespace GravityCapture.Services
                 g.CopyFromScreen(r.left, r.top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
             }
 
-            // Small correction to counter common SDR washout on some HDR desktops.
-            GentleContrastBoostInPlace(bmp);
-
+            if (ToneBoostEnabled) GentleContrastBoostInPlace(bmp);
             return bmp;
         }
 
@@ -123,7 +125,7 @@ namespace GravityCapture.Services
 
             rectScreen = new RECT(pt.X,
                                   pt.Y,
-                                  pt.X + (rcClient.right - rcClient.left),
+                                  pt.X + (rcClient.right  - rcClient.left),
                                   pt.Y + (rcClient.bottom - rcClient.top));
             return true;
         }
@@ -217,24 +219,13 @@ namespace GravityCapture.Services
         private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct POINT
-        {
-            public int X;
-            public int Y;
-        }
+        private struct POINT { public int X; public int Y; }
 
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT
         {
-            public int left;
-            public int top;
-            public int right;
-            public int bottom;
-
-            public RECT(int l, int t, int r, int b)
-            {
-                left = l; top = t; right = r; bottom = b;
-            }
+            public int left, top, right, bottom;
+            public RECT(int l, int t, int r, int b) { left = l; top = t; right = r; bottom = b; }
         }
     }
 }
