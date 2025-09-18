@@ -1,64 +1,68 @@
+using System;
 using System.Net.Http;
 using System.Text;
-using Microsoft.Extensions.Logging;
 
-namespace GravityCapture.Services;
-
-public sealed class HttpLoggingHandler : DelegatingHandler
+namespace GravityCapture.Services
 {
-    private readonly ILogger<HttpLoggingHandler> _log;
-    private readonly bool _logBodies;
-
-    public HttpLoggingHandler(ILogger<HttpLoggingHandler> log)
+    /// <summary>
+    /// Lightweight HTTP logging that does NOT depend on Microsoft.Extensions.*.
+    /// Enable body logging by setting env var GC_DEBUG_HTTP=1.
+    /// </summary>
+    public sealed class HttpLoggingHandler : DelegatingHandler
     {
-        _log = log;
-        // Optional toggle via env or config (1 = log bodies)
-        _logBodies = (Environment.GetEnvironmentVariable("GC_DEBUG_HTTP") ?? "0") == "1";
-    }
+        private readonly bool _logBodies =
+            (Environment.GetEnvironmentVariable("GC_DEBUG_HTTP") ?? "0") == "1";
 
-    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
-    {
-        try
+        public HttpLoggingHandler(HttpMessageHandler? inner = null)
+            : base(inner ?? new HttpClientHandler()) { }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage req, CancellationToken ct)
         {
-            var reqInfo = new StringBuilder();
-            reqInfo.Append($"[HTTP ➜] {req.Method} {req.RequestUri}");
-            _log.LogInformation("{msg}", reqInfo.ToString());
+            Console.WriteLine($"[HTTP ➜] {req.Method} {req.RequestUri}");
 
             if (_logBodies && req.Content != null)
             {
-                var preview = await SafeRead(req.Content);
-                _log.LogDebug("[HTTP ➜] Request body ({len}): {body}", preview.Length, preview);
+                var preview = await SafeRead(req.Content, ct);
+                Console.WriteLine($"[HTTP ➜] body({preview.Length}): {Trim8k(preview)}");
             }
 
-            var resp = await base.SendAsync(req, ct);
-
-            _log.LogInformation("[HTTP ⇦] {code} {reason}", (int)resp.StatusCode, resp.ReasonPhrase);
-
-            if (_logBodies)
+            HttpResponseMessage resp;
+            try
             {
-                var body = await SafeRead(resp.Content);
-                if (!resp.IsSuccessStatusCode)
-                    _log.LogWarning("[HTTP ⇦] Error body ({len}): {body}", body.Length, body);
-                else
-                    _log.LogDebug("[HTTP ⇦] Body ({len}): {body}", body.Length, body);
+                resp = await base.SendAsync(req, ct);
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[HTTP ✖] " + ex.Message);
+                throw;
+            }
+
+            var body = resp.Content != null ? await SafeRead(resp.Content, ct) : "";
+            Console.WriteLine($"[HTTP ⇦] {(int)resp.StatusCode} {resp.ReasonPhrase}");
+            if (!resp.IsSuccessStatusCode || _logBodies)
+                Console.WriteLine($"[HTTP ⇦] body({body.Length}): {Trim8k(body)}");
 
             return resp;
         }
-        catch (Exception ex)
-        {
-            _log.LogError(ex, "[HTTP] Exception during request");
-            throw;
-        }
-    }
 
-    private static async Task<string> SafeRead(HttpContent? content)
-    {
-        if (content == null) return "";
-        var bytes = await content.ReadAsByteArrayAsync();
-        if (bytes.Length == 0) return "";
-        // Don’t blow up logs; trim to 8 KB
-        var max = Math.Min(bytes.Length, 8 * 1024);
-        return Encoding.UTF8.GetString(bytes, 0, max);
+        private static async Task<string> SafeRead(HttpContent content, CancellationToken ct)
+        {
+            try
+            {
+                var bytes = await content.ReadAsByteArrayAsync(ct);
+                if (bytes.Length == 0) return "";
+                // Assume UTF-8 for diagnostics; trim to 8KB so logs don’t explode
+                var max = Math.Min(bytes.Length, 8 * 1024);
+                return Encoding.UTF8.GetString(bytes, 0, max);
+            }
+            catch
+            {
+                return "(unreadable content)";
+            }
+        }
+
+        private static string Trim8k(string s)
+            => s.Length <= 8192 ? s : s[..8192] + "…(trimmed)";
     }
 }
