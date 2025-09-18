@@ -3,163 +3,122 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace GravityCapture.Models
+namespace GravityCapture
 {
     public sealed class AppSettings
     {
-        // -------- General (legacy — keep for screenshot API UI, if you still use it) --------
-        public string ApiUrl { get; set; } = "";
-        public string ApiKey { get; set; } = "";
-        public ulong  ChannelId { get; set; }
-        public int    IntervalMinutes { get; set; } = 1;
-        public bool   CaptureActiveWindow { get; set; } = false;
-        public int    JpegQuality { get; set; } = 85;
-        public string TargetWindowHint { get; set; } = "";
-        public bool   Autostart { get; set; } = false;
+        // ---------- storage ----------
+        private static readonly string RootDir =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GravityCapture");
 
-        // OCR / ingest
-        public bool AutoOcrEnabled { get; set; } = false;
-        public bool PostOnlyCritical { get; set; } = true;
+        private static readonly string SettingsPath = Path.Combine(RootDir, "global.json");
 
-        // Category filters
-        public bool FilterTameDeath { get; set; } = true;
-        public bool FilterStructureDestroyed { get; set; } = true;
-        public bool FilterTribeMateDeath { get; set; } = true;
-
-        // Crop (normalized)
-        public bool   UseCrop { get; set; } = false;
-        public double CropX  { get; set; } = 0.0;
-        public double CropY  { get; set; } = 0.0;
-        public double CropW  { get; set; } = 1.0;
-        public double CropH  { get; set; } = 1.0;
-
-        // -------- Log API per environment (this is what LogIngestClient uses) --------
+        // ---------- environment / API ----------
         public string LogEnvironment { get; set; } = "Stage"; // "Stage" | "Prod"
 
-        public string LogApiUrlStage { get; set; } = "";   // e.g. https://screenshots-api-stage-production.up.railway.app
-        public string LogApiKeyStage { get; set; } = "";
+        // Stage API
+        public string? StageApiUrl { get; set; }
+        public string? StageApiKey { get; set; }
 
-        public string LogApiUrlProd  { get; set; } = "";   // fill when you have prod ready
-        public string LogApiKeyProd  { get; set; } = "";
+        // Prod API
+        public string? ProdApiUrl { get; set; }
+        public string? ProdApiKey { get; set; }
 
-        /// Helpers to read/write the active env fields
-        public (string url, string key) GetActiveLogApi()
-        {
-            return LogEnvironment.Equals("Prod", StringComparison.OrdinalIgnoreCase)
-                ? (LogApiUrlProd ?? "",  LogApiKeyProd  ?? "")
-                : (LogApiUrlStage ?? "", LogApiKeyStage ?? "");
-        }
+        // For convenience (legacy callers)
+        [JsonIgnore] public string ApiUrl => (GetActiveLogApi().url ?? string.Empty);
+        [JsonIgnore] public string ApiKey => (GetActiveLogApi().key ?? string.Empty);
+
+        public (string? url, string? key) GetActiveLogApi()
+            => string.Equals(LogEnvironment, "Prod", StringComparison.OrdinalIgnoreCase)
+               ? (ProdApiUrl, ProdApiKey)
+               : (StageApiUrl, StageApiKey);
+
         public void SetActiveLogApi(string url, string key)
         {
-            if (LogEnvironment.Equals("Prod", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(LogEnvironment, "Prod", StringComparison.OrdinalIgnoreCase))
             {
-                LogApiUrlProd  = url ?? "";
-                LogApiKeyProd  = key ?? "";
+                ProdApiUrl = url;
+                ProdApiKey = key;
             }
             else
             {
-                LogApiUrlStage = url ?? "";
-                LogApiKeyStage = key ?? "";
+                StageApiUrl = url;
+                StageApiKey = key;
             }
         }
 
-        // Convenience properties for UI binding (not serialized)
-        [JsonIgnore]
-        public string ActiveLogApiUrl
-        {
-            get => GetActiveLogApi().url;
-            set
-            {
-                var (_, key) = GetActiveLogApi();
-                SetActiveLogApi(value ?? "", key ?? "");
-            }
-        }
-        [JsonIgnore]
-        public string ActiveLogApiKey
-        {
-            get => GetActiveLogApi().key;
-            set
-            {
-                var (url, _) = GetActiveLogApi();
-                SetActiveLogApi(url ?? "", value ?? "");
-            }
-        }
+        // ---------- discord / posting ----------
+        public ulong ChannelId { get; set; }
+        public int IntervalMinutes { get; set; } = 1;
 
-        // -------- persistence --------
-        private static string SettingsPath
-        {
-            get
-            {
-                var root = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "GravityCapture");
-                Directory.CreateDirectory(root);
-                return Path.Combine(root, "global.json");
-            }
-        }
+        // ---------- capture / crop ----------
+        public bool CaptureActiveWindow { get; set; } = true;
+        public int JpegQuality { get; set; } = 85;
 
+        public bool UseCrop { get; set; } = false;
+        public double CropX { get; set; }
+        public double CropY { get; set; }
+        public double CropW { get; set; }
+        public double CropH { get; set; }
+
+        // (Not used anymore for you, but kept for compatibility)
+        public string? TargetWindowHint { get; set; } = string.Empty;
+
+        // ---------- OCR / posting logic ----------
+        public bool AutoOcrEnabled { get; set; } = true;
+        public bool PostOnlyCritical { get; set; } = false;
+
+        public bool FilterTameDeath { get; set; } = false;
+        public bool FilterStructureDestroyed { get; set; } = false;
+        public bool FilterTribeMateDeath { get; set; } = false;
+
+        public bool Autostart { get; set; } = false;
+
+        // ---------- NEW: persist Server/Tribe ----------
+        public string? ServerName { get; set; } = string.Empty;
+        public string? TribeName  { get; set; } = string.Empty;
+
+        // ---------- load/save ----------
         public static AppSettings Load()
         {
-            AppSettings obj = new AppSettings();
-
-            // 1) Load file if present
             try
             {
                 if (File.Exists(SettingsPath))
                 {
                     var json = File.ReadAllText(SettingsPath);
-                    var fromDisk = JsonSerializer.Deserialize<AppSettings>(json);
-                    if (fromDisk != null) obj = fromDisk;
+                    var s = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions()) ?? new AppSettings();
+
+                    // Back-compat defaulting
+                    s.LogEnvironment = string.IsNullOrWhiteSpace(s.LogEnvironment) ? "Stage" : s.LogEnvironment;
+                    s.IntervalMinutes = Math.Max(1, s.IntervalMinutes <= 0 ? 1 : s.IntervalMinutes);
+                    s.JpegQuality = s.JpegQuality is < 1 or > 100 ? 85 : s.JpegQuality;
+
+                    return s;
                 }
             }
-            catch
-            {
-                // ignore and continue with defaults/auto-import
-            }
+            catch { /* ignore and fall through to defaults */ }
 
-            // 2) Auto-import Stage defaults on first run / if blank
-            TryImportStageDefaults(obj);
-
-            // 3) Ensure sensible default for Stage URL if still empty
-            if (string.IsNullOrWhiteSpace(obj.LogApiUrlStage))
-                obj.LogApiUrlStage = "https://screenshots-api-stage-production.up.railway.app";
-
-            // 4) Honor GC_ENV override ("Stage" | "Prod")
-            var gcEnv = Environment.GetEnvironmentVariable("GC_ENV");
-            if (!string.IsNullOrWhiteSpace(gcEnv))
-                obj.LogEnvironment = gcEnv;
-
-            return obj;
+            return new AppSettings();
         }
 
         public void Save()
         {
-            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(SettingsPath, json);
-        }
-
-        private static void TryImportStageDefaults(AppSettings obj)
-        {
             try
             {
-                var baseDir = AppContext.BaseDirectory;
-                var stagePath = Path.Combine(baseDir, "appsettings.Stage.json");
-                if (!File.Exists(stagePath)) return;
-
-                using var doc = JsonDocument.Parse(File.ReadAllText(stagePath));
-                if (doc.RootElement.TryGetProperty("ApiBaseUrl", out var urlEl))
-                {
-                    if (string.IsNullOrWhiteSpace(obj.LogApiUrlStage))
-                        obj.LogApiUrlStage = urlEl.GetString() ?? "";
-                }
-                if (doc.RootElement.TryGetProperty("Auth", out var authEl) &&
-                    authEl.TryGetProperty("SharedKey", out var keyEl))
-                {
-                    if (string.IsNullOrWhiteSpace(obj.LogApiKeyStage))
-                        obj.LogApiKeyStage = keyEl.GetString() ?? "";
-                }
+                Directory.CreateDirectory(RootDir);
+                var json = JsonSerializer.Serialize(this, JsonOptions());
+                File.WriteAllText(SettingsPath, json);
             }
-            catch { /* best effort */ }
+            catch
+            {
+                // swallow – UI shows status messages already
+            }
         }
+
+        private static JsonSerializerOptions JsonOptions() => new()
+        {
+            WriteIndented = true,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
     }
 }
