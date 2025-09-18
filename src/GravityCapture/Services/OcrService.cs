@@ -28,6 +28,13 @@ namespace GravityCapture.Services
         private static readonly bool AdaptiveEnabled =
             !string.Equals(Environment.GetEnvironmentVariable("GC_OCR_ADAPTIVE"), "0", StringComparison.OrdinalIgnoreCase);
 
+        // NEW: allow disabling morphology / sharpen if glyphs look "thick"
+        private static readonly bool CloseEnabled =
+            !string.Equals(Environment.GetEnvironmentVariable("GC_OCR_CLOSE"), "0", StringComparison.OrdinalIgnoreCase);
+
+        private static readonly bool SharpenEnabled =
+            !string.Equals(Environment.GetEnvironmentVariable("GC_OCR_SHARPEN"), "0", StringComparison.OrdinalIgnoreCase);
+
         private static int _debugIdx = 0;
 
         // ------------------------------------------------------
@@ -41,7 +48,7 @@ namespace GravityCapture.Services
             if (DebugDump) Dump(work);
 
             using var pix = BitmapToPix(work);
-            using var page = _engine!.Process(pix, PageSegMode.SingleBlock);
+            using var page = _engine!.Process(pix, PageSegMode.SingleBlock); // multi-line block
 
             var text = page.GetText() ?? string.Empty;
 
@@ -52,7 +59,7 @@ namespace GravityCapture.Services
             return ExtractEntries(text);
         }
 
-        // Optional: use this to show users the SDR-like processed preview in your UI
+        // Optional: show SDR-like processed preview in the UI
         public static Bitmap GetDebugPreview(Bitmap source) => PreprocessForLogs(source);
 
         // ------------------------------------------------------
@@ -109,13 +116,12 @@ namespace GravityCapture.Services
                 g.DrawImage(input, new Rectangle(0, 0, w, h));
             }
 
-            // 2) Adaptive tone-map (only meaningfully changes frames that are blown out)
+            // 2) Adaptive tone-map (suppresses HDR bloom; no-op on SDR)
             if (ToneMapEnabled) ToneMapAutoInPlace(up);
 
             // 3) Build a text mask in HSV:
             //    - colored UI text: S >= ~0.25 AND V >= ~0.50
             //    - gray timestamp:  S <= ~0.12 AND V >= ~0.85
-            //    This preserves the grey "Day N, HH:MM:SS:" and the colored message.
             var mask = new Bitmap(w, h, PixelFormat.Format24bppRgb);
             BuildTextMaskHsv(up, mask, satColor: 0.25, valColor: 0.50, satGray: 0.12, valGray: 0.85);
 
@@ -124,36 +130,46 @@ namespace GravityCapture.Services
             ToLuma709Safe(up, gray);
             up.Dispose();
 
-            // 5) Apply mask (zero out background to reduce clutter before thresholding)
+            // 5) Apply mask (zero out background)
             var masked = new Bitmap(w, h, PixelFormat.Format24bppRgb);
             ApplyMaskSafe(gray, mask, masked);
             gray.Dispose();
             mask.Dispose();
 
-            // 6) Binarize (adaptive by default for mixed HDR regions; falls back to Otsu if disabled)
+            // 6) Binarize (adaptive by default for mixed HDR regions; Otsu if disabled)
+            Bitmap mono;
             var bin = new Bitmap(w, h, PixelFormat.Format24bppRgb);
             if (AdaptiveEnabled)
                 AdaptiveMeanBinarizeSafe(masked, bin, window: 31, c: 7);
             else
                 OtsuBinarizeSafe(masked, bin);
             masked.Dispose();
+            mono = bin;
 
-            // 7) Light morphology to close tiny gaps (dilate then erode with 3x3 cross)
-            var closed = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-            MorphClose3x3Safe(bin, closed);
-            bin.Dispose();
-
-            // 8) Mild sharpen to reinforce edges
-            var sharp = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-            Convolve3x3Safe(closed, sharp, new float[,]
+            // 7) Light morphology to close tiny gaps (optional)
+            if (CloseEnabled)
             {
-                { 0, -1,  0 },
-                { -1, 5, -1 },
-                { 0, -1,  0 }
-            });
-            closed.Dispose();
+                var closed = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+                MorphClose3x3Safe(mono, closed);
+                mono.Dispose();
+                mono = closed;
+            }
 
-            return sharp;
+            // 8) Mild sharpen (optional) to reinforce edges
+            if (SharpenEnabled)
+            {
+                var sharp = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+                Convolve3x3Safe(mono, sharp, new float[,]
+                {
+                    { 0, -1,  0 },
+                    { -1, 5, -1 },
+                    { 0, -1,  0 }
+                });
+                mono.Dispose();
+                mono = sharp;
+            }
+
+            return mono;
         }
 
         // ------------------------------------------------------
@@ -168,7 +184,6 @@ namespace GravityCapture.Services
             var results = new List<string>();
             if (matches.Count == 0)
             {
-                // Fallback: return non-empty lines
                 using var sr = new StringReader(text);
                 string? line;
                 while ((line = sr.ReadLine()) != null)
@@ -640,7 +655,6 @@ namespace GravityCapture.Services
                     for (int x = 0; x < w; x++)
                     {
                         byte max = sbuf[y * ss + x * 3]; // include center
-                        // neighbors: up/down/left/right
                         if (y > 0)       max = Math.Max(max, sbuf[(y - 1) * ss + x * 3]);
                         if (y < h - 1)   max = Math.Max(max, sbuf[(y + 1) * ss + x * 3]);
                         if (x > 0)       max = Math.Max(max, sbuf[y * ss + (x - 1) * 3]);
