@@ -3,32 +3,31 @@ using System.Text.RegularExpressions;
 
 namespace GravityCapture.Services
 {
-    /// <summary>
-    /// Parses a single OCR tribe-log line into a TribeEvent (server, tribe, day, time, severity, category, actor, message, raw_line).
-    /// Robust to minor OCR noise and line wraps from captures.
-    /// </summary>
     public static class LogLineParser
     {
-        // Allow message to span lines (fixes "no_header" on wrapped input)
+        // Header (supports wrapped lines)
         private static readonly Regex RxHeader = new(
             @"^\s*Day\s*(?<day>\d+)\s*,\s*(?<time>\d{1,2}:\d{2}:\d{2})\s*:\s*(?<msg>[\s\S]+?)\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        // ---------- Classifiers ----------
-        private static readonly Regex RxAutoDecayDestroyed = new(
-            @"\bYour\b.*?\b(auto[- ]?decay)\b.*?\bdestroyed\b",
+        // ---- classifiers ----
+
+        // capture ANY actor text after "was destroyed by" up to "(" or "!" or end
+        private static readonly Regex RxDestroyedBy = new(
+            @"\bwas\s+destroyed\s+by\s+(?<actor>.+?)(?:\s*\(|!|$)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private static readonly Regex RxWasDestroyed = new(
             @"\bYour\b.*?\bwas\b.*?\bdestroyed\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        private static readonly Regex RxDemolished = new(
-            @"\b(Human|[A-Za-z0-9_]+)\b\s+\bdemolished\b\s+a\s+['“”]?(?<what>.+?)['“”]?!?$",
+        private static readonly Regex RxAutoDecayDestroyed = new(
+            @"\bYour\b.*?\bauto[- ]?decay\b.*?\bdestroyed\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        private static readonly Regex RxAntiMeshing = new(
-            @"\bAnti[- ]?meshing\b.*?\bdestroyed\b.*?(Item\s+Cache)?(?:(?:\s*at\s*X\s*=\s*(?<x>-?\d+(?:\.\d+)?))\s*Y\s*=\s*(?<y>-?\d+(?:\.\d+)?)\s*Z\s*=\s*(?<z>-?\d+(?:\.\d+)?))?",
+        // e.g. "Human demolished a 'Stone Wall'!"
+        private static readonly Regex RxDemolished = new(
+            @"\b(?<actor>[\p{L}\p{N}_ ][\p{L}\p{N}_ ]*)\s+demolished\b\s+a\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private static readonly Regex RxTeleporterPrivacy = new(
@@ -71,15 +70,12 @@ namespace GravityCapture.Services
             @"\bwas\s+ground\s+up\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        /// <summary>
-        /// Parse OCR'd line to event. Returns (ok, event, error).
-        /// </summary>
         public static (bool ok, TribeEvent? ev, string? error) TryParse(string rawLine, string server, string tribe)
         {
             if (string.IsNullOrWhiteSpace(rawLine))
                 return (false, null, "empty");
 
-            // Keep original for message parsing; also make a one-line copy for DB unique key / dedupe.
+            // Flatten for DB dedupe
             var rawOneLine = Regex.Replace(rawLine, @"\s*\r?\n\s*", " ").Trim();
 
             var m = RxHeader.Match(rawLine);
@@ -93,15 +89,15 @@ namespace GravityCapture.Services
             string severity = "INFO";
             string actor = "";
 
-            // ---- severity/category mapping ----
+            // ---- mapping ----
             if (RxTeleporterPrivacy.IsMatch(msg))
             {
                 var mm = RxTeleporterPrivacy.Match(msg);
-                var mode = mm.Groups["mode"].Value.Equals("public", StringComparison.OrdinalIgnoreCase) ? "PUBLIC" : "PRIVATE";
+                var mode = mm.Groups["mode"].Value.Equals("public", System.StringComparison.OrdinalIgnoreCase) ? "PUBLIC" : "PRIVATE";
                 category = $"TELEPORTER_{mode}";
                 severity = "CRITICAL";
             }
-            else if (RxTribeKilled.IsMatch(msg) || (RxWasKilled.IsMatch(msg) && msg.Contains("Tribemember", StringComparison.OrdinalIgnoreCase)))
+            else if (RxTribeKilled.IsMatch(msg) || (RxWasKilled.IsMatch(msg) && msg.Contains("Tribemember", System.StringComparison.OrdinalIgnoreCase)))
             {
                 category = "KILL";
                 severity = "CRITICAL";
@@ -111,41 +107,37 @@ namespace GravityCapture.Services
                 category = "TAME_DEATH";
                 severity = "CRITICAL";
             }
-            else if (RxWasDestroyed.IsMatch(msg) && !RxAutoDecayDestroyed.IsMatch(msg))
-            {
-                category = "STRUCTURE_DESTROYED";
-                severity = "CRITICAL";
-            }
             else if (RxAutoDecayDestroyed.IsMatch(msg))
             {
                 category = "STRUCTURE_AUTO_DECAY";
                 severity = "WARNING";
                 actor = "Auto-decay";
             }
+            else if (RxWasDestroyed.IsMatch(msg))
+            {
+                category = "STRUCTURE_DESTROYED";
+                severity = "CRITICAL";
+                var md = RxDestroyedBy.Match(msg);
+                if (md.Success) actor = CleanActor(md.Groups["actor"].Value);
+            }
             else if (RxDemolished.IsMatch(msg))
             {
                 category = "STRUCTURE_DESTROYED";
                 severity = "WARNING";
                 var md = RxDemolished.Match(msg);
-                if (md.Success) actor = md.Groups["what"].Value.Trim();
+                if (md.Success) actor = CleanActor(md.Groups["actor"].Value);
             }
             else if (RxStarved.IsMatch(msg))
             {
                 category = "TAME_DEATH";
                 severity = "WARNING";
+                actor = "Starvation";
             }
             else if (RxCryopodDeath.IsMatch(msg))
             {
                 category = "CRYOPOD_DEATH";
                 severity = "WARNING";
-            }
-            else if (RxAntiMeshing.IsMatch(msg))
-            {
-                var mm = RxAntiMeshing.Match(msg);
-                category = "ANTI_MESHING";
-                severity = "WARNING";
-                if (mm.Success && mm.Groups["x"].Success)
-                    actor = $"X={mm.Groups["x"].Value}, Y={mm.Groups["y"].Value}, Z={mm.Groups["z"].Value}";
+                actor = "Cryopod";
             }
             else if (RxYourTribeTamed.IsMatch(msg) || RxHumanTamed.IsMatch(msg))
             {
@@ -192,8 +184,7 @@ namespace GravityCapture.Services
             t = Regex.Replace(t, @"<img[^>]*>", "", RegexOptions.IgnoreCase);
             t = Regex.Replace(t, @"\bChatImage\b.*?(?=\s|$)", "", RegexOptions.IgnoreCase);
 
-            t = t.Replace('’', '\'').Replace('‘', '\'')
-                 .Replace('“', '"').Replace('”', '"')
+            t = t.Replace('’', '\'').Replace('‘', '\'').Replace('“', '"').Replace('”', '"')
                  .Replace('–', '-').Replace('—', '-').Replace('‐', '-');
 
             // Common OCR fixes
@@ -213,6 +204,16 @@ namespace GravityCapture.Services
             t = Regex.Replace(t, @"(?<=\b)(,)(?=\w)", " ");
 
             return t.Trim();
+        }
+
+        private static string CleanActor(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "";
+            // remove trailing "(...)" like "(C4)", "(Tek Rifle)"
+            var a = Regex.Replace(s, @"\s*\([^)]*\)\s*$", "");
+            // trim trailing punctuation/spaces
+            a = Regex.Replace(a, @"[.!:,;\s]+$", "");
+            return a.Trim();
         }
     }
 }
