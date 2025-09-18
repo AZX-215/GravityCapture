@@ -7,7 +7,7 @@
     <Color x:Key="BgColor">#0B0B0C</Color>
     <Color x:Key="CardColor">#141519</Color>
     <Color x:Key="AccentColor">#7D7FFF</Color>
-    <Color x:Key="TextPrimaryColor">#F1F1F1</Color>
+    <Color x:Key="TextPrimaryColor">#C4C4C4</Color>
     <Color x:Key="TextSecondaryColor">#C7C7C7</Color>
     <Color x:Key="InputBgColor">#1B1D22</Color>
     <Color x:Key="InputBorderColor">#2A2D36</Color>
