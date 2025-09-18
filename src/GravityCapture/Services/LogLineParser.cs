@@ -101,11 +101,7 @@ namespace GravityCapture.Services
             string severity = "INFO";
             string actor = "";
 
-            // ---- Severity policy (your spec) ----
-            // CRITICAL:
-            // - player/tame/tribemate deaths (incl. enemy players/tames our tribe kills)
-            // - teleporter set public/private
-            // - non auto-decay destroyed structures
+            // ---- Severity & category policy ----
             if (RxTeleporterPrivacy.IsMatch(msg))
             {
                 var mm = RxTeleporterPrivacy.Match(msg);
@@ -128,32 +124,29 @@ namespace GravityCapture.Services
                 category = "STRUCTURE_DESTROYED";
                 severity = "CRITICAL";
             }
-            // WARNING:
-            // - auto-decay destroyed
-            // - demolished
-            // - starved
-            // - cryopod death
-            // - anti-meshing of anything
+            // WARNING-tier
             else if (RxAutoDecayDestroyed.IsMatch(msg))
             {
-                category = "STRUCTURE_AUTO_DECAY";
+                // Normalize to allowed category to satisfy DB/filters.
+                category = "STRUCTURE_DESTROYED";
                 severity = "WARNING";
+                actor = "Auto-decay";
             }
             else if (RxDemolished.IsMatch(msg))
             {
-                category = "STRUCTURE_DEMOLISHED";
+                category = "STRUCTURE_DESTROYED"; // normalize to allowed set
                 severity = "WARNING";
                 var md = RxDemolished.Match(msg);
                 if (md.Success) actor = md.Groups["what"].Value.Trim();
             }
             else if (RxStarved.IsMatch(msg))
             {
-                category = "TAME_STARVED";
+                category = "TAME_DEATH"; // normalize
                 severity = "WARNING";
             }
             else if (RxCryopodDeath.IsMatch(msg))
             {
-                category = "TAME_CRYO_DEATH";
+                category = "CRYOPOD_DEATH";
                 severity = "WARNING";
             }
             else if (RxAntiMeshing.IsMatch(msg))
@@ -166,8 +159,7 @@ namespace GravityCapture.Services
                     actor = $"X={mm.Groups["x"].Value}, Y={mm.Groups["y"].Value}, Z={mm.Groups["z"].Value}";
                 }
             }
-            // SUCCESS/INFO (least severe):
-            // - tamed/claimed/froze
+            // SUCCESS/INFO
             else if (RxYourTribeTamed.IsMatch(msg) || RxHumanTamed.IsMatch(msg))
             {
                 category = "TAME_TAMED";
@@ -182,13 +174,12 @@ namespace GravityCapture.Services
             }
             else if (RxFroze.IsMatch(msg))
             {
-                category = "TAME_FROZEN";
+                category = "CREATURE_FROZE";
                 severity = "INFO";
             }
             else if (RxWasKilled.IsMatch(msg))
             {
-                // Generic deaths we didn't bucket above
-                category = "DEATH";
+                category = "PLAYER_DEATH"; // generic fallback normalized to allowed set
                 severity = "CRITICAL";
             }
 
@@ -228,20 +219,19 @@ namespace GravityCapture.Services
                  .Replace('‐', '-');
 
             // OCR corrections seen in your captures
-            t = Regex.Replace(t, @"\bJ\s*urret\b", "Turret", RegexOptions.IgnoreCase); // Jurret -> Turret
+            t = Regex.Replace(t, @"\bJ\s*urret\b", "Turret", RegexOptions.IgnoreCase);
             t = Regex.Replace(t, @"\bJurret\b", "Turret", RegexOptions.IgnoreCase);
-            t = Regex.Replace(t, @"\bLvI\b", "Lvl", RegexOptions.IgnoreCase);        // I vs l
+            t = Regex.Replace(t, @"\bLvI\b", "Lvl", RegexOptions.IgnoreCase);
             t = Regex.Replace(t, @"\bIvl\b", "Lvl", RegexOptions.IgnoreCase);
-            t = Regex.Replace(t, @"\bIvl\b", "Lvl", RegexOptions.IgnoreCase);
-            t = Regex.Replace(t, @"\bget\s+Trade\s+TP\b", "set Trade TP", RegexOptions.IgnoreCase); // mis-OCR "get" -> "set"
+            t = Regex.Replace(t, @"\bget\s+Trade\s+TP\b", "set Trade TP", RegexOptions.IgnoreCase);
 
             // Collapse whitespace & fix punctuation artifacts (e.g., line wraps, 'Your,,Heavy', stray ']')
             t = Regex.Replace(t, @"\s+", " ");
             t = Regex.Replace(t, @",\s*,+", ", ");
             t = Regex.Replace(t, @"\s+,", ",");
             t = Regex.Replace(t, @",\s+", ", ");
-            t = Regex.Replace(t, @"\s?]\s?", "]");         // tighten brackets
-            t = Regex.Replace(t, @"\s+'", " '");           // spacing before quotes
+            t = Regex.Replace(t, @"\s?]\s?", "]");
+            t = Regex.Replace(t, @"\s+'", " '");
 
             // Remove dangling commas inserted by OCR before words
             t = Regex.Replace(t, @"(?<=\b)(,)(?=\w)", " ");
