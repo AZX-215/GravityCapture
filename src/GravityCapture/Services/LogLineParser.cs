@@ -9,8 +9,8 @@ namespace GravityCapture.Services
     /// </summary>
     public static class LogLineParser
     {
-        // Day header:  Day 6031, 02:12:10: <message possibly spanning multiple lines>
-        // NOTE: [\s\S]+? allows newlines in <msg>, fixing "no_header" for wrapped lines.
+        // Day header:  Day 6039, 23:36:22: <message possibly spanning multiple lines>
+        // [\s\S]+? allows newlines in <msg>, fixing "no_header" for wrapped lines.
         private static readonly Regex RxHeader = new(
             @"^\s*Day\s*(?<day>\d+)\s*,\s*(?<time>\d{1,2}:\d{2}:\d{2})\s*:\s*(?<msg>[\s\S]+?)\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -22,22 +22,19 @@ namespace GravityCapture.Services
             @"\bYour\b.*?\b(auto[- ]?decay)\b.*?\bdestroyed\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        // Generic "was destroyed" (non auto-decay)
         private static readonly Regex RxWasDestroyed = new(
             @"\bYour\b.*?\bwas\b.*?\bdestroyed\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        // Human/Player demolished a structure
         private static readonly Regex RxDemolished = new(
             @"\b(Human|[A-Za-z0-9_]+)\b\s+\bdemolished\b\s+a\s+['“”]?(?<what>.+?)['“”]?!?$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        // Anti-meshing (coordinates optional)
         private static readonly Regex RxAntiMeshing = new(
             @"\bAnti[- ]?meshing\b.*?\bdestroyed\b.*?(Item\s+Cache)?(?:(?:\s*at\s*X\s*=\s*(?<x>-?\d+(?:\.\d+)?))\s*Y\s*=\s*(?<y>-?\d+(?:\.\d+)?)\s*Z\s*=\s*(?<z>-?\d+(?:\.\d+)?))?",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        // TELEPORTER privacy (treat as CRITICAL regardless of log color)
+        // TELEPORTER privacy
         private static readonly Regex RxTeleporterPrivacy = new(
             @"\bset\b.*?\b(Tek\s+Teleporter|Teleporter|TP)\b.*?\bto\b\s*(?<mode>private|public)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -88,6 +85,9 @@ namespace GravityCapture.Services
             if (string.IsNullOrWhiteSpace(rawLine))
                 return (false, null, "empty");
 
+            // Flatten raw line for DB/index/webhook safety (no embedded newlines)
+            var rawOneLine = Regex.Replace(rawLine, @"\s*\r?\n\s*", " ").Trim();
+
             var m = RxHeader.Match(rawLine);
             if (!m.Success)
                 return (false, null, "no_header");
@@ -124,24 +124,23 @@ namespace GravityCapture.Services
                 category = "STRUCTURE_DESTROYED";
                 severity = "CRITICAL";
             }
-            // WARNING-tier
+            // WARNING-tier (normalized to allowed set)
             else if (RxAutoDecayDestroyed.IsMatch(msg))
             {
-                // Normalize to allowed category to satisfy DB/filters.
                 category = "STRUCTURE_DESTROYED";
                 severity = "WARNING";
                 actor = "Auto-decay";
             }
             else if (RxDemolished.IsMatch(msg))
             {
-                category = "STRUCTURE_DESTROYED"; // normalize to allowed set
+                category = "STRUCTURE_DESTROYED";
                 severity = "WARNING";
                 var md = RxDemolished.Match(msg);
                 if (md.Success) actor = md.Groups["what"].Value.Trim();
             }
             else if (RxStarved.IsMatch(msg))
             {
-                category = "TAME_DEATH"; // normalize
+                category = "TAME_DEATH";
                 severity = "WARNING";
             }
             else if (RxCryopodDeath.IsMatch(msg))
@@ -179,7 +178,7 @@ namespace GravityCapture.Services
             }
             else if (RxWasKilled.IsMatch(msg))
             {
-                category = "PLAYER_DEATH"; // generic fallback normalized to allowed set
+                category = "PLAYER_DEATH";
                 severity = "CRITICAL";
             }
 
@@ -192,7 +191,8 @@ namespace GravityCapture.Services
                 category: category,
                 actor: actor,
                 message: msg,
-                raw_line: rawLine.Trim());
+                raw_line: rawOneLine   // <— flattened
+            );
 
             return (true, ev, null);
         }
@@ -206,7 +206,7 @@ namespace GravityCapture.Services
 
             var t = s;
 
-            // Normalize quotes/dashes & strip HTML-ish emoji noise we saw in samples
+            // Strip HTML-ish fragments and normalize punctuation
             t = Regex.Replace(t, @"<img[^>]*>", "", RegexOptions.IgnoreCase);
             t = Regex.Replace(t, @"\bChatImage\b.*?(?=\s|$)", "", RegexOptions.IgnoreCase);
 
@@ -218,14 +218,14 @@ namespace GravityCapture.Services
                  .Replace('—', '-')
                  .Replace('‐', '-');
 
-            // OCR corrections seen in your captures
+            // OCR corrections
             t = Regex.Replace(t, @"\bJ\s*urret\b", "Turret", RegexOptions.IgnoreCase);
             t = Regex.Replace(t, @"\bJurret\b", "Turret", RegexOptions.IgnoreCase);
             t = Regex.Replace(t, @"\bLvI\b", "Lvl", RegexOptions.IgnoreCase);
             t = Regex.Replace(t, @"\bIvl\b", "Lvl", RegexOptions.IgnoreCase);
             t = Regex.Replace(t, @"\bget\s+Trade\s+TP\b", "set Trade TP", RegexOptions.IgnoreCase);
 
-            // Collapse whitespace & fix punctuation artifacts (e.g., line wraps, 'Your,,Heavy', stray ']')
+            // Collapse whitespace & tidy punctuation
             t = Regex.Replace(t, @"\s+", " ");
             t = Regex.Replace(t, @",\s*,+", ", ");
             t = Regex.Replace(t, @"\s+,", ",");
