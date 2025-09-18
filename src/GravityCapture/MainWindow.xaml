@@ -25,9 +25,11 @@
             <Setter Property="Margin" Value="6,4"/>
             <Setter Property="Padding" Value="10,6"/>
         </Style>
+
+        <!-- Use local brushes for card look; corner radius now comes from App.xaml -->
         <SolidColorBrush x:Key="Card" Color="#2A2C31"/>
         <SolidColorBrush x:Key="CardBorder" Color="#393B42"/>
-        <Thickness x:Key="CardRadius">8</Thickness>
+        <!-- Removed local CardRadius to avoid any type/key conflicts -->
     </Window.Resources>
 
     <Grid Margin="12">
