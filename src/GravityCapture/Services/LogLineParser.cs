@@ -1,6 +1,5 @@
-using System;
-using System.Text.RegularExpressions;
 using GravityCapture.Models;
+using System.Text.RegularExpressions;
 
 namespace GravityCapture.Services
 {
@@ -10,9 +9,10 @@ namespace GravityCapture.Services
     /// </summary>
     public static class LogLineParser
     {
-        // Day header:  Day 6031, 02:12:10: <message>
+        // Day header:  Day 6031, 02:12:10: <message possibly spanning multiple lines>
+        // NOTE: [\s\S]+? allows newlines in <msg>, fixing "no_header" for wrapped lines.
         private static readonly Regex RxHeader = new(
-            @"^\s*Day\s*(?<day>\d+)\s*,\s*(?<time>\d{1,2}:\d{2}:\d{2})\s*:\s*(?<msg>.+?)\s*$",
+            @"^\s*Day\s*(?<day>\d+)\s*,\s*(?<time>\d{1,2}:\d{2}:\d{2})\s*:\s*(?<msg>[\s\S]+?)\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         // ---------- Classifiers (tolerant regex) ----------
@@ -235,7 +235,7 @@ namespace GravityCapture.Services
             t = Regex.Replace(t, @"\bIvl\b", "Lvl", RegexOptions.IgnoreCase);
             t = Regex.Replace(t, @"\bget\s+Trade\s+TP\b", "set Trade TP", RegexOptions.IgnoreCase); // mis-OCR "get" -> "set"
 
-            // Collapse whitespace & fix punctuation artifacts (e.g., 'Your,,Heavy', stray ']')
+            // Collapse whitespace & fix punctuation artifacts (e.g., line wraps, 'Your,,Heavy', stray ']')
             t = Regex.Replace(t, @"\s+", " ");
             t = Regex.Replace(t, @",\s*,+", ", ");
             t = Regex.Replace(t, @"\s+,", ",");
