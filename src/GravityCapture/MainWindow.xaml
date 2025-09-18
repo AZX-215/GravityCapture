@@ -8,7 +8,7 @@
     <Grid Margin="12">
       <Grid.Background>
         <ImageBrush ImageSource="pack://application:,,,/Assets/Gravity_Logs_Background.png"
-                    Stretch="UniformToFill" Opacity="0.18"/>
+                    Stretch="UniformToFill" Opacity="0.80"/>
       </Grid.Background>
 
       <Grid.RowDefinitions>
