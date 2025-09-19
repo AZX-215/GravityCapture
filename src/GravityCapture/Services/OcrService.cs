@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -24,22 +21,41 @@ namespace GravityCapture.Services
         private static string? _tessdataPath;
 
         // ---------- Env toggles (defaults chosen to be helpful on HDR) ----------
-        private static readonly bool DebugDump     = GetBool("GC_DEBUG_OCR", true);
-        private static readonly bool ToneMap       = GetBool("GC_OCR_TONEMAP",  true);
-        private static readonly bool Adaptive      = GetBool("GC_OCR_ADAPTIVE", true);
-        private static readonly bool DoOpen        = GetBool("GC_OCR_OPEN",     true);   // new
-        private static readonly bool DoMajority    = GetBool("GC_OCR_MAJORITY", true);   // new
-        private static readonly bool DoClose       = GetBool("GC_OCR_CLOSE",    true);
-        private static readonly bool DoSharpen     = GetBool("GC_OCR_SHARPEN",  false);
+        private static readonly bool DebugDump  = GetBool("GC_DEBUG_OCR", true);
+        private static readonly bool ToneMap    = GetBool("GC_OCR_TONEMAP", true);
+        private static readonly bool Adaptive   = GetBool("GC_OCR_ADAPTIVE", true);
+        private static readonly bool DoOpen     = GetBool("GC_OCR_OPEN", true);        // new
+        private static readonly bool DoMajority = GetBool("GC_OCR_MAJORITY", true);     // new
+        private static readonly bool DoClose    = GetBool("GC_OCR_CLOSE", true);
+        private static readonly bool DoSharpen  = GetBool("GC_OCR_SHARPEN", false);
 
-        // Tunables via env (string -> double/int)
+        // ---------- New tunables ----------
+        // HSV mask thresholds
         private static readonly double SatColor = GetDouble("GC_OCR_SAT_COLOR", 0.25);
         private static readonly double ValColor = GetDouble("GC_OCR_VAL_COLOR", 0.50);
-        private static readonly double SatGray  = GetDouble("GC_OCR_SAT_GRAY",  0.12);
-        private static readonly double ValGray  = GetDouble("GC_OCR_VAL_GRAY",  0.85);
+        private static readonly double SatGray  = GetDouble("GC_OCR_SAT_GRAY", 0.12);
+        private static readonly double ValGray  = GetDouble("GC_OCR_VAL_GRAY", 0.85);
 
-        private static readonly int    AdaptWin  = ClampOdd(GetInt("GC_OCR_ADAPTIVE_WIN", 31), 3, 99);
-        private static readonly int    AdaptC    = Math.Max(0, GetInt("GC_OCR_ADAPTIVE_C", 7));
+        // Binarization
+        private static readonly int AdaptWin = ClampOdd(GetInt("GC_OCR_ADAPTIVE_WIN", 31), 3, 99);
+        private static readonly int AdaptC   = Math.Max(0, GetInt("GC_OCR_ADAPTIVE_C", 7));
+
+        // NEW: geometry/scale
+        private static readonly double Upscale = Math.Max(1.0, GetDouble("GC_OCR_UPSCALE", 1.40)); // 1.0..3.0 typical
+
+        // NEW: mild pre-binarize contrast adjustment on the masked grayscale
+        // GC_OCR_CONTRAST: 1.0 = no change, >1 increases contrast (e.g., 1.15), <1 reduces
+        // GC_OCR_BRIGHT:   -100..100, 0 = no change (applied in luma domain)
+        private static readonly double PreContrast = GetDouble("GC_OCR_CONTRAST", 1.0);
+        private static readonly int    PreBright   = Math.Max(-100, Math.Min(100, GetInt("GC_OCR_BRIGHT", 0)));
+
+        // NEW: morphology iteration counts (each pass uses a 3×3 kernel)
+        private static readonly int OpenIters     = Math.Max(0, GetInt("GC_OCR_OPEN_ITERS",     1)); // de-noise thin “salt/pepper”
+        private static readonly int MajorityIters = Math.Max(0, GetInt("GC_OCR_MAJORITY_ITERS", 1)); // strong de-speckle while preserving strokes
+        private static readonly int CloseIters    = Math.Max(0, GetInt("GC_OCR_CLOSE_ITERS",    1)); // thicken/join tiny gaps
+
+        // NEW: Optional invert after binarize (rarely needed; for dark-on-light variants)
+        private static readonly bool DoInvert = GetBool("GC_OCR_INVERT", false);
 
         private static int _dumpIndex = 0;
 
@@ -51,7 +67,7 @@ namespace GravityCapture.Services
             using var pre = Preprocess(source);
             if (DebugDump) Dump(pre, "final");
 
-            using var pix  = BitmapToPix(pre);
+            using var pix = BitmapToPix(pre);
             using var page = _engine!.Process(pix, PageSegMode.SingleBlock);
             var raw = page.GetText() ?? string.Empty;
 
@@ -98,15 +114,15 @@ namespace GravityCapture.Services
         // ---------- Preprocess ----------
         private static Bitmap Preprocess(Bitmap input)
         {
-            // 1) upscale ~40% to help thin glyphs
-            const double scale = 1.40;
+            // 1) upscale to help thin glyphs
+            double scale = Upscale;
             int w = Math.Max(1, (int)Math.Round(input.Width * scale));
             int h = Math.Max(1, (int)Math.Round(input.Height * scale));
             var up = new Bitmap(w, h, PixelFormat.Format24bppRgb);
             using (var g = Graphics.FromImage(up))
             {
                 g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                g.PixelOffsetMode    = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.PixelOffsetMode   = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
                 g.DrawImage(input, new Rectangle(0, 0, w, h));
             }
             if (DebugDump) Dump(up, "a_up");
@@ -132,6 +148,16 @@ namespace GravityCapture.Services
             mask.Dispose();
             if (DebugDump) Dump(masked, "e_masked");
 
+            // 5.5) optional mild contrast tweak before binarize
+            if (Math.Abs(PreContrast - 1.0) > 1e-6 || PreBright != 0)
+            {
+                var adj = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+                AdjustContrastSafe(masked, adj, PreContrast, PreBright);
+                masked.Dispose();
+                masked = adj;
+                if (DebugDump) Dump(masked, "e1_contrast");
+            }
+
             // 6) binarize
             var mono = new Bitmap(w, h, PixelFormat.Format24bppRgb);
             if (Adaptive) AdaptiveMeanBinarizeSafe(masked, mono, AdaptWin, AdaptC);
@@ -139,33 +165,52 @@ namespace GravityCapture.Services
             masked.Dispose();
             if (DebugDump) Dump(mono, "f_bin");
 
-            // 7) open (erode→dilate) to kill salt/pepper commas
-            if (DoOpen)
+            // 6.5) optional invert
+            if (DoInvert)
             {
-                var opened = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-                MorphOpen3x3Safe(mono, opened);
+                var inv = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+                InvertSafe(mono, inv);
                 mono.Dispose();
-                mono = opened;
+                mono = inv;
+                if (DebugDump) Dump(mono, "f1_invert");
+            }
+
+            // 7) open (erode→dilate) to kill salt/pepper commas
+            if (DoOpen && OpenIters > 0)
+            {
+                for (int k = 0; k < OpenIters; k++)
+                {
+                    var opened = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+                    MorphOpen3x3Safe(mono, opened);
+                    mono.Dispose();
+                    mono = opened;
+                }
                 if (DebugDump) Dump(mono, "g_open");
             }
 
             // 8) 3×3 majority filter (strong de-speckle that preserves strokes)
-            if (DoMajority)
+            if (DoMajority && MajorityIters > 0)
             {
-                var maj = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-                Majority3x3Safe(mono, maj);
-                mono.Dispose();
-                mono = maj;
+                for (int k = 0; k < MajorityIters; k++)
+                {
+                    var maj = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+                    Majority3x3Safe(mono, maj);
+                    mono.Dispose();
+                    mono = maj;
+                }
                 if (DebugDump) Dump(mono, "h_majority");
             }
 
-            // 9) close (optional) to rejoin small gaps
-            if (DoClose)
+            // 9) close (optional) to rejoin small gaps / thicken outlines
+            if (DoClose && CloseIters > 0)
             {
-                var closed = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-                MorphClose3x3Safe(mono, closed);
-                mono.Dispose();
-                mono = closed;
+                for (int k = 0; k < CloseIters; k++)
+                {
+                    var closed = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+                    MorphClose3x3Safe(mono, closed);
+                    mono.Dispose();
+                    mono = closed;
+                }
                 if (DebugDump) Dump(mono, "i_close");
             }
 
@@ -204,7 +249,7 @@ namespace GravityCapture.Services
             for (int i = 0; i < matches.Count; i++)
             {
                 int start = matches[i].Index;
-                int end   = (i + 1 < matches.Count) ? matches[i + 1].Index : text.Length;
+                int end = (i + 1 < matches.Count) ? matches[i + 1].Index : text.Length;
                 string block = text.Substring(start, end - start);
 
                 // collapse whitespace, but DO NOT chop at '!' (some lines end with '.')
@@ -322,7 +367,7 @@ namespace GravityCapture.Services
         private static void BuildTextMaskHsv(Bitmap src, Bitmap dst, double satColor, double valColor, double satGray, double valGray)
         {
             var rect = new Rectangle(0, 0, src.Width, src.Height);
-            var sData = src.LockBits(rect, ImageLockMode.ReadOnly,  PixelFormat.Format24bppRgb);
+            var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
             var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
 
             try
@@ -346,7 +391,7 @@ namespace GravityCapture.Services
                         double S = (max <= 0) ? 0 : (max - min) / max;
 
                         bool isColor      = (S >= satColor && V >= valColor);
-                        bool isBrightGray = (S <= satGray  && V >= valGray);
+                        bool isBrightGray = (S <= satGray && V >= valGray);
                         byte v = (byte)((isColor || isBrightGray) ? 255 : 0);
 
                         int di = dr + x * 3;
@@ -362,7 +407,7 @@ namespace GravityCapture.Services
         private static void ToLuma709Safe(Bitmap src, Bitmap dst)
         {
             var rect = new Rectangle(0, 0, src.Width, src.Height);
-            var sData = src.LockBits(rect, ImageLockMode.ReadOnly,  PixelFormat.Format24bppRgb);
+            var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
             var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
 
             try
@@ -395,9 +440,9 @@ namespace GravityCapture.Services
         private static void ApplyMaskSafe(Bitmap gray, Bitmap mask, Bitmap dst)
         {
             var rect = new Rectangle(0, 0, gray.Width, gray.Height);
-            var gData = gray.LockBits(rect, ImageLockMode.ReadOnly,  PixelFormat.Format24bppRgb);
-            var mData = mask.LockBits(rect, ImageLockMode.ReadOnly,  PixelFormat.Format24bppRgb);
-            var dData = dst.LockBits(rect,  ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            var gData = gray.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            var mData = mask.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
 
             try
             {
@@ -428,8 +473,8 @@ namespace GravityCapture.Services
         {
             window = ClampOdd(window, 3, 99);
             var rect = new Rectangle(0, 0, srcGray.Width, srcGray.Height);
-            var sData = srcGray.LockBits(rect, ImageLockMode.ReadOnly,  PixelFormat.Format24bppRgb);
-            var dData = dst.LockBits(rect,     ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            var sData = srcGray.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
 
             try
             {
@@ -462,9 +507,9 @@ namespace GravityCapture.Services
                         int C = x0, D = x1 + 1;
                         long sum = integ[B, D] - integ[A, D] - integ[B, C] + integ[A, C];
                         int count = (x1 - x0 + 1) * (y1 - y0 + 1);
-                        int mean  = (int)(sum / count);
-                        byte pix  = sb[sr + x * 3];
-                        byte bw   = (byte)((pix > (mean - c)) ? 255 : 0);
+                        int mean = (int)(sum / count);
+                        byte pix = sb[sr + x * 3];
+                        byte bw = (byte)((pix > (mean - c)) ? 255 : 0);
 
                         int di = dr + x * 3;
                         db[di + 0] = db[di + 1] = db[di + 2] = bw;
@@ -479,8 +524,8 @@ namespace GravityCapture.Services
         private static void OtsuBinarizeSafe(Bitmap srcGray, Bitmap dst)
         {
             var rect = new Rectangle(0, 0, srcGray.Width, srcGray.Height);
-            var sData = srcGray.LockBits(rect, ImageLockMode.ReadOnly,  PixelFormat.Format24bppRgb);
-            var dData = dst.LockBits(rect,     ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            var sData = srcGray.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
 
             try
             {
@@ -544,7 +589,7 @@ namespace GravityCapture.Services
         private static void Erode3x3Safe(Bitmap src, Bitmap dst)
         {
             var rect = new Rectangle(0, 0, src.Width, src.Height);
-            var sData = src.LockBits(rect, ImageLockMode.ReadOnly,  PixelFormat.Format24bppRgb);
+            var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
             var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
             try
             {
@@ -579,7 +624,7 @@ namespace GravityCapture.Services
         private static void Dilate3x3Safe(Bitmap src, Bitmap dst)
         {
             var rect = new Rectangle(0, 0, src.Width, src.Height);
-            var sData = src.LockBits(rect, ImageLockMode.ReadOnly,  PixelFormat.Format24bppRgb);
+            var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
             var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
             try
             {
@@ -615,7 +660,7 @@ namespace GravityCapture.Services
         private static void Majority3x3Safe(Bitmap src, Bitmap dst)
         {
             var rect = new Rectangle(0, 0, src.Width, src.Height);
-            var sData = src.LockBits(rect, ImageLockMode.ReadOnly,  PixelFormat.Format24bppRgb);
+            var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
             var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
             try
             {
@@ -651,7 +696,7 @@ namespace GravityCapture.Services
         private static void Convolve3x3Safe(Bitmap src, Bitmap dst, float[,] k)
         {
             var rect = new Rectangle(0, 0, src.Width, src.Height);
-            var sData = src.LockBits(rect, ImageLockMode.ReadOnly,  PixelFormat.Format24bppRgb);
+            var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
             var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
             try
             {
@@ -685,11 +730,76 @@ namespace GravityCapture.Services
             finally { src.UnlockBits(sData); dst.UnlockBits(dData); }
         }
 
+        // NEW: contrast/brightness adjust (simple linear: out = clamp( (in-128)*contrast + 128 + bright ))
+        private static void AdjustContrastSafe(Bitmap src, Bitmap dst, double contrast, int bright)
+        {
+            var rect = new Rectangle(0, 0, src.Width, src.Height);
+            var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            try
+            {
+                int w = src.Width, h = src.Height, ss = sData.Stride, ds = dData.Stride;
+                var sb = new byte[ss * h]; var db = new byte[ds * h];
+                Marshal.Copy(sData.Scan0, sb, 0, sb.Length);
+
+                for (int y = 0; y < h; y++)
+                {
+                    int sr = y * ss, dr = y * ds;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int si = sr + x * 3;
+                        int v = sb[si]; // grayscale in all channels
+                        int adj = (int)Math.Round((v - 128) * contrast + 128 + bright);
+                        adj = Math.Max(0, Math.Min(255, adj));
+                        byte b = (byte)adj;
+                        int di = dr + x * 3;
+                        db[di + 0] = db[di + 1] = db[di + 2] = b;
+                    }
+                }
+                Marshal.Copy(db, 0, dData.Scan0, db.Length);
+            }
+            finally { src.UnlockBits(sData); dst.UnlockBits(dData); }
+        }
+
+        // NEW: invert binary image
+        private static void InvertSafe(Bitmap src, Bitmap dst)
+        {
+            var rect = new Rectangle(0, 0, src.Width, src.Height);
+            var sData = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            try
+            {
+                int w = src.Width, h = src.Height, ss = sData.Stride, ds = dData.Stride;
+                var sb = new byte[ss * h]; var db = new byte[ds * h];
+                Marshal.Copy(sData.Scan0, sb, 0, sb.Length);
+
+                for (int y = 0; y < h; y++)
+                {
+                    int sr = y * ss, dr = y * ds;
+                    for (int x = 0; x < w; x++)
+                    {
+                        byte val = (byte)(255 - sb[sr + x * 3]);
+                        int di = dr + x * 3;
+                        db[di + 0] = db[di + 1] = db[di + 2] = val;
+                    }
+                }
+                Marshal.Copy(db, 0, dData.Scan0, db.Length);
+            }
+            finally { src.UnlockBits(sData); dst.UnlockBits(dData); }
+        }
+
         // ---------- Env helpers ----------
-        private static bool   GetBool  (string key, bool def)   => !string.Equals(Environment.GetEnvironmentVariable(key), "0", StringComparison.OrdinalIgnoreCase) ? true : def == true && Environment.GetEnvironmentVariable(key) == null;
-        private static int    GetInt   (string key, int def)    => int.TryParse(Environment.GetEnvironmentVariable(key), out var v) ? v : def;
-        private static double GetDouble(string key, double def) => double.TryParse(Environment.GetEnvironmentVariable(key), out var v) ? v : def;
-        private static int    ClampOdd(int v, int min, int max)
+        private static bool GetBool(string key, bool def) =>
+            !string.Equals(Environment.GetEnvironmentVariable(key), "0", StringComparison.OrdinalIgnoreCase) ? true
+            : def == true && Environment.GetEnvironmentVariable(key) == null;
+
+        private static int GetInt(string key, int def) =>
+            int.TryParse(Environment.GetEnvironmentVariable(key), out var v) ? v : def;
+
+        private static double GetDouble(string key, double def) =>
+            double.TryParse(Environment.GetEnvironmentVariable(key), out var v) ? v : def;
+
+        private static int ClampOdd(int v, int min, int max)
         {
             v = Math.Max(min, Math.Min(max, v));
             if ((v & 1) == 0) v++;
