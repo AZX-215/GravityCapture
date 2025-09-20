@@ -11,9 +11,9 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 
-using GravityCapture.Models;          // AppSettings, TribeEvent models
-using GravityCapture.Services;        // OcrService, LogIngestClient, ScreenCapture, OcrIngestor, ProfileManager
-using GravityCapture.Views;           // RegionSelectorWindow (if present)
+using GravityCapture.Models;
+using GravityCapture.Services;
+using GravityCapture.Views;
 
 using WpfMessageBox = System.Windows.MessageBox;
 using WpfCursors    = System.Windows.Input.Cursors;
@@ -33,7 +33,6 @@ namespace GravityCapture
         private readonly System.Timers.Timer _timer;
         private readonly OcrIngestor _ingestor = new();
         private ApiClient? _api;
-
         private IntPtr _lastCropHwnd = IntPtr.Zero;
 
         public MainWindow()
@@ -71,12 +70,9 @@ namespace GravityCapture
             _timer = new System.Timers.Timer { AutoReset = true, Enabled = false };
             _timer.Elapsed += OnTick;
 
-            Closing += (_, __) =>
-            {
-                try { SaveSettings(); } catch { }
-            };
+            Closing += (_, __) => { try { SaveSettings(); } catch { } };
 
-            // Export active OCR parameters and update label
+            // Export active OCR parameters, set label
             ApplyActiveProfile();
             UpdateActiveProfileLabel();
 
@@ -87,7 +83,7 @@ namespace GravityCapture
                 Status($"OCR profile → {ProfileManager.ActiveProfile}");
             };
 
-            // Keyboard toggle Ctrl+F6
+            // Ctrl+F6 keyboard toggle
             PreviewKeyDown += (s, e) =>
             {
                 if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && e.Key == Key.F6)
@@ -114,7 +110,7 @@ namespace GravityCapture
             catch { }
         }
 
-        // OCR PROFILE INTEGRATION
+        // --- OCR PROFILE EXPORT ---
         private static void ApplyActiveProfile()
         {
             var p = ProfileManager.Current;
@@ -151,13 +147,14 @@ namespace GravityCapture
         {
             var next = ProfileManager.ActiveProfile.Equals("HDR", StringComparison.OrdinalIgnoreCase) ? "SDR" : "HDR";
             ProfileManager.Switch(next);
-            // ProfileChanged will update env and label
-            WpfMessageBox.Show($"Switched OCR profile → {next}", "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
+            // ProfileChanged updates env + label
+            WpfMessageBox.Show($"Switched OCR profile → {next}", "Gravity Capture",
+                MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void ProfileToggleBtn_Click(object sender, RoutedEventArgs e) => ToggleOcrProfile();
 
-        // ENVIRONMENT
+        // --- ENVIRONMENT UI ---
         private string CurrentEnv => EnvBox.SelectedIndex == 1 ? "Prod" : "Stage";
 
         private void LoadEnvFieldsIntoTextBoxes()
@@ -183,7 +180,7 @@ namespace GravityCapture
             Status($"Switched log environment → {CurrentEnv}");
         }
 
-        // SAVE / START / STOP
+        // --- SAVE / START / STOP ---
         private void SaveBtn_Click(object sender, RoutedEventArgs e)
         {
             SaveSettings();
@@ -211,8 +208,8 @@ namespace GravityCapture
             _settings.ServerName = ServerBox.Text?.Trim() ?? string.Empty;
             _settings.TribeName  = TribeBox.Text?.Trim()  ?? string.Empty;
 
-            _settings.AutoOcrEnabled       = AutoOcrCheck.IsChecked == true;
-            _settings.PostOnlyCritical     = RedOnlyCheck.IsChecked == true;
+            _settings.AutoOcrEnabled           = AutoOcrCheck.IsChecked == true;
+            _settings.PostOnlyCritical         = RedOnlyCheck.IsChecked == true;
             _settings.FilterTameDeath          = FilterTameCheck.IsChecked   == true;
             _settings.FilterStructureDestroyed = FilterStructCheck.IsChecked == true;
             _settings.FilterTribeMateDeath     = FilterTribeCheck.IsChecked  == true;
@@ -239,7 +236,7 @@ namespace GravityCapture
             Status("Stopped.");
         }
 
-        // TIMER
+        // --- TIMER TICK ---
         private async void OnTick(object? s, ElapsedEventArgs e)
         {
             try
@@ -298,7 +295,7 @@ namespace GravityCapture
 
         private void Status(string s) => Dispatcher.Invoke(() => StatusText.Text = s);
 
-        // MANUAL POSTS
+        // --- MANUAL POSTS ---
         private async void SendTestBtn_Click(object sender, RoutedEventArgs e)
         {
             SaveSettings();
@@ -310,14 +307,14 @@ namespace GravityCapture
                 if (ok)
                 {
                     Status("Test event posted ✅");
-                    WpfMessageBox.Show($"Posted to {CurrentEnv} ✅", "Gravity Capture",
-                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    WpfMessageBox.Show($"Posted to {CurrentEnv} ✅",
+                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
                 {
                     Status("Test failed ❌");
-                    WpfMessageBox.Show($"Failed to post.\n\n{error}", "Gravity Capture",
-                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    WpfMessageBox.Show($"Failed to post.\n\n{error}",
+                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             finally { WpfMouse.OverrideCursor = null; }
@@ -358,14 +355,14 @@ namespace GravityCapture
                 if (ok)
                 {
                     Status("Parsed event posted ✅");
-                    WpfMessageBox.Show($"Posted to {CurrentEnv} ✅", "Gravity Capture",
-                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    WpfMessageBox.Show($"Posted to {CurrentEnv} ✅",
+                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
                 {
                     Status("Post failed ❌");
-                    WpfMessageBox.Show($"Failed to post.\n\n{error}", "Gravity Capture",
-                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    WpfMessageBox.Show($"Post failed.\n\n{error}",
+                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             finally { WpfMouse.OverrideCursor = null; }
@@ -390,8 +387,8 @@ namespace GravityCapture
                 if (!ok || items == null)
                 {
                     Status("Load failed ❌");
-                    WpfMessageBox.Show(err ?? "Unknown error.", "Gravity Capture",
-                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    WpfMessageBox.Show(err ?? "Unknown error.",
+                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
 
@@ -403,7 +400,7 @@ namespace GravityCapture
             finally { WpfMouse.OverrideCursor = null; }
         }
 
-        // WINDOW TARGETING & OCR
+        // --- WINDOW TARGETING & OCR ---
         private IntPtr ResolveTargetWindow()
         {
             if (_lastCropHwnd != IntPtr.Zero &&
@@ -650,7 +647,7 @@ namespace GravityCapture
             return string.IsNullOrWhiteSpace(val) ? null : val;
         }
 
-        // XAML WRAPPERS (keep existing handler names alive)
+        // legacy handler names
         private void RefreshRecent_Click(object sender, RoutedEventArgs e)       => RefreshRecentBtn_Click(sender, e);
         private void SelectCropArea_Click(object sender, RoutedEventArgs e)      => SelectCropBtn_Click(sender, e);
         private void PreviewCrop_Click(object sender, RoutedEventArgs e)         => PreviewCropBtn_Click(sender, e);
