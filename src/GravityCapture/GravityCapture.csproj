@@ -29,11 +29,11 @@
     <Resource Include="Assets\Gravity_Logs_Background.png" />
   </ItemGroup>
 
-  <!-- NEW: seed OCR profiles on first run -->
+  <!-- Seed OCR profiles on first run -->
   <ItemGroup>
-    <None Include="Config\default.profiles.json">
+    <Content Include="Config\default.profiles.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    </Content>
   </ItemGroup>
 
   <!-- WinRT + Win32 interop for Windows.Graphics.Capture + P/Invokes -->
