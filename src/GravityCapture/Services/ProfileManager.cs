@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-// using System.CommandLine; // removed: not used
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -31,13 +30,20 @@ namespace GravityCapture.Services
 
         public static void Initialize(string[]? args = null)
         {
-            var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppFolderName, "profiles");
+            var baseDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                AppFolderName, "profiles");
             Directory.CreateDirectory(baseDir);
             _configPath = Path.Combine(baseDir, ProfilesFileName);
 
-            if (!File.Exists(_configPath))
+            // Allow explicit reseed via env var (opt-in).
+            bool forceReset = string.Equals(
+                Environment.GetEnvironmentVariable("GC_FORCE_PROFILE_RESET"), "1",
+                StringComparison.OrdinalIgnoreCase);
+
+            if (!File.Exists(_configPath) || forceReset)
             {
-                TrySeedFromRepoDefaults(baseDir);
+                TrySeedFromRepoDefaults(baseDir, overwrite: true);
             }
 
             Load();
@@ -48,9 +54,7 @@ namespace GravityCapture.Services
                 foreach (var a in args)
                 {
                     if (a.StartsWith("--profile=", StringComparison.OrdinalIgnoreCase))
-                    {
                         cliProfile = a.Substring("--profile=".Length).Trim();
-                    }
                 }
             }
 
@@ -78,19 +82,21 @@ namespace GravityCapture.Services
         public static OcrProfile Get(string profileName)
         {
             if (_container.Profiles.TryGetValue(profileName, out var prof)) return prof;
+
             if (!_container.Profiles.ContainsKey("HDR")) _container.Profiles["HDR"] = BuildDefaultHdr();
             if (!_container.Profiles.ContainsKey("SDR")) _container.Profiles["SDR"] = BuildDefaultSdr();
-            return _container.Profiles[profileName] = profileName.Equals("SDR", StringComparison.OrdinalIgnoreCase)
-                ? BuildDefaultSdr() : BuildDefaultHdr();
+
+            return _container.Profiles[profileName] =
+                profileName.Equals("SDR", StringComparison.OrdinalIgnoreCase)
+                ? BuildDefaultSdr()
+                : BuildDefaultHdr();
         }
 
         public static void Update(string profileName, OcrProfile updated)
         {
             _container.Profiles[profileName] = updated;
             if (string.Equals(profileName, _active, StringComparison.OrdinalIgnoreCase))
-            {
                 ProfileChanged?.Invoke(_active, updated);
-            }
             Save();
         }
 
@@ -112,6 +118,7 @@ namespace GravityCapture.Services
                 Save();
                 return;
             }
+
             var json = File.ReadAllText(_configPath, Encoding.UTF8);
             _container = JsonSerializer.Deserialize<ProfilesContainer>(json, _json) ?? new ProfilesContainer();
             if (_container.Profiles == null || _container.Profiles.Count == 0)
@@ -122,6 +129,8 @@ namespace GravityCapture.Services
                     ["SDR"] = BuildDefaultSdr()
                 };
             }
+            if (string.IsNullOrWhiteSpace(_container.ActiveProfile))
+                _container.ActiveProfile = "HDR";
         }
 
         private static void Save()
@@ -130,31 +139,51 @@ namespace GravityCapture.Services
             File.WriteAllText(_configPath, json, Encoding.UTF8);
         }
 
-        private static void TrySeedFromRepoDefaults(string baseDir)
+        /// <summary>
+        /// Copy Config\default.profiles.json from the app's output folder into Roaming profiles,
+        /// but only when missing by default. If overwrite==true, replace it intentionally.
+        /// If the file is not present in output, fall back to hardcoded defaults without clobbering existing files.
+        /// </summary>
+        private static void TrySeedFromRepoDefaults(string baseDir, bool overwrite = false)
         {
             try
             {
                 var exeDir = AppContext.BaseDirectory;
                 var candidate = Path.Combine(exeDir, "Config", "default.profiles.json");
+                var dest = Path.Combine(baseDir, ProfilesFileName);
+
                 if (File.Exists(candidate))
                 {
-                    Directory.CreateDirectory(baseDir);
-                    File.Copy(candidate, Path.Combine(baseDir, ProfilesFileName), overwrite: true);
+                    if (!File.Exists(dest) || overwrite)
+                    {
+                        Directory.CreateDirectory(baseDir);
+                        File.Copy(candidate, dest, overwrite: true);
+                        return;
+                    }
+                    // File exists and overwrite not requested → do nothing.
                     return;
                 }
             }
-            catch { /* ignore */ }
-
-            _container = new ProfilesContainer
+            catch
             {
-                ActiveProfile = "HDR",
-                Profiles = new Dictionary<string, OcrProfile>
+                // ignore and fall through to hardcoded defaults if needed
+            }
+
+            // Only generate from fallback if the file truly doesn't exist or overwrite requested.
+            var destPath = Path.Combine(baseDir, ProfilesFileName);
+            if (!File.Exists(destPath) || overwrite)
+            {
+                _container = new ProfilesContainer
                 {
-                    ["HDR"] = BuildDefaultHdr(),
-                    ["SDR"] = BuildDefaultSdr()
-                }
-            };
-            Save();
+                    ActiveProfile = "HDR",
+                    Profiles = new Dictionary<string, OcrProfile>
+                    {
+                        ["HDR"] = BuildDefaultHdr(),
+                        ["SDR"] = BuildDefaultSdr()
+                    }
+                };
+                Save();
+            }
         }
 
         private static OcrProfile BuildDefaultHdr() => new()
@@ -176,23 +205,43 @@ namespace GravityCapture.Services
             UPSCALE = 2
         };
 
+        // SDR fallback updated exactly to your requested test values.
+        // Note: fields not present on OcrProfile are intentionally omitted here to avoid build breaks.
         private static OcrProfile BuildDefaultSdr() => new()
         {
-            TONEMAP = 0,
+            GC_RESERVED = 0, // keep if your model has an extra slot; safe no-op otherwise
+
+            TONEMAP = 1,
             ADAPTIVE = 1,
-            ADAPTIVE_WIN = 16,
-            ADAPTIVE_C = 2,
-            SHARPEN = 1,
-            OPEN = 1,
+            ADAPTIVE_WIN = 31,
+            ADAPTIVE_C = -28,
+
+            SHARPEN = 0,
+
+            OPEN = 0,
+            OPEN_ITERS = 0,
+
             CLOSE = 0,
-            DILATE = 0,
-            ERODE = 2,
-            CONTRAST = 1.2,
+            // CLOSE_ITERS omitted unless defined on OcrProfile
+
+            DILATE = 2,
+            ERODE = 0,
+
+            CONTRAST = 1.30,
+            // BRIGHT omitted unless defined on OcrProfile
+
             INVERT = 1,
+
             MAJORITY = 0,
-            MAJORITY_ITERS = 2,
-            OPEN_ITERS = 2,
-            UPSCALE = 2
+            MAJORITY_ITERS = 0,
+
+            UPSCALE = 3
+
+            // SAT/VAL thresholds omitted unless properties exist on OcrProfile:
+            // SAT_COLOR = 0.25,
+            // VAL_COLOR = 0.50,
+            // SAT_GRAY  = 0.12,
+            // VAL_GRAY  = 0.85
         };
     }
 }
