@@ -12,7 +12,7 @@ using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 
 using GravityCapture.Models;          // AppSettings, TribeEvent models
-using GravityCapture.Services;        // OcrService, LogIngestClient, ScreenCapture, OcrIngestor
+using GravityCapture.Services;        // OcrService, LogIngestClient, ScreenCapture, OcrIngestor, ProfileManager
 using GravityCapture.Views;           // RegionSelectorWindow (if present)
 
 using WpfMessageBox = System.Windows.MessageBox;
@@ -84,6 +84,24 @@ namespace GravityCapture
                 try { SaveSettings(); } catch { /* don’t block closing */ }
             };
 
+            // === OCR profile hook: export active profile to env so OcrService keeps working ===
+            ApplyActiveProfile(); // initial export at startup
+            ProfileManager.ProfileChanged += (_, __) =>
+            {
+                ApplyActiveProfile(); // re-export on switch
+                Status($"OCR profile → {ProfileManager.ActiveProfile}");
+            };
+
+            // Optional: keyboard toggle Ctrl+F6 to switch HDR/SDR at runtime
+            PreviewKeyDown += (s, e) =>
+            {
+                if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && e.Key == Key.F6)
+                {
+                    ToggleOcrProfile();
+                    e.Handled = true;
+                }
+            };
+
             if (_settings.Autostart)
                 StartCapture();
         }
@@ -100,6 +118,46 @@ namespace GravityCapture
             }
             catch { /* cosmetic only */ }
         }
+
+        // === OCR PROFILE INTEGRATION ===
+        private static void ApplyActiveProfile()
+        {
+            var p = ProfileManager.Current;
+
+            // Export as process env vars to preserve existing OcrService behavior
+            SetEnv("GC_OCR_TONEMAP",          p.TONEMAP);
+            SetEnv("GC_OCR_ADAPTIVE",         p.ADAPTIVE);
+            SetEnv("GC_OCR_ADAPTIVE_WIN",     p.ADAPTIVE_WIN);
+            SetEnv("GC_OCR_ADAPTIVE_C",       p.ADAPTIVE_C);
+            SetEnv("GC_OCR_SHARPEN",          p.SHARPEN);
+            SetEnv("GC_OCR_OPEN",             p.OPEN);
+            SetEnv("GC_OCR_CLOSE",            p.CLOSE);
+            SetEnv("GC_OCR_DILATE",           p.DILATE);
+            SetEnv("GC_OCR_ERODE",            p.ERODE);
+            SetEnv("GC_OCR_CONTRAST",         p.CONTRAST);
+            SetEnv("GC_OCR_INVERT",           p.INVERT);
+            SetEnv("GC_OCR_MAJORITY",         p.MAJORITY);
+            SetEnv("GC_OCR_MAJORITY_ITERS",   p.MAJORITY_ITERS);
+            SetEnv("GC_OCR_OPEN_ITERS",       p.OPEN_ITERS);
+            SetEnv("GC_OCR_UPSCALE",          p.UPSCALE);
+
+            // Back-compat indicator for any legacy checks
+            Environment.SetEnvironmentVariable("GC_PROFILE", ProfileManager.ActiveProfile, EnvironmentVariableTarget.Process);
+
+            static void SetEnv(string key, int val)    => Environment.SetEnvironmentVariable(key, val.ToString(), EnvironmentVariableTarget.Process);
+            static void SetEnv(string key, double val) => Environment.SetEnvironmentVariable(key, val.ToString(System.Globalization.CultureInfo.InvariantCulture), EnvironmentVariableTarget.Process);
+        }
+
+        private void ToggleOcrProfile()
+        {
+            var next = ProfileManager.ActiveProfile.Equals("HDR", StringComparison.OrdinalIgnoreCase) ? "SDR" : "HDR";
+            ProfileManager.Switch(next);
+            // ProfileChanged handler will re-export and update status
+            WpfMessageBox.Show($"Switched OCR profile → {next}", "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        // Optional XAML-friendly handler you can wire to a button:
+        private void ProfileToggleBtn_Click(object sender, RoutedEventArgs e) => ToggleOcrProfile();
 
         // ========== ENVIRONMENT ==========
         private string CurrentEnv => EnvBox.SelectedIndex == 1 ? "Prod" : "Stage";
