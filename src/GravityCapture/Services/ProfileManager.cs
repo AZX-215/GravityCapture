@@ -208,40 +208,31 @@ namespace GravityCapture.Services
         // SDR fallback updated exactly to your requested test values.
         // Note: fields not present on OcrProfile are intentionally omitted here to avoid build breaks.
         private static OcrProfile BuildDefaultSdr() => new()
-        {
-            GC_RESERVED = 0, // keep if your model has an extra slot; safe no-op otherwise
+{
+    TONEMAP = 1,
+    ADAPTIVE = 1,
+    ADAPTIVE_WIN = 31,
+    ADAPTIVE_C = -28,
 
-            TONEMAP = 1,
-            ADAPTIVE = 1,
-            ADAPTIVE_WIN = 31,
-            ADAPTIVE_C = -28,
+    SHARPEN = 0,
 
-            SHARPEN = 0,
+    OPEN = 0,
+    OPEN_ITERS = 0,
 
-            OPEN = 0,
-            OPEN_ITERS = 0,
+    CLOSE = 0,
 
-            CLOSE = 0,
-            // CLOSE_ITERS omitted unless defined on OcrProfile
+    DILATE = 2,
+    ERODE = 0,
 
-            DILATE = 2,
-            ERODE = 0,
+    CONTRAST = 1.30,
 
-            CONTRAST = 1.30,
-            // BRIGHT omitted unless defined on OcrProfile
+    INVERT = 1,
 
-            INVERT = 1,
+    MAJORITY = 0,
+    MAJORITY_ITERS = 0,
 
-            MAJORITY = 0,
-            MAJORITY_ITERS = 0,
+    UPSCALE = 3
+};
 
-            UPSCALE = 3
-
-            // SAT/VAL thresholds omitted unless properties exist on OcrProfile:
-            // SAT_COLOR = 0.25,
-            // VAL_COLOR = 0.50,
-            // SAT_GRAY  = 0.12,
-            // VAL_GRAY  = 0.85
-        };
     }
 }
