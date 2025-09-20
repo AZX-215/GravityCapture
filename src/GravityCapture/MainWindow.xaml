@@ -120,7 +120,7 @@
                         <Button x:Name="PreviewCropBtn" Click="PreviewCropBtn_Click" Content="Preview Crop" />
                     </WrapPanel>
 
-                    <WrapPanel Grid.Row="3" Margin="0,6,0,0">
+                    <WrapPanel Grid.Row="3" Margin="0,6,0,0" VerticalAlignment="Center">
                         <Button x:Name="OcrCropBtn" Click="OcrCropBtn_Click" Content="OCR Crop → Paste" />
                         <Button x:Name="OcrAndPostNowBtn" Click="OcrAndPostNowBtn_Click" Content="OCR &amp; Post Visible Now" />
                         <Button x:Name="SendTestBtn" Click="SendTestBtn_Click" Content="Send Test Tribe Event" />
@@ -128,6 +128,9 @@
                         <!-- NEW: HDR/SDR toggle -->
                         <Button x:Name="ProfileToggleBtn" Click="ProfileToggleBtn_Click"
                                 Content="Toggle HDR/SDR Profile" ToolTip="Switch active OCR profile (Ctrl+F6)"/>
+                        <!-- NEW: Active profile label -->
+                        <TextBlock x:Name="ActiveProfileLabel" Margin="16,0,0,0" Foreground="#9ECFFF"
+                                   Text="Active: HDR"/>
                     </WrapPanel>
                 </Grid>
             </Grid>
