@@ -29,6 +29,13 @@
     <Resource Include="Assets\Gravity_Logs_Background.png" />
   </ItemGroup>
 
+  <!-- NEW: seed OCR profiles on first run -->
+  <ItemGroup>
+    <None Include="Config\default.profiles.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <!-- WinRT + Win32 interop for Windows.Graphics.Capture + P/Invokes -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.0.7" />
