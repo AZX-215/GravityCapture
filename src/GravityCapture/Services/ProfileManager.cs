@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using GravityCapture.Models;
@@ -11,6 +12,7 @@ namespace GravityCapture.Services
     {
         public const string AppFolderName = "GravityCapture";
         public const string ProfilesFileName = "profiles.json";
+        private const string StampFileName = "profiles.stamp"; // stores SHA256 of built default
 
         public static event Action<string, OcrProfile>? ProfileChanged;
 
@@ -23,31 +25,39 @@ namespace GravityCapture.Services
 
         private static ProfilesContainer _container = new();
         private static string _active = "HDR";
-        private static string _configPath = string.Empty;
+        private static string _userProfilesPath = string.Empty;
+        private static string _stampPath = string.Empty;
 
         public static string ActiveProfile => _active;
         public static OcrProfile Current => Get(_active);
 
+        // --- Init / Sync ---
+
         public static void Initialize(string[]? args = null)
         {
-            var baseDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                AppFolderName, "profiles");
-            Directory.CreateDirectory(baseDir);
-            _configPath = Path.Combine(baseDir, ProfilesFileName);
+            (_userProfilesPath, _stampPath) = GetUserPaths();
 
-            // Allow explicit reseed via env var (opt-in).
+            var builtDefault = GetBuiltDefaultPath();
+            var builtHash = ComputeFileHash(builtDefault);
+            var currentStamp = ReadStamp(_stampPath);
+
             bool forceReset = string.Equals(
                 Environment.GetEnvironmentVariable("GC_FORCE_PROFILE_RESET"), "1",
                 StringComparison.OrdinalIgnoreCase);
 
-            if (!File.Exists(_configPath) || forceReset)
+            // Sync rule:
+            // - If no user file, copy built default.
+            // - If force flag, copy built default.
+            // - If built hash != stored stamp, copy built default (default changed).
+            if (!File.Exists(_userProfilesPath) || forceReset || !HashesEqual(builtHash, currentStamp))
             {
-                TrySeedFromRepoDefaults(baseDir, overwrite: true);
+                CopyBuiltDefaultToUser(builtDefault, _userProfilesPath);
+                WriteStamp(_stampPath, builtHash);
             }
 
             Load();
 
+            // CLI/env profile select
             string? cliProfile = null;
             if (args != null)
             {
@@ -64,6 +74,8 @@ namespace GravityCapture.Services
             var target = cliProfile ?? envProfile ?? _container.ActiveProfile;
             Switch(target);
         }
+
+        // --- Public API ---
 
         public static void Switch(string? profileName)
         {
@@ -102,9 +114,11 @@ namespace GravityCapture.Services
 
         public static IReadOnlyDictionary<string, OcrProfile> All() => _container.Profiles;
 
+        // --- IO ---
+
         private static void Load()
         {
-            if (!File.Exists(_configPath))
+            if (!File.Exists(_userProfilesPath))
             {
                 _container = new ProfilesContainer
                 {
@@ -119,7 +133,7 @@ namespace GravityCapture.Services
                 return;
             }
 
-            var json = File.ReadAllText(_configPath, Encoding.UTF8);
+            var json = File.ReadAllText(_userProfilesPath, Encoding.UTF8);
             _container = JsonSerializer.Deserialize<ProfilesContainer>(json, _json) ?? new ProfilesContainer();
             if (_container.Profiles == null || _container.Profiles.Count == 0)
             {
@@ -135,45 +149,31 @@ namespace GravityCapture.Services
 
         private static void Save()
         {
+            Directory.CreateDirectory(Path.GetDirectoryName(_userProfilesPath)!);
             var json = JsonSerializer.Serialize(_container, _json);
-            File.WriteAllText(_configPath, json, Encoding.UTF8);
+            File.WriteAllText(_userProfilesPath, json, Encoding.UTF8);
         }
 
-        /// <summary>
-        /// Copy Config\default.profiles.json from the app's output folder into Roaming profiles,
-        /// but only when missing by default. If overwrite==true, replace it intentionally.
-        /// If the file is not present in output, fall back to hardcoded defaults without clobbering existing files.
-        /// </summary>
-        private static void TrySeedFromRepoDefaults(string baseDir, bool overwrite = false)
+        // --- Defaults / Seeding ---
+
+        private static string GetBuiltDefaultPath()
         {
-            try
-            {
-                var exeDir = AppContext.BaseDirectory;
-                var candidate = Path.Combine(exeDir, "Config", "default.profiles.json");
-                var dest = Path.Combine(baseDir, ProfilesFileName);
+            var exeDir = AppContext.BaseDirectory;
+            var candidate = Path.Combine(exeDir, "Config", "default.profiles.json");
+            return candidate;
+        }
 
-                if (File.Exists(candidate))
-                {
-                    if (!File.Exists(dest) || overwrite)
-                    {
-                        Directory.CreateDirectory(baseDir);
-                        File.Copy(candidate, dest, overwrite: true);
-                        return;
-                    }
-                    // File exists and overwrite not requested → do nothing.
-                    return;
-                }
-            }
-            catch
+        private static void CopyBuiltDefaultToUser(string builtDefaultPath, string userPath)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(userPath)!);
+            if (File.Exists(builtDefaultPath))
             {
-                // ignore and fall through to hardcoded defaults if needed
+                File.Copy(builtDefaultPath, userPath, overwrite: true);
             }
-
-            // Only generate from fallback if the file truly doesn't exist or overwrite requested.
-            var destPath = Path.Combine(baseDir, ProfilesFileName);
-            if (!File.Exists(destPath) || overwrite)
+            else
             {
-                _container = new ProfilesContainer
+                // If the built default is missing, fall back to hardcoded defaults
+                var fallback = new ProfilesContainer
                 {
                     ActiveProfile = "HDR",
                     Profiles = new Dictionary<string, OcrProfile>
@@ -182,9 +182,98 @@ namespace GravityCapture.Services
                         ["SDR"] = BuildDefaultSdr()
                     }
                 };
-                Save();
+                var json = JsonSerializer.Serialize(fallback, _json);
+                File.WriteAllText(userPath, json, Encoding.UTF8);
             }
         }
+
+        private static (string userProfiles, string stampPath) GetUserPaths()
+        {
+            var app = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var dirNew = Path.Combine(app, AppFolderName, "profiles");
+            Directory.CreateDirectory(dirNew);
+            var newPath = Path.Combine(dirNew, ProfilesFileName);
+
+            // migrate old location if present
+            var oldPath = Path.Combine(app, AppFolderName, ProfilesFileName);
+            if (File.Exists(oldPath) && !File.Exists(newPath))
+            {
+                File.Copy(oldPath, newPath, overwrite: true);
+                try { File.Delete(oldPath); } catch { }
+            }
+
+            var stamp = Path.Combine(dirNew, StampFileName);
+            return (newPath, stamp);
+        }
+
+        private static byte[]? ComputeFileHash(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return null;
+                using var sha = SHA256.Create();
+                using var fs = File.OpenRead(path);
+                return sha.ComputeHash(fs);
+            }
+            catch { return null; }
+        }
+
+        private static byte[]? ReadStamp(string stampPath)
+        {
+            try
+            {
+                if (!File.Exists(stampPath)) return null;
+                var hex = File.ReadAllText(stampPath).Trim();
+                return HexToBytes(hex);
+            }
+            catch { return null; }
+        }
+
+        private static void WriteStamp(string stampPath, byte[]? hash)
+        {
+            try
+            {
+                if (hash == null) { if (File.Exists(stampPath)) File.Delete(stampPath); return; }
+                File.WriteAllText(stampPath, BytesToHex(hash));
+            }
+            catch { }
+        }
+
+        private static bool HashesEqual(byte[]? a, byte[]? b)
+        {
+            if (a == null && b == null) return true;
+            if (a == null || b == null) return false;
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
+        private static string BytesToHex(byte[] data)
+        {
+            char[] c = new char[data.Length * 2];
+            int b;
+            for (int i = 0; i < data.Length; i++)
+            {
+                b = data[i] >> 4;
+                c[i * 2] = (char)(55 + b + (((b - 10) >> 31) & -7));
+                b = data[i] & 0xF;
+                c[i * 2 + 1] = (char)(55 + b + (((b - 10) >> 31) & -7));
+            }
+            return new string(c);
+        }
+
+        private static byte[]? HexToBytes(string hex)
+        {
+            if (string.IsNullOrWhiteSpace(hex)) return null;
+            int len = hex.Length;
+            if (len % 2 != 0) return null;
+            var data = new byte[len / 2];
+            for (int i = 0; i < len; i += 2)
+                data[i / 2] = Convert.ToByte(hex.Substring(i, 2), 16);
+            return data;
+        }
+
+        // --- Hardcoded defaults ---
 
         private static OcrProfile BuildDefaultHdr() => new()
         {
@@ -205,34 +294,27 @@ namespace GravityCapture.Services
             UPSCALE = 2
         };
 
-        // SDR fallback updated exactly to your requested test values.
-        // Note: fields not present on OcrProfile are intentionally omitted here to avoid build breaks.
         private static OcrProfile BuildDefaultSdr() => new()
-{
-    TONEMAP = 1,
-    ADAPTIVE = 1,
-    ADAPTIVE_WIN = 31,
-    ADAPTIVE_C = -28,
-
-    SHARPEN = 0,
-
-    OPEN = 0,
-    OPEN_ITERS = 0,
-
-    CLOSE = 0,
-
-    DILATE = 2,
-    ERODE = 0,
-
-    CONTRAST = 1.30,
-
-    INVERT = 1,
-
-    MAJORITY = 0,
-    MAJORITY_ITERS = 0,
-
-    UPSCALE = 3
-};
-
+        {
+            TONEMAP = 1,
+            ADAPTIVE = 1,
+            ADAPTIVE_WIN = 31,
+            ADAPTIVE_C = -28,
+            SHARPEN = 0,
+            OPEN = 0,
+            OPEN_ITERS = 0,
+            CLOSE = 0,
+            DILATE = 2,
+            ERODE = 0,
+            CONTRAST = 1.30,
+            INVERT = 1,
+            MAJORITY = 0,
+            MAJORITY_ITERS = 0,
+            UPSCALE = 3,
+            SAT_COLOR = 0.25,
+            VAL_COLOR = 0.50,
+            SAT_GRAY = 0.12,
+            VAL_GRAY = 0.85
+        };
     }
 }
