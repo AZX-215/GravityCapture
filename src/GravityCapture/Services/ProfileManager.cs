@@ -20,7 +20,9 @@ namespace GravityCapture.Services
         {
             WriteIndented = true,
             ReadCommentHandling = JsonCommentHandling.Skip,
-            AllowTrailingCommas = true
+            AllowTrailingCommas = true,
+            // key change: do not write default-valued props so profiles.json mirrors default unless changed
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault
         };
 
         private static ProfilesContainer _container = new();
@@ -72,7 +74,10 @@ namespace GravityCapture.Services
                              ?? Environment.GetEnvironmentVariable("GC_ENV");
 
             var target = cliProfile ?? envProfile ?? _container.ActiveProfile;
-            Switch(target);
+
+            // key change: don't save/emit unless the active actually changes
+            if (!string.Equals(target, _container.ActiveProfile, StringComparison.OrdinalIgnoreCase))
+                Switch(target);
         }
 
         // --- Public API ---
@@ -85,10 +90,15 @@ namespace GravityCapture.Services
                 profileName = "HDR";
                 prof = _container.Profiles.ContainsKey("HDR") ? _container.Profiles["HDR"] : BuildDefaultHdr();
             }
-            _active = profileName!;
-            _container.ActiveProfile = _active;
-            Save();
-            ProfileChanged?.Invoke(_active, prof);
+
+            // key change: only persist if different
+            if (!string.Equals(_active, profileName!, StringComparison.OrdinalIgnoreCase))
+            {
+                _active = profileName!;
+                _container.ActiveProfile = _active;
+                Save();
+                ProfileChanged?.Invoke(_active, prof);
+            }
         }
 
         public static OcrProfile Get(string profileName)
