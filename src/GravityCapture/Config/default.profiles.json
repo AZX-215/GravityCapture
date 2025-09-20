@@ -19,56 +19,36 @@
       "GC_OCR_UPSCALE": 2
     },
     "SDR": {
-      "GC_OCR_TONEMAP": 0,
+      "GC_OCR_TONEMAP": 1,
       "GC_OCR_ADAPTIVE": 1,
       "GC_OCR_ADAPTIVE_WIN": 31,
-      "GC_OCR_ADAPTIVE_C": 0,
-      "GC_OCR_SHARPEN": 1,
-      "GC_OCR_OPEN": 1,
+      "GC_OCR_ADAPTIVE_C": -28,
+
+      "GC_OCR_SHARPEN": 0,
+
+      "GC_OCR_OPEN": 0,
+      "GC_OCR_OPEN_ITERS": 0,
+
       "GC_OCR_CLOSE": 0,
-      "GC_OCR_DILATE": 0,
+      "GC_OCR_CLOSE_ITERS": 0,
+
+      "GC_OCR_DILATE": 2,
       "GC_OCR_ERODE": 0,
-      "GC_OCR_CONTRAST": 1,
+
+      "GC_OCR_CONTRAST": 1.30,
+      "GC_OCR_BRIGHT": 0,
+
       "GC_OCR_INVERT": 1,
+
       "GC_OCR_MAJORITY": 0,
       "GC_OCR_MAJORITY_ITERS": 0,
-      "GC_OCR_OPEN_ITERS": 0,
-      "GC_OCR_UPSCALE": 2
+
+      "GC_OCR_UPSCALE": 3,
+
+      "GC_OCR_SAT_COLOR": 0.25,
+      "GC_OCR_VAL_COLOR": 0.50,
+      "GC_OCR_SAT_GRAY": 0.12,
+      "GC_OCR_VAL_GRAY": 0.85
     }
   }
 }
-
-// ================================================
-// Integration points (minimal)
-// ================================================
-// 1) Call Initialize as early as possible (e.g., App.xaml.cs OnStartup or first line of Main):
-//    ProfileManager.Initialize(Environment.GetCommandLineArgs());
-//    You can pass "--profile=hdr" or set ENV GC_PROFILE=HDR or GC_ENV=HDR.
-
-// 2) Wherever OCR pipeline previously read debug env vars, replace with ProfileManager.Current values:
-//    var p = ProfileManager.Current;
-//    var tonemap = p.TONEMAP;
-//    var adaptive = p.ADAPTIVE;
-//    var win = p.ADAPTIVE_WIN;
-//    var c = p.ADAPTIVE_C;
-//    var sharpen = p.SHARPEN;
-//    var open = p.OPEN;
-//    var close = p.CLOSE;
-//    var dilate = p.DILATE;
-//    var erode = p.ERODE;
-//    var contrast = p.CONTRAST;
-//    var invert = p.INVERT;
-//    var majority = p.MAJORITY;
-//    var majIters = p.MAJORITY_ITERS;
-//    var openIters = p.OPEN_ITERS;
-//    var upscale = p.UPSCALE;
-
-// 3) Optional runtime switch (tray/menu button):
-//    ProfileManager.Switch("SDR"); // fires ProfileChanged event so your pipeline can reload params.
-
-// 4) Optional: subscribe to changes
-//    ProfileManager.ProfileChanged += (name, profile) => { /* rebind OCR parameters */ };
-
-// 5) Distribution:
-//    On first run, defaults are copied to %APPDATA%/GravityCapture/profiles/profiles.json.
-//    Users can edit this file to tweak SDR without touching HDR.
