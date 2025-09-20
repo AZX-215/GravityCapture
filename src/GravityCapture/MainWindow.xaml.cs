@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -34,6 +35,12 @@ namespace GravityCapture
         private readonly OcrIngestor _ingestor = new();
         private ApiClient? _api;
         private IntPtr _lastCropHwnd = IntPtr.Zero;
+
+        // Helpers for env export
+        private static void SetEnvInt(string key, int val) =>
+            Environment.SetEnvironmentVariable(key, val.ToString(), EnvironmentVariableTarget.Process);
+        private static void SetEnvDouble(string key, double val) =>
+            Environment.SetEnvironmentVariable(key, val.ToString(CultureInfo.InvariantCulture), EnvironmentVariableTarget.Process);
 
         public MainWindow()
         {
@@ -115,26 +122,23 @@ namespace GravityCapture
         {
             var p = ProfileManager.Current;
 
-            SetEnv("GC_OCR_TONEMAP",        p.TONEMAP);
-            SetEnv("GC_OCR_ADAPTIVE",       p.ADAPTIVE);
-            SetEnv("GC_OCR_ADAPTIVE_WIN",   p.ADAPTIVE_WIN);
-            SetEnv("GC_OCR_ADAPTIVE_C",     p.ADAPTIVE_C);
-            SetEnv("GC_OCR_SHARPEN",        p.SHARPEN);
-            SetEnv("GC_OCR_OPEN",           p.OPEN);
-            SetEnv("GC_OCR_CLOSE",          p.CLOSE);
-            SetEnv("GC_OCR_DILATE",         p.DILATE);
-            SetEnv("GC_OCR_ERODE",          p.ERODE);
-            SetEnv("GC_OCR_CONTRAST",       p.CONTRAST);
-            SetEnv("GC_OCR_INVERT",         p.INVERT);
-            SetEnv("GC_OCR_MAJORITY",       p.MAJORITY);
-            SetEnv("GC_OCR_MAJORITY_ITERS", p.MAJORITY_ITERS);
-            SetEnv("GC_OCR_OPEN_ITERS",     p.OPEN_ITERS);
-            SetEnv("GC_OCR_UPSCALE",        p.UPSCALE);
+            SetEnvInt("GC_OCR_TONEMAP",        p.TONEMAP);
+            SetEnvInt("GC_OCR_ADAPTIVE",       p.ADAPTIVE);
+            SetEnvInt("GC_OCR_ADAPTIVE_WIN",   p.ADAPTIVE_WIN);
+            SetEnvInt("GC_OCR_ADAPTIVE_C",     p.ADAPTIVE_C);
+            SetEnvInt("GC_OCR_SHARPEN",        p.SHARPEN);
+            SetEnvInt("GC_OCR_OPEN",           p.OPEN);
+            SetEnvInt("GC_OCR_CLOSE",          p.CLOSE);
+            SetEnvInt("GC_OCR_DILATE",         p.DILATE);
+            SetEnvInt("GC_OCR_ERODE",          p.ERODE);
+            SetEnvDouble("GC_OCR_CONTRAST",    p.CONTRAST);
+            SetEnvInt("GC_OCR_INVERT",         p.INVERT);
+            SetEnvInt("GC_OCR_MAJORITY",       p.MAJORITY);
+            SetEnvInt("GC_OCR_MAJORITY_ITERS", p.MAJORITY_ITERS);
+            SetEnvInt("GC_OCR_OPEN_ITERS",     p.OPEN_ITERS);
+            SetEnvInt("GC_OCR_UPSCALE",        p.UPSCALE);
 
             Environment.SetEnvironmentVariable("GC_PROFILE", ProfileManager.ActiveProfile, EnvironmentVariableTarget.Process);
-
-            static void SetEnv(string key, int val)    => Environment.SetEnvironmentVariable(key, val.ToString(), EnvironmentVariableTarget.Process);
-            static void SetEnv(string key, double val) => Environment.SetEnvironmentVariable(key, val.ToString(System.Globalization.CultureInfo.InvariantCulture), EnvironmentVariableTarget.Process);
         }
 
         private void UpdateActiveProfileLabel()
