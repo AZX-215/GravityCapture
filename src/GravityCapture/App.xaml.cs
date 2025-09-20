@@ -1,5 +1,5 @@
-using System;
 using System.Windows;
+using GravityCapture.Services;  // + add
 
 namespace GravityCapture
 {
@@ -8,6 +8,9 @@ namespace GravityCapture
     {
         protected override void OnStartup(StartupEventArgs e)
         {
+            // Initialize OCR profile system early. Supports --profile=hdr|sdr and GC_PROFILE/GC_ENV.
+            ProfileManager.Initialize(System.Environment.GetCommandLineArgs());  // + add
+
             base.OnStartup(e);
 
             // Nothing else needed here for OCR; OcrService reads env vars directly.
