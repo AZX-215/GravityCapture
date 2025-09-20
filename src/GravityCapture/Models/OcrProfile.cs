@@ -1,6 +1,3 @@
-// ================================================
-// File: src/GravityCapture/Models/OcrProfile.cs
-// ================================================
 using System.Text.Json.Serialization;
 
 namespace GravityCapture.Models
