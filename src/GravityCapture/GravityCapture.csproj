@@ -2,7 +2,6 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-
     <!-- Windows 10 (2004) or newer so Windows.Graphics.Capture is available -->
     <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
 
@@ -20,10 +19,12 @@
   <ItemGroup>
     <Content Include="appsettings*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
 
     <None Update="tessdata\eng.traineddata">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
 
     <Resource Include="Assets\Gravity_Logs_Background.png" />
@@ -33,6 +34,7 @@
   <ItemGroup>
     <Content Include="Config\default.profiles.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
 
