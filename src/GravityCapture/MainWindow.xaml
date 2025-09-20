@@ -125,6 +125,9 @@
                         <Button x:Name="OcrAndPostNowBtn" Click="OcrAndPostNowBtn_Click" Content="OCR &amp; Post Visible Now" />
                         <Button x:Name="SendTestBtn" Click="SendTestBtn_Click" Content="Send Test Tribe Event" />
                         <Button x:Name="SendParsedBtn" Click="SendParsedBtn_Click" Content="Send Pasted Log Line" />
+                        <!-- NEW: HDR/SDR toggle -->
+                        <Button x:Name="ProfileToggleBtn" Click="ProfileToggleBtn_Click"
+                                Content="Toggle HDR/SDR Profile" ToolTip="Switch active OCR profile (Ctrl+F6)"/>
                     </WrapPanel>
                 </Grid>
             </Grid>
