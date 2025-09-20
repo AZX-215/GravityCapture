@@ -23,7 +23,6 @@ namespace GravityCapture
 {
     public partial class MainWindow : Window
     {
-        // --- Dark title bar support (cosmetic) ---
         private const int DWMWA_USE_IMMERSIVE_DARK_MODE_NEW = 20;
         private const int DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
 
@@ -35,22 +34,18 @@ namespace GravityCapture
         private readonly OcrIngestor _ingestor = new();
         private ApiClient? _api;
 
-        // Remember the last window we cropped from so we don’t lose the handle
         private IntPtr _lastCropHwnd = IntPtr.Zero;
 
         public MainWindow()
         {
             InitializeComponent();
 
-            // Optional dark title bar
             SourceInitialized += (_, __) => ApplyDarkTitleBar();
 
-            // Load persisted settings
             _settings = AppSettings.Load();
 
-            // --- hydrate UI from settings ---
             EnvBox.SelectedIndex = _settings.LogEnvironment.Equals("Prod", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-            LoadEnvFieldsIntoTextBoxes(); // sets ApiUrlBox/ApiKeyBox based on env
+            LoadEnvFieldsIntoTextBoxes();
 
             ChannelBox.Text  = _settings.ChannelId == 0 ? "" : _settings.ChannelId.ToString();
             IntervalBox.Text = _settings.IntervalMinutes.ToString();
@@ -60,7 +55,7 @@ namespace GravityCapture
             QualityLabel.Text   = _settings.JpegQuality.ToString();
             QualitySlider.ValueChanged += (_, __) => QualityLabel.Text = ((int)QualitySlider.Value).ToString();
 
-            TitleHintBox.Text = _settings.TargetWindowHint ?? string.Empty; // harmless to keep even if unused
+            TitleHintBox.Text = _settings.TargetWindowHint ?? string.Empty;
             ServerBox.Text    = _settings.ServerName ?? string.Empty;
             TribeBox.Text     = _settings.TribeName  ?? string.Empty;
 
@@ -71,28 +66,28 @@ namespace GravityCapture
             FilterStructCheck.IsChecked = _settings.FilterStructureDestroyed;
             FilterTribeCheck.IsChecked  = _settings.FilterTribeMateDeath;
 
-            // Prepare HTTP client with current env
             LogIngestClient.Configure(_settings);
 
-            // Timer
             _timer = new System.Timers.Timer { AutoReset = true, Enabled = false };
             _timer.Elapsed += OnTick;
 
-            // ALWAYS persist on exit (fixes “fields reset on reopen”)
             Closing += (_, __) =>
             {
-                try { SaveSettings(); } catch { /* don’t block closing */ }
+                try { SaveSettings(); } catch { }
             };
 
-            // === OCR profile hook: export active profile to env so OcrService keeps working ===
-            ApplyActiveProfile(); // initial export at startup
+            // Export active OCR parameters and update label
+            ApplyActiveProfile();
+            UpdateActiveProfileLabel();
+
             ProfileManager.ProfileChanged += (_, __) =>
             {
-                ApplyActiveProfile(); // re-export on switch
+                ApplyActiveProfile();
+                UpdateActiveProfileLabel();
                 Status($"OCR profile → {ProfileManager.ActiveProfile}");
             };
 
-            // Optional: keyboard toggle Ctrl+F6 to switch HDR/SDR at runtime
+            // Keyboard toggle Ctrl+F6
             PreviewKeyDown += (s, e) =>
             {
                 if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && e.Key == Key.F6)
@@ -116,50 +111,53 @@ namespace GravityCapture
                 _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_NEW, ref enable, sizeof(int));
                 _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref enable, sizeof(int));
             }
-            catch { /* cosmetic only */ }
+            catch { }
         }
 
-        // === OCR PROFILE INTEGRATION ===
+        // OCR PROFILE INTEGRATION
         private static void ApplyActiveProfile()
         {
             var p = ProfileManager.Current;
 
-            // Export as process env vars to preserve existing OcrService behavior
-            SetEnv("GC_OCR_TONEMAP",          p.TONEMAP);
-            SetEnv("GC_OCR_ADAPTIVE",         p.ADAPTIVE);
-            SetEnv("GC_OCR_ADAPTIVE_WIN",     p.ADAPTIVE_WIN);
-            SetEnv("GC_OCR_ADAPTIVE_C",       p.ADAPTIVE_C);
-            SetEnv("GC_OCR_SHARPEN",          p.SHARPEN);
-            SetEnv("GC_OCR_OPEN",             p.OPEN);
-            SetEnv("GC_OCR_CLOSE",            p.CLOSE);
-            SetEnv("GC_OCR_DILATE",           p.DILATE);
-            SetEnv("GC_OCR_ERODE",            p.ERODE);
-            SetEnv("GC_OCR_CONTRAST",         p.CONTRAST);
-            SetEnv("GC_OCR_INVERT",           p.INVERT);
-            SetEnv("GC_OCR_MAJORITY",         p.MAJORITY);
-            SetEnv("GC_OCR_MAJORITY_ITERS",   p.MAJORITY_ITERS);
-            SetEnv("GC_OCR_OPEN_ITERS",       p.OPEN_ITERS);
-            SetEnv("GC_OCR_UPSCALE",          p.UPSCALE);
+            SetEnv("GC_OCR_TONEMAP",        p.TONEMAP);
+            SetEnv("GC_OCR_ADAPTIVE",       p.ADAPTIVE);
+            SetEnv("GC_OCR_ADAPTIVE_WIN",   p.ADAPTIVE_WIN);
+            SetEnv("GC_OCR_ADAPTIVE_C",     p.ADAPTIVE_C);
+            SetEnv("GC_OCR_SHARPEN",        p.SHARPEN);
+            SetEnv("GC_OCR_OPEN",           p.OPEN);
+            SetEnv("GC_OCR_CLOSE",          p.CLOSE);
+            SetEnv("GC_OCR_DILATE",         p.DILATE);
+            SetEnv("GC_OCR_ERODE",          p.ERODE);
+            SetEnv("GC_OCR_CONTRAST",       p.CONTRAST);
+            SetEnv("GC_OCR_INVERT",         p.INVERT);
+            SetEnv("GC_OCR_MAJORITY",       p.MAJORITY);
+            SetEnv("GC_OCR_MAJORITY_ITERS", p.MAJORITY_ITERS);
+            SetEnv("GC_OCR_OPEN_ITERS",     p.OPEN_ITERS);
+            SetEnv("GC_OCR_UPSCALE",        p.UPSCALE);
 
-            // Back-compat indicator for any legacy checks
             Environment.SetEnvironmentVariable("GC_PROFILE", ProfileManager.ActiveProfile, EnvironmentVariableTarget.Process);
 
             static void SetEnv(string key, int val)    => Environment.SetEnvironmentVariable(key, val.ToString(), EnvironmentVariableTarget.Process);
             static void SetEnv(string key, double val) => Environment.SetEnvironmentVariable(key, val.ToString(System.Globalization.CultureInfo.InvariantCulture), EnvironmentVariableTarget.Process);
         }
 
+        private void UpdateActiveProfileLabel()
+        {
+            if (ActiveProfileLabel != null)
+                ActiveProfileLabel.Text = $"Active: {ProfileManager.ActiveProfile}";
+        }
+
         private void ToggleOcrProfile()
         {
             var next = ProfileManager.ActiveProfile.Equals("HDR", StringComparison.OrdinalIgnoreCase) ? "SDR" : "HDR";
             ProfileManager.Switch(next);
-            // ProfileChanged handler will re-export and update status
+            // ProfileChanged will update env and label
             WpfMessageBox.Show($"Switched OCR profile → {next}", "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
-        // Optional XAML-friendly handler you can wire to a button:
         private void ProfileToggleBtn_Click(object sender, RoutedEventArgs e) => ToggleOcrProfile();
 
-        // ========== ENVIRONMENT ==========
+        // ENVIRONMENT
         private string CurrentEnv => EnvBox.SelectedIndex == 1 ? "Prod" : "Stage";
 
         private void LoadEnvFieldsIntoTextBoxes()
@@ -185,7 +183,7 @@ namespace GravityCapture
             Status($"Switched log environment → {CurrentEnv}");
         }
 
-        // ========== SAVE / START / STOP ==========
+        // SAVE / START / STOP
         private void SaveBtn_Click(object sender, RoutedEventArgs e)
         {
             SaveSettings();
@@ -202,7 +200,6 @@ namespace GravityCapture
 
         private void SaveSettings()
         {
-            // Persist env URL & key
             SaveTextBoxesIntoEnvFields();
 
             _settings.ChannelId           = ulong.TryParse(ChannelBox.Text, out var ch) ? ch : 0;
@@ -242,7 +239,7 @@ namespace GravityCapture
             Status("Stopped.");
         }
 
-        // ========== TIMER ==========
+        // TIMER
         private async void OnTick(object? s, ElapsedEventArgs e)
         {
             try
@@ -301,7 +298,7 @@ namespace GravityCapture
 
         private void Status(string s) => Dispatcher.Invoke(() => StatusText.Text = s);
 
-        // ========== MANUAL POSTS ==========
+        // MANUAL POSTS
         private async void SendTestBtn_Click(object sender, RoutedEventArgs e)
         {
             SaveSettings();
@@ -398,7 +395,6 @@ namespace GravityCapture
                     return;
                 }
 
-                // Works even if XAML doesn’t have a generated field
                 if (FindName("RecentGrid") is DataGrid grid)
                     grid.ItemsSource = items;
 
@@ -407,7 +403,7 @@ namespace GravityCapture
             finally { WpfMouse.OverrideCursor = null; }
         }
 
-        // ========== WINDOW TARGETING & OCR ==========
+        // WINDOW TARGETING & OCR
         private IntPtr ResolveTargetWindow()
         {
             if (_lastCropHwnd != IntPtr.Zero &&
@@ -431,7 +427,7 @@ namespace GravityCapture
             var ok = dlg.ShowDialog() == true;
             if (!ok) return;
 
-            var s = dlg.SelectedRect; // screen-coordinates selection
+            var s = dlg.SelectedRect;
             int midX = (int)Math.Round(s.X + s.Width  / 2.0);
             int midY = (int)Math.Round(s.Y + s.Height / 2.0);
             var underSelection = WindowUtil.GetTopLevelWindowFromPoint(midX, midY);
@@ -449,7 +445,6 @@ namespace GravityCapture
                 return;
             }
 
-            // clamp to client rect
             int sx = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X)));
             int sy = Math.Max(cy, Math.Min(cy + ch, (int)Math.Round(s.Y)));
             int ex = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X + s.Width)));
@@ -465,8 +460,6 @@ namespace GravityCapture
             _settings.Save();
 
             Status($"Saved crop for '{chosenName}': x={_settings.CropX:F3} y={_settings.CropY:F3} w={_settings.CropW:F3} h={_settings.CropH:F3}");
-            WpfMessageBox.Show("Saved crop. Click 'Preview Crop' to verify.", "Gravity Capture",
-                MessageBoxButton.OK, MessageBoxImage.Information);
             await System.Threading.Tasks.Task.CompletedTask;
         }
 
@@ -582,9 +575,8 @@ namespace GravityCapture
                     return;
                 }
 
-                // Prefer a “Day …” line
-                var reDay    = new Regex(@"^\s*Day\s+\d+", RegexOptions.IgnoreCase);
-                var candidate= lines.Find(l => reDay.IsMatch(l)) ?? lines.Find(l => !string.IsNullOrWhiteSpace(l));
+                var reDay = new Regex(@"^\s*Day\s+\d+", RegexOptions.IgnoreCase);
+                var candidate = lines.Find(l => reDay.IsMatch(l)) ?? lines.Find(l => !string.IsNullOrWhiteSpace(l));
 
                 if (string.IsNullOrWhiteSpace(candidate))
                 {
@@ -605,7 +597,6 @@ namespace GravityCapture
                     return;
                 }
 
-                // Respect the “Post only red logs” toggle
                 if (_settings.PostOnlyCritical &&
                     !string.Equals(GetSeverityValue(evt) ?? "", "CRITICAL", StringComparison.OrdinalIgnoreCase))
                 {
@@ -643,7 +634,6 @@ namespace GravityCapture
             }
         }
 
-        // ========== helpers ==========
         private static string? GetSeverityValue(object evt)
         {
             var t = evt.GetType();
@@ -660,9 +650,7 @@ namespace GravityCapture
             return string.IsNullOrWhiteSpace(val) ? null : val;
         }
 
-        // ========== XAML WRAPPERS ==========
-        // These keep your existing XAML handler names working.
-        // Once you rename the XAML to the *Btn_Click names, you can delete these.
+        // XAML WRAPPERS (keep existing handler names alive)
         private void RefreshRecent_Click(object sender, RoutedEventArgs e)       => RefreshRecentBtn_Click(sender, e);
         private void SelectCropArea_Click(object sender, RoutedEventArgs e)      => SelectCropBtn_Click(sender, e);
         private void PreviewCrop_Click(object sender, RoutedEventArgs e)         => PreviewCropBtn_Click(sender, e);
@@ -671,7 +659,6 @@ namespace GravityCapture
         private void SendTestTribeEvent_Click(object sender, RoutedEventArgs e)  => SendTestBtn_Click(sender, e);
         private void SendPastedLine_Click(object sender, RoutedEventArgs e)      => SendParsedBtn_Click(sender, e);
 
-        // ========== window resolution ==========
         private IntPtr ResolveTopLevelFromPoint(int x, int y) =>
             WindowUtil.GetTopLevelWindowFromPoint(x, y);
     }
