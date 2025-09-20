@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.CommandLine; // If not present, remove CLI support or add System.CommandLine via NuGet
+// using System.CommandLine; // removed: not used
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -31,25 +31,20 @@ namespace GravityCapture.Services
 
         public static void Initialize(string[]? args = null)
         {
-            // 1) Resolve config location: %APPDATA%/GravityCapture/profiles/profiles.json
             var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppFolderName, "profiles");
             Directory.CreateDirectory(baseDir);
             _configPath = Path.Combine(baseDir, ProfilesFileName);
 
-            // 2) If missing, seed from embedded defaults in repo path (optional) or built-in defaults
             if (!File.Exists(_configPath))
             {
                 TrySeedFromRepoDefaults(baseDir);
             }
 
-            // 3) Load container
             Load();
 
-            // 4) Apply override sources in priority order: CLI > ENV > file
             string? cliProfile = null;
             if (args != null)
             {
-                // Minimal manual parse to avoid dependency if System.CommandLine not desired
                 foreach (var a in args)
                 {
                     if (a.StartsWith("--profile=", StringComparison.OrdinalIgnoreCase))
@@ -60,7 +55,7 @@ namespace GravityCapture.Services
             }
 
             var envProfile = Environment.GetEnvironmentVariable("GC_PROFILE")
-                             ?? Environment.GetEnvironmentVariable("GC_ENV"); // back-compat: HDR/SDR
+                             ?? Environment.GetEnvironmentVariable("GC_ENV");
 
             var target = cliProfile ?? envProfile ?? _container.ActiveProfile;
             Switch(target);
@@ -71,7 +66,6 @@ namespace GravityCapture.Services
             if (string.IsNullOrWhiteSpace(profileName)) profileName = _container.ActiveProfile;
             if (!_container.Profiles.TryGetValue(profileName!, out var prof))
             {
-                // Fallback to HDR if requested profile missing
                 profileName = "HDR";
                 prof = _container.Profiles.ContainsKey("HDR") ? _container.Profiles["HDR"] : BuildDefaultHdr();
             }
@@ -84,7 +78,6 @@ namespace GravityCapture.Services
         public static OcrProfile Get(string profileName)
         {
             if (_container.Profiles.TryGetValue(profileName, out var prof)) return prof;
-            // Ensure map contains defaults
             if (!_container.Profiles.ContainsKey("HDR")) _container.Profiles["HDR"] = BuildDefaultHdr();
             if (!_container.Profiles.ContainsKey("SDR")) _container.Profiles["SDR"] = BuildDefaultSdr();
             return _container.Profiles[profileName] = profileName.Equals("SDR", StringComparison.OrdinalIgnoreCase)
@@ -141,7 +134,6 @@ namespace GravityCapture.Services
         {
             try
             {
-                // Optional: read repo default at src/GravityCapture/Config/default.profiles.json if alongside exe
                 var exeDir = AppContext.BaseDirectory;
                 var candidate = Path.Combine(exeDir, "Config", "default.profiles.json");
                 if (File.Exists(candidate))
@@ -153,7 +145,6 @@ namespace GravityCapture.Services
             }
             catch { /* ignore */ }
 
-            // Fallback: write built-in defaults
             _container = new ProfilesContainer
             {
                 ActiveProfile = "HDR",
