@@ -8,9 +8,10 @@ namespace GravityCapture.Services
 {
     public static class ScreenCapture
     {
-        // Toggle the mild post-capture contrast/gamma tweak via env var (default ON)
+        // Toggle the mild post-capture contrast/gamma tweak via env var.
+// Now scoped by GC_CAPTURE_TONEBOOST only. Default OFF so HDR remains unchanged.
         private static readonly bool ToneBoostEnabled =
-            !string.Equals(Environment.GetEnvironmentVariable("GC_OCR_TONEMAP"), "0", StringComparison.OrdinalIgnoreCase);
+            string.Equals(Environment.GetEnvironmentVariable("GC_CAPTURE_TONEBOOST"), "1", StringComparison.OrdinalIgnoreCase);
 
         // -------------------------
         // Public API (unchanged)
