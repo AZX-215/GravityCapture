@@ -4,6 +4,8 @@ using System.Text.Json.Serialization;
 
 namespace GravityCapture.Models
 {
+    // Allow numbers serialized as strings to be read too.
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public sealed class OcrProfile
     {
         // ---- Core knobs (existing) ----
@@ -59,8 +61,8 @@ namespace GravityCapture.Models
         [JsonPropertyName("GC_OCR_FILL_HOLES_MAX")] public int    FILL_HOLES_MAX  { get; set; } = 400; // px area
 
         // Distance-transform based thickening
-        [JsonPropertyName("GC_OCR_DISTANCE_THICKEN")] public int  DISTANCE_THICKEN { get; set; } = 0;  // 0/1
-        [JsonPropertyName("GC_OCR_DISTANCE_R")]       public int  DISTANCE_R       { get; set; } = 1;  // pixels
+        [JsonPropertyName("GC_OCR_DISTANCE_THICKEN")] public int    DISTANCE_THICKEN { get; set; } = 0;  // 0/1
+        [JsonPropertyName("GC_OCR_DISTANCE_R")]       public double DISTANCE_R       { get; set; } = 1.0;  // accepts 1 or 1.0
 
         // Remove small dot noise
         [JsonPropertyName("GC_OCR_REMOVE_DOTS_MAXAREA")] public int REMOVE_DOTS_MAXAREA { get; set; } = 0;
