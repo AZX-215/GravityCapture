@@ -4,6 +4,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Globalization;
 using GravityCapture.Models;
 
 namespace GravityCapture.Services
@@ -47,45 +48,17 @@ namespace GravityCapture.Services
                 Environment.GetEnvironmentVariable("GC_FORCE_PROFILE_RESET"), "1",
                 StringComparison.OrdinalIgnoreCase);
 
-            // Preserve current active profile if we are about to overwrite the user file.
-            string? preservedActive = null;
-            bool hasUserFile = File.Exists(_userProfilesPath);
-
             // Sync rule:
             // - If no user file, copy built default.
             // - If force flag, copy built default.
             // - If built hash != stored stamp, copy built default (default changed).
-            if (!hasUserFile || forceReset || !HashesEqual(builtHash, currentStamp))
+            if (!File.Exists(_userProfilesPath) || forceReset || !HashesEqual(builtHash, currentStamp))
             {
-                if (hasUserFile)
-                {
-                    try
-                    {
-                        var prev = JsonSerializer.Deserialize<ProfilesContainer>(
-                            File.ReadAllText(_userProfilesPath, Encoding.UTF8), _json);
-                        if (!string.IsNullOrWhiteSpace(prev?.ActiveProfile))
-                            preservedActive = prev!.ActiveProfile;
-                    }
-                    catch { /* ignore bad file */ }
-                }
-
                 CopyBuiltDefaultToUser(builtDefault, _userProfilesPath);
                 WriteStamp(_stampPath, builtHash);
             }
 
             Load();
-
-            // If we preserved a prior active name and it exists in the new file, restore it.
-            if (!string.IsNullOrWhiteSpace(preservedActive) &&
-                _container.Profiles != null &&
-                _container.Profiles.ContainsKey(preservedActive))
-            {
-                _container.ActiveProfile = preservedActive!;
-                Save();
-            }
-
-            // Runtime should reflect saved state immediately.
-            _active = _container.ActiveProfile;
 
             // CLI/env profile select
             string? cliProfile = null;
@@ -98,21 +71,13 @@ namespace GravityCapture.Services
                 }
             }
 
-            // Only accept GC_PROFILE and only if it names an existing profile.
-            string? envProfileRaw = Environment.GetEnvironmentVariable("GC_PROFILE");
-            string? envProfile = (!string.IsNullOrWhiteSpace(envProfileRaw) &&
-                                  _container.Profiles.ContainsKey(envProfileRaw))
-                                 ? envProfileRaw
-                                 : null;
-
-            // Drop invalid CLI names too.
-            if (cliProfile != null && !_container.Profiles.ContainsKey(cliProfile))
-                cliProfile = null;
+            var envProfile = Environment.GetEnvironmentVariable("GC_PROFILE")
+                             ?? Environment.GetEnvironmentVariable("GC_ENV");
 
             var target = cliProfile ?? envProfile ?? _container.ActiveProfile;
 
-            // Switch only if different from current runtime.
-            if (!string.Equals(target, _active, StringComparison.OrdinalIgnoreCase))
+            // don't save/emit unless the active actually changes
+            if (!string.Equals(target, _container.ActiveProfile, StringComparison.OrdinalIgnoreCase))
                 Switch(target);
         }
 
@@ -139,7 +104,13 @@ namespace GravityCapture.Services
                 _active = profileName!;
                 _container.ActiveProfile = _active;
                 Save();
+                ApplyToEnv(prof, _active);
                 ProfileChanged?.Invoke(_active, prof);
+            }
+            else
+            {
+                // Re-apply env even if not switching
+                ApplyToEnv(prof, profileName!);
             }
         }
 
@@ -215,6 +186,98 @@ namespace GravityCapture.Services
             File.WriteAllText(_userProfilesPath, json, Encoding.UTF8);
         }
 
+// --- Apply current profile to environment (process scope only) ---
+private static void ApplyToEnv(OcrProfile p, string profileName)
+{
+    // Local helpers
+    var inv = CultureInfo.InvariantCulture;
+    void Set(string k, string v) => Environment.SetEnvironmentVariable(k, v);
+    void SetI(string k, int v)   => Set(k, v.ToString(inv));
+    void SetD(string k, double v)=> Set(k, v.ToString(inv));
+    void SetB(string k, int v)   => Set(k, v != 0 ? "1" : "0");
+    void Unset(string k)         => Environment.SetEnvironmentVariable(k, null);
+
+    // Core pipeline knobs
+    SetB( TONEMAP", p.TONEMAP);
+    SetB( ADAPTIVE", p.ADAPTIVE);
+    SetI( ADAPTIVE_WIN", p.ADAPTIVE_WIN);
+    SetI( ADAPTIVE_C", p.ADAPTIVE_C);
+
+    // Dual threshold and explicit thresholds if present on the model
+    try { SetB( DUAL_THR", (int)p.GetType().GetProperty("DUAL_THR")!.GetValue(p)!); } catch { }
+    try { SetI( THR_LOW",  (int)p.GetType().GetProperty("THR_LOW")!.GetValue(p)!); } catch { }
+    try { SetI( THR_HIGH", (int)p.GetType().GetProperty("THR_HIGH")!.GetValue(p)!); } catch { }
+
+    // Morphology + geometric
+    SetB( OPEN", p.OPEN);           SetI( OPEN_ITERS", p.OPEN_ITERS);
+    SetB( CLOSE", p.CLOSE);         SetI( CLOSE_ITERS", p.CLOSE_ITERS);
+    SetI( DILATE", p.DILATE);       SetI( ERODE", p.ERODE);
+
+    // Photometric
+    SetD( CONTRAST", p.CONTRAST);   SetD( BRIGHT", p.BRIGHT);
+    SetB( INVERT", p.INVERT);
+    try { SetB( PREBLUR", (int)p.GetType().GetProperty("PREBLUR")!.GetValue(p)!); } catch { }
+    try { SetI( PREBLUR_K",(int)p.GetType().GetProperty("PREBLUR_K")!.GetValue(p)!); } catch { }
+    try { SetB( CLAHE",   (int)p.GetType().GetProperty("CLAHE")!.GetValue(p)!); } catch { }
+    try { SetD( GAMMA",   (double)p.GetType().GetProperty("GAMMA")!.GetValue(p)!); } catch { }
+
+    // Majority
+    SetB( MAJORITY", p.MAJORITY);   SetI( MAJORITY_ITERS", p.MAJORITY_ITERS);
+
+    // Upscale
+    SetI( UPSCALE", p.UPSCALE);
+
+    // HSV gates
+    try { SetD( SAT_COLOR", p.SAT_COLOR); } catch { }
+    try { SetD( VAL_COLOR", p.VAL_COLOR); } catch { }
+    try { SetD( SAT_GRAY",  p.SAT_GRAY);  } catch { }
+    try { SetD( VAL_GRAY",  p.VAL_GRAY);  } catch { }
+
+    // Gray space optional: if model has string GRAYSPACE, pass it; if int, leave unset.
+    var gsProp = p.GetType().GetProperty("GRAYSPACE");
+    if (gsProp != null)
+    {
+        try
+        {
+            if (gsProp.PropertyType == typeof(string))
+            {
+                var val = (string)gsProp.GetValue(p)!;
+                if (!string.IsNullOrWhiteSpace(val)) Set( GRAYSPACE", val);
+            }
+            else
+            {
+                // Re-apply env even if not switching
+                ApplyToEnv(prof, profileName!);
+            }
+        }
+        catch { }
+    }
+
+    // Per-profile special knobs: enable Sauvola for SDR only; clear for others
+    if (string.Equals(profileName, "SDR", StringComparison.OrdinalIgnoreCase))
+    {
+        Set( BINARIZER", "sauvola");
+        SetI( SAUVOLA_WIN", 61);
+        SetD( SAUVOLA_K", 0.34);
+        SetI( SAUVOLA_R", 128);
+        // Typical mask for mixed colored/gray UI
+        try {
+            SetD( SAT_COLOR", p.SAT_COLOR);
+            SetD( VAL_COLOR", p.VAL_COLOR);
+            SetD( SAT_GRAY",  p.SAT_GRAY);
+            SetD( VAL_GRAY",  p.VAL_GRAY);
+        } catch { }
+    }
+    else
+    {
+        // Ensure HDR path unaffected
+        Unset( BINARIZER");
+        Unset( SAUVOLA_WIN");
+        Unset( SAUVOLA_K");
+        Unset( SAUVOLA_R");
+    }
+}
+
         // --- Defaults / Seeding ---
 
         private static string GetBuiltDefaultPath()
@@ -244,6 +307,11 @@ namespace GravityCapture.Services
                 };
                 var json = JsonSerializer.Serialize(fallback, _json);
                 File.WriteAllText(userPath, json, Encoding.UTF8);
+            }
+            else
+            {
+                // Re-apply env even if not switching
+                ApplyToEnv(prof, profileName!);
             }
         }
 
@@ -356,25 +424,34 @@ namespace GravityCapture.Services
 
         private static OcrProfile BuildDefaultSdr() => new()
         {
-            TONEMAP = 1,
-            ADAPTIVE = 1,
-            ADAPTIVE_WIN = 31,
-            ADAPTIVE_C = -28,
-            SHARPEN = 0,
+            TONEMAP = 0,
+            ADAPTIVE = 0,
+            DUAL_THR = 0,
+            PREBLUR = 1,
+            PREBLUR_K = 3,
+            CLAHE = 0,
+            GAMMA = 1.0,
+            CONTRAST = 1.30,
+            BRIGHT = 0,
+            INVERT = 1,
             OPEN = 0,
             OPEN_ITERS = 0,
             CLOSE = 0,
-            DILATE = 2,
+            CLOSE_ITERS = 0,
+            DILATE = 1,
             ERODE = 0,
-            CONTRAST = 1.30,
-            INVERT = 1,
             MAJORITY = 0,
             MAJORITY_ITERS = 0,
             UPSCALE = 3,
-            SAT_COLOR = 0.25,
-            VAL_COLOR = 0.50,
-            SAT_GRAY = 0.12,
-            VAL_GRAY = 0.85
+            GRAYSPACE = "Luma709",
+            SAT_COLOR = 0.0,
+            VAL_COLOR = 0.0,
+            SAT_GRAY = 1.0,
+            VAL_GRAY = 0.0,
+            BINARIZER = "sauvola",
+            SAUVOLA_WIN = 61,
+            SAUVOLA_K = 0.34,
+            SAUVOLA_R = 128
         };
     }
 }
