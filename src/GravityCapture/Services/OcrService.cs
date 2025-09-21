@@ -35,16 +35,21 @@ namespace GravityCapture.Services
         private static readonly double ValColor = GetDouble("GC_OCR_VAL_COLOR", 0.50);
         private static readonly double SatGray  = GetDouble("GC_OCR_SAT_GRAY",  0.12);
         private static readonly double ValGray  = GetDouble("GC_OCR_VAL_GRAY",  0.85);
+// ---------- Binarization ----------
+private static readonly int  AdaptWin = ClampOdd(GetInt("GC_OCR_ADAPTIVE_WIN", 31), 3, 199);
+// allow negative and positive C
+private static readonly int  AdaptC   = Clamp(GetInt("GC_OCR_ADAPTIVE_C", 7), -128, 128);
 
-        // ---------- Binarization ----------
-        private static readonly int  AdaptWin = ClampOdd(GetInt("GC_OCR_ADAPTIVE_WIN", 31), 3, 199);
-        // allow negative and positive C
-        private static readonly int  AdaptC   = Clamp(GetInt("GC_OCR_ADAPTIVE_C", 7), -128, 128);
+// Dual-threshold hysteresis (alternative to adaptive/OTSU)
+private static readonly bool   DualThr    = GetBool("GC_OCR_DUAL_THR", false);
 
-        // Dual-threshold hysteresis (alternative to adaptive/OTSU)
-        private static readonly bool   DualThr   = GetBool("GC_OCR_DUAL_THR", false);
-        private static readonly double ThrLow    = Clamp01(GetDouble("GC_OCR_THR_LOW",  0.38));
-        private static readonly double ThrHigh   = Clamp01(GetDouble("GC_OCR_THR_HIGH", 0.55));
+// Read raw thresholds. Accept either normalized [0..1] or 0..255 integers.
+private static readonly double RawThrLow  = GetDouble("GC_OCR_THR_LOW",  0.38);
+private static readonly double RawThrHigh = GetDouble("GC_OCR_THR_HIGH", 0.55);
+
+// Normalize: if > 1 assume 0..255 range. Clamp to [0,1].
+private static readonly double ThrLow  = RawThrLow  > 1.0 ? Clamp01(RawThrLow  / 255.0) : Clamp01(RawThrLow);
+private static readonly double ThrHigh = RawThrHigh > 1.0 ? Clamp01(RawThrHigh / 255.0) : Clamp01(RawThrHigh);
 
         // ---------- Geometry / scale ----------
         private static readonly double Upscale   = Math.Max(1.0, GetDouble("GC_OCR_UPSCALE", 1.40)); // 1..4 typical
