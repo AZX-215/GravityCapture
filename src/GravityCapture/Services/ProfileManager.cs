@@ -21,7 +21,7 @@ namespace GravityCapture.Services
             WriteIndented = true,
             ReadCommentHandling = JsonCommentHandling.Skip,
             AllowTrailingCommas = true,
-            // key change: do not write default-valued props so profiles.json mirrors default unless changed
+            // do not write default-valued props so profiles.json mirrors default unless changed
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault
         };
 
@@ -75,7 +75,7 @@ namespace GravityCapture.Services
 
             var target = cliProfile ?? envProfile ?? _container.ActiveProfile;
 
-            // key change: don't save/emit unless the active actually changes
+            // don't save/emit unless the active actually changes
             if (!string.Equals(target, _container.ActiveProfile, StringComparison.OrdinalIgnoreCase))
                 Switch(target);
         }
@@ -85,13 +85,19 @@ namespace GravityCapture.Services
         public static void Switch(string? profileName)
         {
             if (string.IsNullOrWhiteSpace(profileName)) profileName = _container.ActiveProfile;
+
             if (!_container.Profiles.TryGetValue(profileName!, out var prof))
             {
+                // fallback to HDR (create it if missing)
+                if (!_container.Profiles.TryGetValue("HDR", out prof))
+                {
+                    prof = BuildDefaultHdr();
+                    _container.Profiles["HDR"] = prof;
+                }
                 profileName = "HDR";
-                prof = _container.Profiles.ContainsKey("HDR") ? _container.Profiles["HDR"] : BuildDefaultHdr();
             }
 
-            // key change: only persist if different
+            // only persist if different
             if (!string.Equals(_active, profileName!, StringComparison.OrdinalIgnoreCase))
             {
                 _active = profileName!;
@@ -103,15 +109,22 @@ namespace GravityCapture.Services
 
         public static OcrProfile Get(string profileName)
         {
-            if (_container.Profiles.TryGetValue(profileName, out var prof)) return prof;
+            if (_container.Profiles.TryGetValue(profileName, out var prof))
+                return prof;
 
-            if (!_container.Profiles.ContainsKey("HDR")) _container.Profiles["HDR"] = BuildDefaultHdr();
-            if (!_container.Profiles.ContainsKey("SDR")) _container.Profiles["SDR"] = BuildDefaultSdr();
+            // ensure both defaults exist once
+            if (!_container.Profiles.TryGetValue("HDR", out _))
+                _container.Profiles["HDR"] = BuildDefaultHdr();
+            if (!_container.Profiles.TryGetValue("SDR", out _))
+                _container.Profiles["SDR"] = BuildDefaultSdr();
 
-            return _container.Profiles[profileName] =
-                profileName.Equals("SDR", StringComparison.OrdinalIgnoreCase)
+            // build & cache the requested profile on miss
+            prof = profileName.Equals("SDR", StringComparison.OrdinalIgnoreCase)
                 ? BuildDefaultSdr()
                 : BuildDefaultHdr();
+
+            _container.Profiles[profileName] = prof;
+            return prof;
         }
 
         public static void Update(string profileName, OcrProfile updated)
@@ -145,6 +158,7 @@ namespace GravityCapture.Services
 
             var json = File.ReadAllText(_userProfilesPath, Encoding.UTF8);
             _container = JsonSerializer.Deserialize<ProfilesContainer>(json, _json) ?? new ProfilesContainer();
+
             if (_container.Profiles == null || _container.Profiles.Count == 0)
             {
                 _container.Profiles = new Dictionary<string, OcrProfile>
@@ -153,6 +167,7 @@ namespace GravityCapture.Services
                     ["SDR"] = BuildDefaultSdr()
                 };
             }
+
             if (string.IsNullOrWhiteSpace(_container.ActiveProfile))
                 _container.ActiveProfile = "HDR";
         }
@@ -169,8 +184,7 @@ namespace GravityCapture.Services
         private static string GetBuiltDefaultPath()
         {
             var exeDir = AppContext.BaseDirectory;
-            var candidate = Path.Combine(exeDir, "Config", "default.profiles.json");
-            return candidate;
+            return Path.Combine(exeDir, "Config", "default.profiles.json");
         }
 
         private static void CopyBuiltDefaultToUser(string builtDefaultPath, string userPath)
@@ -182,7 +196,7 @@ namespace GravityCapture.Services
             }
             else
             {
-                // If the built default is missing, fall back to hardcoded defaults
+                // fallback to hardcoded defaults
                 var fallback = new ProfilesContainer
                 {
                     ActiveProfile = "HDR",
