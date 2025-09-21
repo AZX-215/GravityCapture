@@ -62,7 +62,7 @@ namespace GravityCapture.Models
 
         // Distance-transform based thickening
         [JsonPropertyName("GC_OCR_DISTANCE_THICKEN")] public int    DISTANCE_THICKEN { get; set; } = 0;  // 0/1
-        [JsonPropertyName("GC_OCR_DISTANCE_R")]       public double DISTANCE_R       { get; set; } = 1.0;  // accepts 1 or 1.0
+        [JsonPropertyName("GC_OCR_DISTANCE_R")]       public double DISTANCE_R       { get; set; } = 1.0;  // e.g., 1 or 1.4
 
         // Remove small dot noise
         [JsonPropertyName("GC_OCR_REMOVE_DOTS_MAXAREA")] public int REMOVE_DOTS_MAXAREA { get; set; } = 0;
