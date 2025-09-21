@@ -1,5 +1,5 @@
 {
-  "activeProfile": "HDR",
+  "activeProfile": "SDR",
   "profiles": {
     "HDR": {
       "GC_OCR_TONEMAP": 0,
