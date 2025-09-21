@@ -66,7 +66,7 @@ namespace GravityCapture.Services
                 foreach (var a in args)
                 {
                     if (a.StartsWith("--profile=", StringComparison.OrdinalIgnoreCase))
-                        cliProfile = a.Substring("--profile=".Length).Trim();
+                        cliProfile = a["--profile=".Length..].Trim();
                 }
             }
 
