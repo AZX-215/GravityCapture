@@ -9,7 +9,7 @@ namespace GravityCapture.Services
 {
     /// <summary>
     /// OCR pipeline: upscale → tonemap → mask → grayscale → (CLAHE/gamma/preblur/contrast)
-    /// → binarize (adaptive/OTSU/dual-threshold) → invert → open/majority/close
+    /// → binarize (sauvola/wolf/adaptive/OTSU/dual-threshold) → invert → open/majority/close
     /// → distance-thicken → fill-holes → remove-dots → sharpen → Tesseract.
     /// All added stages are opt-in via env/profile flags with safe defaults.
     /// </summary>
@@ -50,6 +50,17 @@ private static readonly double RawThrHigh = GetDouble("GC_OCR_THR_HIGH", 0.55);
 // Normalize: if > 1 assume 0..255 range. Clamp to [0,1].
 private static readonly double ThrLow  = RawThrLow  > 1.0 ? Clamp01(RawThrLow  / 255.0) : Clamp01(RawThrLow);
 private static readonly double ThrHigh = RawThrHigh > 1.0 ? Clamp01(RawThrHigh / 255.0) : Clamp01(RawThrHigh);
+
+// ---------- Advanced binarizers ----------
+// GC_OCR_BINARIZER: "", "sauvola", "wolf" (empty = use existing logic)
+private static readonly string BinMethod = (Environment.GetEnvironmentVariable("GC_OCR_BINARIZER") ?? "").Trim().ToLowerInvariant();
+// Sauvola params
+private static readonly int    SauvolaWin = ClampOdd(GetInt("GC_OCR_SAUVOLA_WIN", 61), 3, 199);
+private static readonly double SauvolaK   = GetDouble("GC_OCR_SAUVOLA_K", 0.34);
+private static readonly int    SauvolaR   = Clamp(GetInt("GC_OCR_SAUVOLA_R", 128), 1, 255);
+// Wolf-Jolion params
+private static readonly double WolfK      = GetDouble("GC_OCR_WOLF_K", 0.5);
+private static readonly double WolfP      = GetDouble("GC_OCR_WOLF_P", 0.5);
 
         // ---------- Geometry / scale ----------
         private static readonly double Upscale   = Math.Max(1.0, GetDouble("GC_OCR_UPSCALE", 1.40)); // 1..4 typical
@@ -188,15 +199,38 @@ private static readonly double ThrHigh = RawThrHigh > 1.0 ? Clamp01(RawThrHigh /
                 if (DebugDump) Dump(masked, "e4_contrast");
             }
 
-            // 6) binarize
-            var mono = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-            if (DualThr) DualThresholdSafe(masked, mono, ThrLow, ThrHigh);
-            else if (Adaptive) AdaptiveMeanBinarizeSafe(masked, mono, AdaptWin, AdaptC);
-            else OtsuBinarizeSafe(masked, mono);
-            masked.Dispose();
-            if (DebugDump) Dump(mono, "f_bin");
-
-            // 6.5) invert
+            
+// 6) binarize
+var mono = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+bool didCustom = false;
+if (BinMethod == "sauvola")
+{
+    SauvolaBinarizeSafe(masked, mono, SauvolaWin, SauvolaK, SauvolaR);
+    didCustom = true;
+}
+else if (BinMethod == "wolf")
+{
+    WolfJolionBinarizeSafe(masked, mono, SauvolaWin, WolfK, WolfP);
+    didCustom = true;
+}
+else if (DualThr)
+{
+    DualThresholdSafe(masked, mono, ThrLow, ThrHigh);
+    didCustom = true;
+}
+else if (Adaptive)
+{
+    AdaptiveMeanBinarizeSafe(masked, mono, AdaptWin, AdaptC);
+    didCustom = true;
+}
+else
+{
+    OtsuBinarizeSafe(masked, mono);
+    didCustom = true;
+}
+masked.Dispose();
+if (DebugDump) Dump(mono, "f_bin");
+// 6.5) invert
             if (DoInvert)
             {
                 var inv = new Bitmap(w, h, PixelFormat.Format24bppRgb);
@@ -945,7 +979,118 @@ private static readonly double ThrHigh = RawThrHigh > 1.0 ? Clamp01(RawThrHigh /
             finally { srcGray.UnlockBits(sData); dst.UnlockBits(dData); }
         }
 
-        // ----- Morphology with variable kernel -----
+        
+private static void SauvolaBinarizeSafe(Bitmap srcGray, Bitmap dst, int window, double k, int R)
+{
+    window = ClampOdd(window, 3, 199);
+    var rect = new Rectangle(0, 0, srcGray.Width, srcGray.Height);
+    var sData = srcGray.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+    var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+    try
+    {
+        int w = srcGray.Width, h = srcGray.Height, ss = sData.Stride, ds = dData.Stride;
+        var sb = new byte[ss * h]; Marshal.Copy(sData.Scan0, sb, 0, sb.Length);
+        // integral images for sum and sum of squares
+        double[,] integ  = new double[h + 1, w + 1];
+        double[,] integ2 = new double[h + 1, w + 1];
+        for (int y = 1; y <= h; y++)
+        {
+            double row = 0, row2 = 0; int sr = (y - 1) * ss;
+            for (int x = 1; x <= w; x++)
+            {
+                byte g = sb[sr + (x - 1) * 3];
+                row  += g;
+                row2 += g * g;
+                integ[y, x]  = integ[y - 1, x] + row;
+                integ2[y, x] = integ2[y - 1, x] + row2;
+            }
+        }
+        var db = new byte[ds * h];
+        int r = window >> 1; double invR = 1.0 / R;
+        for (int y = 0; y < h; y++)
+        {
+            int dr = y * ds, sr = y * ss;
+            int y0 = Math.Max(0, y - r), y1 = Math.Min(h - 1, y + r);
+            int A = y0, B = y1 + 1;
+            for (int x = 0; x < w; x++)
+            {
+                int x0 = Math.Max(0, x - r), x1 = Math.Min(w - 1, x + r);
+                int C = x0, D = x1 + 1;
+                double sum  = integ[B, D]  - integ[A, D]  - integ[B, C]  + integ[A, C];
+                double sum2 = integ2[B, D] - integ2[A, D] - integ2[B, C] + integ2[A, C];
+                int count = (x1 - x0 + 1) * (y1 - y0 + 1);
+                double mean = sum / count;
+                double var  = Math.Max(0.0, sum2 / count - mean * mean);
+                double std  = Math.Sqrt(var);
+                double T = mean * (1.0 + k * ((std * invR) - 1.0));
+                byte bw = (byte)((sb[sr + x * 3] > T) ? 255 : 0);
+                int di = dr + x * 3;
+                db[di + 0] = db[di + 1] = db[di + 2] = bw;
+            }
+        }
+        Marshal.Copy(db, 0, dData.Scan0, db.Length);
+    }
+    finally { srcGray.UnlockBits(sData); dst.UnlockBits(dData); }
+}
+
+private static void WolfJolionBinarizeSafe(Bitmap srcGray, Bitmap dst, int window, double k, double p)
+{
+    window = ClampOdd(window, 3, 199);
+    var rect = new Rectangle(0, 0, srcGray.Width, srcGray.Height);
+    var sData = srcGray.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+    var dData = dst.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+    try
+    {
+        int w = srcGray.Width, h = srcGray.Height, ss = sData.Stride, ds = dData.Stride;
+        var sb = new byte[ss * h]; Marshal.Copy(sData.Scan0, sb, 0, sb.Length);
+
+        // integral images for sum and sum of squares and global minimum gray
+        double[,] integ  = new double[h + 1, w + 1];
+        double[,] integ2 = new double[h + 1, w + 1];
+        byte minG = 255;
+        for (int y = 1; y <= h; y++)
+        {
+            double row = 0, row2 = 0; int sr = (y - 1) * ss;
+            for (int x = 1; x <= w; x++)
+            {
+                byte g = sb[sr + (x - 1) * 3];
+                if (g < minG) minG = g;
+                row  += g;
+                row2 += g * g;
+                integ[y, x]  = integ[y - 1, x] + row;
+                integ2[y, x] = integ2[y - 1, x] + row2;
+            }
+        }
+
+        var db = new byte[ds * h];
+        int r = window >> 1;
+        for (int y = 0; y < h; y++)
+        {
+            int dr = y * ds, sr = y * ss;
+            int y0 = Math.Max(0, y - r), y1 = Math.Min(h - 1, y + r);
+            int A = y0, B = y1 + 1;
+            for (int x = 0; x < w; x++)
+            {
+                int x0 = Math.Max(0, x - r), x1 = Math.Min(w - 1, x + r);
+                int C = x0, D = x1 + 1;
+                double sum  = integ[B, D]  - integ[A, D]  - integ[B, C]  + integ[A, C];
+                double sum2 = integ2[B, D] - integ2[A, D] - integ2[B, C] + integ2[A, C];
+                int count = (x1 - x0 + 1) * (y1 - y0 + 1);
+                double mean = sum / count;
+                double var  = Math.Max(0.0, sum2 / count - mean * mean);
+                double std  = Math.Sqrt(var);
+
+                double T = (1.0 - k) * mean + k * minG + p * std;
+                byte bw = (byte)((sb[sr + x * 3] > T) ? 255 : 0);
+                int di = dr + x * 3;
+                db[di + 0] = db[di + 1] = db[di + 2] = bw;
+            }
+        }
+        Marshal.Copy(db, 0, dData.Scan0, db.Length);
+    }
+    finally { srcGray.UnlockBits(sData); dst.UnlockBits(dData); }
+}
+// ----- Morphology with variable kernel -----
         private static void MorphOpenSafe(Bitmap src, Bitmap dst, int k)
         {
             var temp = new Bitmap(src.Width, src.Height, PixelFormat.Format24bppRgb);
