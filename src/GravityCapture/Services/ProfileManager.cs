@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Globalization;
+using System.Text.Json.Serialization;
 using GravityCapture.Models;
 
 namespace GravityCapture.Services
@@ -22,8 +23,7 @@ namespace GravityCapture.Services
             WriteIndented = true,
             ReadCommentHandling = JsonCommentHandling.Skip,
             AllowTrailingCommas = true,
-            // do not write default-valued props so profiles.json mirrors default unless changed
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault
         };
 
         private static ProfilesContainer _container = new();
@@ -48,19 +48,42 @@ namespace GravityCapture.Services
                 Environment.GetEnvironmentVariable("GC_FORCE_PROFILE_RESET"), "1",
                 StringComparison.OrdinalIgnoreCase);
 
-            // Sync rule:
-            // - If no user file, copy built default.
-            // - If force flag, copy built default.
-            // - If built hash != stored stamp, copy built default (default changed).
-            if (!File.Exists(_userProfilesPath) || forceReset || !HashesEqual(builtHash, currentStamp))
+            // Preserve previously active name if we must overwrite the user file
+            string? preservedActive = null;
+            bool hasUserFile = File.Exists(_userProfilesPath);
+            if (!hasUserFile || forceReset || !HashesEqual(builtHash, currentStamp))
             {
+                if (hasUserFile)
+                {
+                    try
+                    {
+                        var prev = JsonSerializer.Deserialize<ProfilesContainer>(
+                            File.ReadAllText(_userProfilesPath, Encoding.UTF8), _json);
+                        if (!string.IsNullOrWhiteSpace(prev?.ActiveProfile))
+                            preservedActive = prev!.ActiveProfile;
+                    }
+                    catch { /* ignore bad file */ }
+                }
+
                 CopyBuiltDefaultToUser(builtDefault, _userProfilesPath);
                 WriteStamp(_stampPath, builtHash);
             }
 
             Load();
 
-            // CLI/env profile select
+            // Restore preserved active when possible
+            if (!string.IsNullOrWhiteSpace(preservedActive) &&
+                _container.Profiles != null &&
+                _container.Profiles.ContainsKey(preservedActive!))
+            {
+                _container.ActiveProfile = preservedActive!;
+                Save();
+            }
+
+            // Runtime should reflect saved state immediately
+            _active = _container.ActiveProfile;
+
+            // CLI / ENV profile selection
             string? cliProfile = null;
             if (args != null)
             {
@@ -71,14 +94,23 @@ namespace GravityCapture.Services
                 }
             }
 
-            var envProfile = Environment.GetEnvironmentVariable("GC_PROFILE")
-                             ?? Environment.GetEnvironmentVariable("GC_ENV");
+            // Only accept GC_PROFILE, and only if it names an existing profile
+            string? envProfile = Environment.GetEnvironmentVariable("GC_PROFILE");
+            if (string.IsNullOrWhiteSpace(envProfile) || !_container.Profiles.ContainsKey(envProfile))
+                envProfile = null;
+
+            // Drop invalid CLI names too
+            if (cliProfile != null && !_container.Profiles.ContainsKey(cliProfile))
+                cliProfile = null;
 
             var target = cliProfile ?? envProfile ?? _container.ActiveProfile;
 
-            // don't save/emit unless the active actually changes
-            if (!string.Equals(target, _container.ActiveProfile, StringComparison.OrdinalIgnoreCase))
+            // Perform switch if runtime differs
+            if (!string.Equals(target, _active, StringComparison.OrdinalIgnoreCase))
                 Switch(target);
+
+            // Ensure env matches runtime at startup
+            ApplyToEnv(Current, _active);
         }
 
         // --- Public API ---
@@ -166,13 +198,11 @@ namespace GravityCapture.Services
             var json = File.ReadAllText(_userProfilesPath, Encoding.UTF8);
             _container = JsonSerializer.Deserialize<ProfilesContainer>(json, _json) ?? new ProfilesContainer();
 
-            if (_container.Profiles == null || _container.Profiles.Count == 0)
+            _container.Profiles ??= new Dictionary<string, OcrProfile>();
+            if (_container.Profiles.Count == 0)
             {
-                _container.Profiles = new Dictionary<string, OcrProfile>
-                {
-                    ["HDR"] = BuildDefaultHdr(),
-                    ["SDR"] = BuildDefaultSdr()
-                };
+                _container.Profiles["HDR"] = BuildDefaultHdr();
+                _container.Profiles["SDR"] = BuildDefaultSdr();
             }
 
             if (string.IsNullOrWhiteSpace(_container.ActiveProfile))
@@ -186,97 +216,87 @@ namespace GravityCapture.Services
             File.WriteAllText(_userProfilesPath, json, Encoding.UTF8);
         }
 
-// --- Apply current profile to environment (process scope only) ---
-private static void ApplyToEnv(OcrProfile p, string profileName)
-{
-    // Local helpers
-    var inv = CultureInfo.InvariantCulture;
-    void Set(string k, string v) => Environment.SetEnvironmentVariable(k, v);
-    void SetI(string k, int v)   => Set(k, v.ToString(inv));
-    void SetD(string k, double v)=> Set(k, v.ToString(inv));
-    void SetB(string k, int v)   => Set(k, v != 0 ? "1" : "0");
-    void Unset(string k)         => Environment.SetEnvironmentVariable(k, null);
-
-    // Core pipeline knobs
-    SetB( TONEMAP", p.TONEMAP);
-    SetB( ADAPTIVE", p.ADAPTIVE);
-    SetI( ADAPTIVE_WIN", p.ADAPTIVE_WIN);
-    SetI( ADAPTIVE_C", p.ADAPTIVE_C);
-
-    // Dual threshold and explicit thresholds if present on the model
-    try { SetB( DUAL_THR", (int)p.GetType().GetProperty("DUAL_THR")!.GetValue(p)!); } catch { }
-    try { SetI( THR_LOW",  (int)p.GetType().GetProperty("THR_LOW")!.GetValue(p)!); } catch { }
-    try { SetI( THR_HIGH", (int)p.GetType().GetProperty("THR_HIGH")!.GetValue(p)!); } catch { }
-
-    // Morphology + geometric
-    SetB( OPEN", p.OPEN);           SetI( OPEN_ITERS", p.OPEN_ITERS);
-    SetB( CLOSE", p.CLOSE);         SetI( CLOSE_ITERS", p.CLOSE_ITERS);
-    SetI( DILATE", p.DILATE);       SetI( ERODE", p.ERODE);
-
-    // Photometric
-    SetD( CONTRAST", p.CONTRAST);   SetD( BRIGHT", p.BRIGHT);
-    SetB( INVERT", p.INVERT);
-    try { SetB( PREBLUR", (int)p.GetType().GetProperty("PREBLUR")!.GetValue(p)!); } catch { }
-    try { SetI( PREBLUR_K",(int)p.GetType().GetProperty("PREBLUR_K")!.GetValue(p)!); } catch { }
-    try { SetB( CLAHE",   (int)p.GetType().GetProperty("CLAHE")!.GetValue(p)!); } catch { }
-    try { SetD( GAMMA",   (double)p.GetType().GetProperty("GAMMA")!.GetValue(p)!); } catch { }
-
-    // Majority
-    SetB( MAJORITY", p.MAJORITY);   SetI( MAJORITY_ITERS", p.MAJORITY_ITERS);
-
-    // Upscale
-    SetI( UPSCALE", p.UPSCALE);
-
-    // HSV gates
-    try { SetD( SAT_COLOR", p.SAT_COLOR); } catch { }
-    try { SetD( VAL_COLOR", p.VAL_COLOR); } catch { }
-    try { SetD( SAT_GRAY",  p.SAT_GRAY);  } catch { }
-    try { SetD( VAL_GRAY",  p.VAL_GRAY);  } catch { }
-
-    // Gray space optional: if model has string GRAYSPACE, pass it; if int, leave unset.
-    var gsProp = p.GetType().GetProperty("GRAYSPACE");
-    if (gsProp != null)
-    {
-        try
+        // --- Apply current profile to environment (process scope only) ---
+        private static void ApplyToEnv(OcrProfile p, string profileName)
         {
-            if (gsProp.PropertyType == typeof(string))
+            var inv = CultureInfo.InvariantCulture;
+            void Set(string k, string v) => Environment.SetEnvironmentVariable(k, v);
+            void SetI(string k, int v)   => Set(k, v.ToString(inv));
+            void SetD(string k, double v)=> Set(k, v.ToString(inv));
+            void SetB(string k, int v)   => Set(k, v != 0 ? "1" : "0");
+            void Unset(string k)         => Environment.SetEnvironmentVariable(k, null);
+
+            // Core pipeline knobs
+            SetB("GC_OCR_TONEMAP", p.TONEMAP);
+            SetB("GC_OCR_ADAPTIVE", p.ADAPTIVE);
+            SetI("GC_OCR_ADAPTIVE_WIN", p.ADAPTIVE_WIN);
+            SetI("GC_OCR_ADAPTIVE_C", p.ADAPTIVE_C);
+
+            // Dual threshold and explicit thresholds (Profile uses 0..255; service normalizes)
+            try { SetB("GC_OCR_DUAL_THR", (int)p.GetType().GetProperty("DUAL_THR")!.GetValue(p)!); } catch { }
+            try { SetI("GC_OCR_THR_LOW",  (int)p.GetType().GetProperty("THR_LOW")!.GetValue(p)!); } catch { }
+            try { SetI("GC_OCR_THR_HIGH", (int)p.GetType().GetProperty("THR_HIGH")!.GetValue(p)!); } catch { }
+
+            // Morphology + geometric
+            SetB("GC_OCR_OPEN", p.OPEN);           SetI("GC_OCR_OPEN_ITERS", p.OPEN_ITERS);
+            SetB("GC_OCR_CLOSE", p.CLOSE);         SetI("GC_OCR_CLOSE_ITERS", p.CLOSE_ITERS);
+            SetI("GC_OCR_DILATE", p.DILATE);       SetI("GC_OCR_ERODE", p.ERODE);
+
+            // Photometric
+            SetD("GC_OCR_CONTRAST", p.CONTRAST);   SetD("GC_OCR_BRIGHT", p.BRIGHT);
+            SetB("GC_OCR_INVERT", p.INVERT);
+            try { SetB("GC_OCR_PREBLUR", (int)p.GetType().GetProperty("PREBLUR")!.GetValue(p)!); } catch { }
+            try { SetI("GC_OCR_PREBLUR_K",(int)p.GetType().GetProperty("PREBLUR_K")!.GetValue(p)!); } catch { }
+            try { SetB("GC_OCR_CLAHE",   (int)p.GetType().GetProperty("CLAHE")!.GetValue(p)!); } catch { }
+            try { SetD("GC_OCR_GAMMA",   (double)p.GetType().GetProperty("GAMMA")!.GetValue(p)!); } catch { }
+
+            // Majority
+            SetB("GC_OCR_MAJORITY", p.MAJORITY);   SetI("GC_OCR_MAJORITY_ITERS", p.MAJORITY_ITERS);
+
+            // Upscale
+            SetI("GC_OCR_UPSCALE", p.UPSCALE);
+
+            // HSV gates
+            try { SetD("GC_OCR_SAT_COLOR", p.SAT_COLOR); } catch { }
+            try { SetD("GC_OCR_VAL_COLOR", p.VAL_COLOR); } catch { }
+            try { SetD("GC_OCR_SAT_GRAY",  p.SAT_GRAY);  } catch { }
+            try { SetD("GC_OCR_VAL_GRAY",  p.VAL_GRAY);  } catch { }
+
+            // Gray space
+            var gsProp = p.GetType().GetProperty("GRAYSPACE");
+            if (gsProp != null && gsProp.PropertyType == typeof(string))
             {
-                var val = (string)gsProp.GetValue(p)!;
-                if (!string.IsNullOrWhiteSpace(val)) Set( GRAYSPACE", val);
+                try
+                {
+                    var val = (string)gsProp.GetValue(p)!;
+                    if (!string.IsNullOrWhiteSpace(val)) Set("GC_OCR_GRAYSPACE", val);
+                }
+                catch { }
+            }
+
+            // Per-profile special knobs:
+            if (string.Equals(profileName, "SDR", StringComparison.OrdinalIgnoreCase))
+            {
+                // Enable Sauvola only for SDR
+                Set("GC_OCR_BINARIZER", "sauvola");
+                SetI("GC_OCR_SAUVOLA_WIN", 61);
+                SetD("GC_OCR_SAUVOLA_K", 0.34);
+                SetI("GC_OCR_SAUVOLA_R", 128);
+
+                // Enable capture tone tweak only for SDR
+                Set("GC_CAPTURE_TONEBOOST", "1");
             }
             else
             {
-                // Re-apply env even if not switching
-                ApplyToEnv(prof, profileName!);
+                // Ensure HDR path unaffected
+                Unset("GC_OCR_BINARIZER");
+                Unset("GC_OCR_SAUVOLA_WIN");
+                Unset("GC_OCR_SAUVOLA_K");
+                Unset("GC_OCR_SAUVOLA_R");
+
+                Unset("GC_CAPTURE_TONEBOOST");
             }
         }
-        catch { }
-    }
-
-    // Per-profile special knobs: enable Sauvola for SDR only; clear for others
-    if (string.Equals(profileName, "SDR", StringComparison.OrdinalIgnoreCase))
-    {
-        Set( BINARIZER", "sauvola");
-        SetI( SAUVOLA_WIN", 61);
-        SetD( SAUVOLA_K", 0.34);
-        SetI( SAUVOLA_R", 128);
-        // Typical mask for mixed colored/gray UI
-        try {
-            SetD( SAT_COLOR", p.SAT_COLOR);
-            SetD( VAL_COLOR", p.VAL_COLOR);
-            SetD( SAT_GRAY",  p.SAT_GRAY);
-            SetD( VAL_GRAY",  p.VAL_GRAY);
-        } catch { }
-    }
-    else
-    {
-        // Ensure HDR path unaffected
-        Unset( BINARIZER");
-        Unset( SAUVOLA_WIN");
-        Unset( SAUVOLA_K");
-        Unset( SAUVOLA_R");
-    }
-}
 
         // --- Defaults / Seeding ---
 
@@ -307,11 +327,6 @@ private static void ApplyToEnv(OcrProfile p, string profileName)
                 };
                 var json = JsonSerializer.Serialize(fallback, _json);
                 File.WriteAllText(userPath, json, Encoding.UTF8);
-            }
-            else
-            {
-                // Re-apply env even if not switching
-                ApplyToEnv(prof, profileName!);
             }
         }
 
