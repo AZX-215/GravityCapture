@@ -44,7 +44,7 @@
       "GC_OCR_UPSCALE": 3,
       "GC_OCR_MAJORITY": 0,
       "GC_OCR_MAJORITY_ITERS": 0,
-      "GC_OCR_GRAYSPACE": "HSV",
+      "GC_OCR_GRAYSPACE": "Luma709",
       "GC_OCR_SAT_COLOR": 0.28,
       "GC_OCR_VAL_COLOR": 0.52,
       "GC_OCR_SAT_GRAY": 0.10,
