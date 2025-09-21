@@ -47,17 +47,45 @@ namespace GravityCapture.Services
                 Environment.GetEnvironmentVariable("GC_FORCE_PROFILE_RESET"), "1",
                 StringComparison.OrdinalIgnoreCase);
 
+            // Preserve current active profile if we are about to overwrite the user file.
+            string? preservedActive = null;
+            bool hasUserFile = File.Exists(_userProfilesPath);
+
             // Sync rule:
             // - If no user file, copy built default.
             // - If force flag, copy built default.
             // - If built hash != stored stamp, copy built default (default changed).
-            if (!File.Exists(_userProfilesPath) || forceReset || !HashesEqual(builtHash, currentStamp))
+            if (!hasUserFile || forceReset || !HashesEqual(builtHash, currentStamp))
             {
+                if (hasUserFile)
+                {
+                    try
+                    {
+                        var prev = JsonSerializer.Deserialize<ProfilesContainer>(
+                            File.ReadAllText(_userProfilesPath, Encoding.UTF8), _json);
+                        if (!string.IsNullOrWhiteSpace(prev?.ActiveProfile))
+                            preservedActive = prev!.ActiveProfile;
+                    }
+                    catch { /* ignore bad file */ }
+                }
+
                 CopyBuiltDefaultToUser(builtDefault, _userProfilesPath);
                 WriteStamp(_stampPath, builtHash);
             }
 
             Load();
+
+            // If we preserved a prior active name and it exists in the new file, restore it.
+            if (!string.IsNullOrWhiteSpace(preservedActive) &&
+                _container.Profiles != null &&
+                _container.Profiles.ContainsKey(preservedActive))
+            {
+                _container.ActiveProfile = preservedActive!;
+                Save();
+            }
+
+            // Runtime should reflect saved state immediately.
+            _active = _container.ActiveProfile;
 
             // CLI/env profile select
             string? cliProfile = null;
@@ -70,13 +98,21 @@ namespace GravityCapture.Services
                 }
             }
 
-            var envProfile = Environment.GetEnvironmentVariable("GC_PROFILE")
-                             ?? Environment.GetEnvironmentVariable("GC_ENV");
+            // Only accept GC_PROFILE and only if it names an existing profile.
+            string? envProfileRaw = Environment.GetEnvironmentVariable("GC_PROFILE");
+            string? envProfile = (!string.IsNullOrWhiteSpace(envProfileRaw) &&
+                                  _container.Profiles.ContainsKey(envProfileRaw))
+                                 ? envProfileRaw
+                                 : null;
+
+            // Drop invalid CLI names too.
+            if (cliProfile != null && !_container.Profiles.ContainsKey(cliProfile))
+                cliProfile = null;
 
             var target = cliProfile ?? envProfile ?? _container.ActiveProfile;
 
-            // don't save/emit unless the active actually changes
-            if (!string.Equals(target, _container.ActiveProfile, StringComparison.OrdinalIgnoreCase))
+            // Switch only if different from current runtime.
+            if (!string.Equals(target, _active, StringComparison.OrdinalIgnoreCase))
                 Switch(target);
         }
 
