@@ -68,7 +68,7 @@ namespace GravityCapture.Models
         [JsonPropertyName("GC_OCR_REMOVE_DOTS_MAXAREA")] public int REMOVE_DOTS_MAXAREA { get; set; } = 0;
 
         // Gray working space selector (0=BT.709/sRGB, 1=linear, etc. if you implement it)
-        [JsonPropertyName("GC_OCR_GRAYSPACE")]      public int    GRAYSPACE       { get; set; } = 0;
+        [JsonPropertyName("GC_OCR_GRAYSPACE")]      public string GRAYSPACE { get; set; } = "Luma709";
 
         // HSV gating to preserve gray vs colored text
         [JsonPropertyName("GC_OCR_SAT_COLOR")]      public double SAT_COLOR       { get; set; } = 0.25;
