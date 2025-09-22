@@ -45,7 +45,7 @@
       "GC_OCR_FILL_HOLES": 0,
       "GC_OCR_FILL_HOLES_MAX": 64,
       "GC_OCR_REMOVE_DOTS_MAXAREA": 0,
-      "GC_CAPTURE_TONEBOOST": 1
+      "GC_CAPTURE_TONEBOOST": 0
 },
     "SDR": {
       "GC_OCR_TONEMAP": 0,
@@ -95,6 +95,7 @@
     }
   }
 }
+
 
 
 
