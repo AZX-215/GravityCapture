@@ -282,7 +282,10 @@ namespace GravityCapture.Services
             SetDIf("GC_OCR_WOLF_K", p.WOLF_K);
             SetDIf("GC_OCR_WOLF_P", p.WOLF_P);
 
-            // Distance thicken + fill/cleanup
+            
+            // Capture-stage toggles
+            SetBIf("GC_CAPTURE_TONEBOOST", p.CAPTURE_TONEBOOST);
+// Distance thicken + fill/cleanup
             SetBIf("GC_OCR_DISTANCE_THICKEN", p.DISTANCE_THICKEN);
             SetDIf("GC_OCR_DISTANCE_R", p.DISTANCE_R);
             SetBIf("GC_OCR_FILL_HOLES", p.FILL_HOLES);
@@ -430,7 +433,7 @@ namespace GravityCapture.Services
             MAJORITY_ITERS = 3,
             OPEN_ITERS = 2,
             UPSCALE = 2,
-            TONEBOOST = 1
+            CAPTURE_TONEBOOST = 1
         };
 
         private static OcrProfile BuildDefaultSdr() => new()
