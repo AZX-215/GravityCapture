@@ -35,6 +35,9 @@ namespace GravityCapture.Models
 
         [JsonPropertyName("GC_OCR_UPSCALE")]        public int?    UPSCALE         { get; set; }
 
+        // ---- Capture-stage toggles ----
+        [JsonPropertyName("GC_CAPTURE_TONEBOOST")]  public int?    CAPTURE_TONEBOOST { get; set; }
+
         // ---- SDR helpers ----
         [JsonPropertyName("GC_OCR_PREBLUR")]        public int?    PREBLUR         { get; set; }
         [JsonPropertyName("GC_OCR_PREBLUR_K")]      public int?    PREBLUR_K       { get; set; }
