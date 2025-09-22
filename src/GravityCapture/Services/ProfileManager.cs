@@ -480,7 +480,7 @@ namespace GravityCapture.Services
             REMOVE_DOTS_MAXAREA = 0,
 
             // Capture-stage (HDR On)
-            CAPTURE_TONEBOOST = 1
+            CAPTURE_TONEBOOST = 0
         };
 
         private static OcrProfile BuildDefaultSdr() => new()
