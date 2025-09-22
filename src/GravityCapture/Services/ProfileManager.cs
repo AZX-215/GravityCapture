@@ -429,7 +429,8 @@ namespace GravityCapture.Services
             MAJORITY = 0,
             MAJORITY_ITERS = 3,
             OPEN_ITERS = 2,
-            UPSCALE = 2
+            UPSCALE = 2,
+            TONEBOOST = 1
         };
 
         private static OcrProfile BuildDefaultSdr() => new()
