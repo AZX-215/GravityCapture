@@ -271,7 +271,7 @@ namespace GravityCapture
                 if (_settings.UseCrop)
                     bmp = ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
                 else
-                    bmp = ScreenCapture.Capture(_settings.CaptureActiveWindow);
+                    bmp = ScreenCapture.Capture(hwnd);
 
                 using (bmp)
                 {
