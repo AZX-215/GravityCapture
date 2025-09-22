@@ -97,11 +97,11 @@ namespace GravityCapture.Services
 
             // Only accept GC_PROFILE, and only if it names an existing profile
             string? envProfile = Environment.GetEnvironmentVariable("GC_PROFILE");
-            if (string.IsNullOrWhiteSpace(envProfile) || !_container.Profiles.ContainsKey(envProfile))
+            if (string.IsNullOrWhiteSpace(envProfile) || _container.Profiles == null || !_container.Profiles.ContainsKey(envProfile))
                 envProfile = null;
 
             // Drop invalid CLI names too
-            if (cliProfile != null && !_container.Profiles.ContainsKey(cliProfile))
+            if (cliProfile != null && (_container.Profiles == null || !_container.Profiles.ContainsKey(cliProfile)))
                 cliProfile = null;
 
             var target = cliProfile ?? envProfile ?? _container.ActiveProfile;
