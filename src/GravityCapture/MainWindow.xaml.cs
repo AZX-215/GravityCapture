@@ -119,27 +119,14 @@ namespace GravityCapture
 
         // --- OCR PROFILE EXPORT ---
         private static void ApplyActiveProfile()
-        {
-            var p = ProfileManager.Current;
-
-            SetEnvInt("GC_OCR_TONEMAP",        p.TONEMAP);
-            SetEnvInt("GC_OCR_ADAPTIVE",       p.ADAPTIVE);
-            SetEnvInt("GC_OCR_ADAPTIVE_WIN",   p.ADAPTIVE_WIN);
-            SetEnvInt("GC_OCR_ADAPTIVE_C",     p.ADAPTIVE_C);
-            SetEnvInt("GC_OCR_SHARPEN",        p.SHARPEN);
-            SetEnvInt("GC_OCR_OPEN",           p.OPEN);
-            SetEnvInt("GC_OCR_CLOSE",          p.CLOSE);
-            SetEnvInt("GC_OCR_DILATE",         p.DILATE);
-            SetEnvInt("GC_OCR_ERODE",          p.ERODE);
-            SetEnvDouble("GC_OCR_CONTRAST",    p.CONTRAST);
-            SetEnvInt("GC_OCR_INVERT",         p.INVERT);
-            SetEnvInt("GC_OCR_MAJORITY",       p.MAJORITY);
-            SetEnvInt("GC_OCR_MAJORITY_ITERS", p.MAJORITY_ITERS);
-            SetEnvInt("GC_OCR_OPEN_ITERS",     p.OPEN_ITERS);
-            SetEnvInt("GC_OCR_UPSCALE",        p.UPSCALE);
-
-            Environment.SetEnvironmentVariable("GC_PROFILE", ProfileManager.ActiveProfile, EnvironmentVariableTarget.Process);
-        }
+{
+    // Env application is handled by ProfileManager.Initialize/Switch.
+    // Keep only the label-driving GC_PROFILE for external visibility.
+    Environment.SetEnvironmentVariable(
+        "GC_PROFILE",
+        ProfileManager.ActiveProfile,
+        EnvironmentVariableTarget.Process);
+}
 
         private void UpdateActiveProfileLabel()
         {
