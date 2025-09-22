@@ -479,7 +479,7 @@ namespace GravityCapture.Services
             FILL_HOLES_MAX = 64,
             REMOVE_DOTS_MAXAREA = 0,
 
-            // Capture-stage
+            // Capture-stage (HDR On)
             CAPTURE_TONEBOOST = 1
         };
 
@@ -544,9 +544,11 @@ namespace GravityCapture.Services
             DISTANCE_R = 1,
             FILL_HOLES = 0,
             FILL_HOLES_MAX = 64,
-            REMOVE_DOTS_MAXAREA = 0
+            REMOVE_DOTS_MAXAREA = 0,
 
-            // Capture-stage: omit to keep SDR behavior as-is unless you add it.
+            // Capture-stage (HDR off)
+            CAPTURE_TONEBOOST = 0
+
         };
     }
 }
