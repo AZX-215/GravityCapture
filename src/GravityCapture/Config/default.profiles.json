@@ -16,7 +16,8 @@
       "GC_OCR_MAJORITY": 0,
       "GC_OCR_MAJORITY_ITERS": 3,
       "GC_OCR_OPEN_ITERS": 2,
-      "GC_OCR_UPSCALE": 2
+      "GC_OCR_UPSCALE": 2,
+      "GC_CAPTURE_TONEBOOST": 1
     },
     "SDR": {
       "GC_OCR_TONEMAP": 0,
@@ -53,3 +54,4 @@
     }
   }
 }
+
