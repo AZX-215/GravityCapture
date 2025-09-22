@@ -18,12 +18,13 @@ namespace GravityCapture.Services
 
         public static event Action<string, OcrProfile>? ProfileChanged;
 
+        // Serialize omitting nulls so missing keys stay missing on disk.
         private static readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web)
         {
             WriteIndented = true,
             ReadCommentHandling = JsonCommentHandling.Skip,
             AllowTrailingCommas = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
         };
 
         private static ProfilesContainer _container = new();
@@ -221,81 +222,75 @@ namespace GravityCapture.Services
         {
             var inv = CultureInfo.InvariantCulture;
             void Set(string k, string v) => Environment.SetEnvironmentVariable(k, v);
-            void SetI(string k, int v)   => Set(k, v.ToString(inv));
-            void SetD(string k, double v)=> Set(k, v.ToString(inv));
-            void SetB(string k, int v)   => Set(k, v != 0 ? "1" : "0");
-            void Unset(string k)         => Environment.SetEnvironmentVariable(k, null);
+            void SetI(string k, int v) => Set(k, v.ToString(inv));
+            void SetD(string k, double v) => Set(k, v.ToString(inv));
+            void SetB(string k, int v) => Set(k, v != 0 ? "1" : "0");
+            void Unset(string k) => Environment.SetEnvironmentVariable(k, null);
+
+            void SetIIf(string k, int? v) { if (v.HasValue) SetI(k, v.Value); else Unset(k); }
+            void SetDIf(string k, double? v) { if (v.HasValue) SetD(k, v.Value); else Unset(k); }
+            void SetBIf(string k, int? v) { if (v.HasValue) SetB(k, v.Value); else Unset(k); }
+            void SetSIf(string k, string? v) { if (!string.IsNullOrWhiteSpace(v)) Set(k, v); else Unset(k); }
 
             // Core pipeline knobs
-            SetB("GC_OCR_TONEMAP", p.TONEMAP);
-            SetB("GC_OCR_ADAPTIVE", p.ADAPTIVE);
-            SetI("GC_OCR_ADAPTIVE_WIN", p.ADAPTIVE_WIN);
-            SetI("GC_OCR_ADAPTIVE_C", p.ADAPTIVE_C);
+            SetBIf("GC_OCR_TONEMAP", p.TONEMAP);
+            SetBIf("GC_OCR_ADAPTIVE", p.ADAPTIVE);
+            SetIIf("GC_OCR_ADAPTIVE_WIN", p.ADAPTIVE_WIN);
+            SetIIf("GC_OCR_ADAPTIVE_C", p.ADAPTIVE_C);
 
-            // Dual threshold and explicit thresholds (Profile uses 0..255; service normalizes)
-            try { SetB("GC_OCR_DUAL_THR", (int)p.GetType().GetProperty("DUAL_THR")!.GetValue(p)!); } catch { }
-            try { SetI("GC_OCR_THR_LOW",  (int)p.GetType().GetProperty("THR_LOW")!.GetValue(p)!); } catch { }
-            try { SetI("GC_OCR_THR_HIGH", (int)p.GetType().GetProperty("THR_HIGH")!.GetValue(p)!); } catch { }
+            // Dual threshold + explicit thresholds
+            SetBIf("GC_OCR_DUAL_THR", p.DUAL_THR);
+            SetIIf("GC_OCR_THR_LOW", p.THR_LOW);
+            SetIIf("GC_OCR_THR_HIGH", p.THR_HIGH);
 
             // Morphology + geometric
-            SetB("GC_OCR_OPEN", p.OPEN);           SetI("GC_OCR_OPEN_ITERS", p.OPEN_ITERS);
-            SetB("GC_OCR_CLOSE", p.CLOSE);         SetI("GC_OCR_CLOSE_ITERS", p.CLOSE_ITERS);
-            SetI("GC_OCR_DILATE", p.DILATE);       SetI("GC_OCR_ERODE", p.ERODE);
+            SetBIf("GC_OCR_OPEN", p.OPEN);
+            SetIIf("GC_OCR_OPEN_ITERS", p.OPEN_ITERS);
+            SetBIf("GC_OCR_CLOSE", p.CLOSE);
+            SetIIf("GC_OCR_CLOSE_ITERS", p.CLOSE_ITERS);
+            SetIIf("GC_OCR_DILATE", p.DILATE);
+            SetIIf("GC_OCR_ERODE", p.ERODE);
 
             // Photometric
-            SetD("GC_OCR_CONTRAST", p.CONTRAST);   SetD("GC_OCR_BRIGHT", p.BRIGHT);
-            SetB("GC_OCR_INVERT", p.INVERT);
-            try { SetB("GC_OCR_PREBLUR", (int)p.GetType().GetProperty("PREBLUR")!.GetValue(p)!); } catch { }
-            try { SetI("GC_OCR_PREBLUR_K",(int)p.GetType().GetProperty("PREBLUR_K")!.GetValue(p)!); } catch { }
-            try { SetB("GC_OCR_CLAHE",   (int)p.GetType().GetProperty("CLAHE")!.GetValue(p)!); } catch { }
-            try { SetD("GC_OCR_GAMMA",   (double)p.GetType().GetProperty("GAMMA")!.GetValue(p)!); } catch { }
+            SetDIf("GC_OCR_CONTRAST", p.CONTRAST);
+            SetDIf("GC_OCR_BRIGHT", p.BRIGHT);
+            SetBIf("GC_OCR_INVERT", p.INVERT);
+            SetBIf("GC_OCR_PREBLUR", p.PREBLUR);
+            SetIIf("GC_OCR_PREBLUR_K", p.PREBLUR_K);
+            SetBIf("GC_OCR_CLAHE", p.CLAHE);
+            SetDIf("GC_OCR_GAMMA", p.GAMMA);
 
             // Majority
-            SetB("GC_OCR_MAJORITY", p.MAJORITY);   SetI("GC_OCR_MAJORITY_ITERS", p.MAJORITY_ITERS);
+            SetBIf("GC_OCR_MAJORITY", p.MAJORITY);
+            SetIIf("GC_OCR_MAJORITY_ITERS", p.MAJORITY_ITERS);
 
             // Upscale
-            SetI("GC_OCR_UPSCALE", p.UPSCALE);
+            SetIIf("GC_OCR_UPSCALE", p.UPSCALE);
 
             // HSV gates
-            try { SetD("GC_OCR_SAT_COLOR", p.SAT_COLOR); } catch { }
-            try { SetD("GC_OCR_VAL_COLOR", p.VAL_COLOR); } catch { }
-            try { SetD("GC_OCR_SAT_GRAY",  p.SAT_GRAY);  } catch { }
-            try { SetD("GC_OCR_VAL_GRAY",  p.VAL_GRAY);  } catch { }
+            SetDIf("GC_OCR_SAT_COLOR", p.SAT_COLOR);
+            SetDIf("GC_OCR_VAL_COLOR", p.VAL_COLOR);
+            SetDIf("GC_OCR_SAT_GRAY", p.SAT_GRAY);
+            SetDIf("GC_OCR_VAL_GRAY", p.VAL_GRAY);
 
-            // Gray space
-            var gsProp = p.GetType().GetProperty("GRAYSPACE");
-            if (gsProp != null && gsProp.PropertyType == typeof(string))
-            {
-                try
-                {
-                    var val = (string)gsProp.GetValue(p)!;
-                    if (!string.IsNullOrWhiteSpace(val)) Set("GC_OCR_GRAYSPACE", val);
-                }
-                catch { }
-            }
+            // Gray space + binarizers
+            SetSIf("GC_OCR_GRAYSPACE", p.GRAYSPACE);
+            SetSIf("GC_OCR_BINARIZER", p.BINARIZER);
+            SetIIf("GC_OCR_SAUVOLA_WIN", p.SAUVOLA_WIN);
+            SetDIf("GC_OCR_SAUVOLA_K", p.SAUVOLA_K);
+            SetIIf("GC_OCR_SAUVOLA_R", p.SAUVOLA_R);
+            SetDIf("GC_OCR_WOLF_K", p.WOLF_K);
+            SetDIf("GC_OCR_WOLF_P", p.WOLF_P);
 
-            // Per-profile special knobs:
-            if (string.Equals(profileName, "SDR", StringComparison.OrdinalIgnoreCase))
-            {
-                // Enable Sauvola only for SDR
-                Set("GC_OCR_BINARIZER", "sauvola");
-                SetI("GC_OCR_SAUVOLA_WIN", 61);
-                SetD("GC_OCR_SAUVOLA_K", 0.34);
-                SetI("GC_OCR_SAUVOLA_R", 128);
+            // Distance thicken + fill/cleanup
+            SetBIf("GC_OCR_DISTANCE_THICKEN", p.DISTANCE_THICKEN);
+            SetDIf("GC_OCR_DISTANCE_R", p.DISTANCE_R);
+            SetBIf("GC_OCR_FILL_HOLES", p.FILL_HOLES);
+            SetIIf("GC_OCR_FILL_HOLES_MAX", p.FILL_HOLES_MAX);
+            SetIIf("GC_OCR_REMOVE_DOTS_MAXAREA", p.REMOVE_DOTS_MAXAREA);
 
-                // Enable capture tone tweak only for SDR
-                Set("GC_CAPTURE_TONEBOOST", "1");
-            }
-            else
-            {
-                // Ensure HDR path unaffected
-                Unset("GC_OCR_BINARIZER");
-                Unset("GC_OCR_SAUVOLA_WIN");
-                Unset("GC_OCR_SAUVOLA_K");
-                Unset("GC_OCR_SAUVOLA_R");
-
-                Unset("GC_CAPTURE_TONEBOOST");
-            }
+            // Do not hard-force SDR/HDR-specific overrides here.
+            // Profiles control all behavior. Unset any legacy keys if absent.
         }
 
         // --- Defaults / Seeding ---
