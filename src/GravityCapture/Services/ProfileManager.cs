@@ -250,6 +250,7 @@ namespace GravityCapture.Services
             SetIIf("GC_OCR_CLOSE_ITERS", p.CLOSE_ITERS);
             SetIIf("GC_OCR_DILATE", p.DILATE);
             SetIIf("GC_OCR_ERODE", p.ERODE);
+            SetIIf("GC_OCR_MORPH_K", p.MORPH_K);
 
             // Photometric
             SetDIf("GC_OCR_CONTRAST", p.CONTRAST);
@@ -258,6 +259,8 @@ namespace GravityCapture.Services
             SetBIf("GC_OCR_PREBLUR", p.PREBLUR);
             SetIIf("GC_OCR_PREBLUR_K", p.PREBLUR_K);
             SetBIf("GC_OCR_CLAHE", p.CLAHE);
+            SetDIf("GC_OCR_CLAHE_CLIP", p.CLAHE_CLIP);
+            SetIIf("GC_OCR_CLAHE_TILE", p.CLAHE_TILE);
             SetDIf("GC_OCR_GAMMA", p.GAMMA);
 
             // Majority
@@ -282,18 +285,15 @@ namespace GravityCapture.Services
             SetDIf("GC_OCR_WOLF_K", p.WOLF_K);
             SetDIf("GC_OCR_WOLF_P", p.WOLF_P);
 
-            
             // Capture-stage toggles
             SetBIf("GC_CAPTURE_TONEBOOST", p.CAPTURE_TONEBOOST);
-// Distance thicken + fill/cleanup
+
+            // Distance thicken + fill/cleanup
             SetBIf("GC_OCR_DISTANCE_THICKEN", p.DISTANCE_THICKEN);
-            SetDIf("GC_OCR_DISTANCE_R", p.DISTANCE_R);
+            SetIIf("GC_OCR_DISTANCE_R", p.DISTANCE_R);
             SetBIf("GC_OCR_FILL_HOLES", p.FILL_HOLES);
             SetIIf("GC_OCR_FILL_HOLES_MAX", p.FILL_HOLES_MAX);
             SetIIf("GC_OCR_REMOVE_DOTS_MAXAREA", p.REMOVE_DOTS_MAXAREA);
-
-            // Do not hard-force SDR/HDR-specific overrides here.
-            // Profiles control all behavior. Unset any legacy keys if absent.
         }
 
         // --- Defaults / Seeding ---
@@ -414,61 +414,139 @@ namespace GravityCapture.Services
             return data;
         }
 
-        // --- Hardcoded defaults ---
+        // --- Hardcoded defaults (complete and explicit) ---
 
         private static OcrProfile BuildDefaultHdr() => new()
         {
+            // Core
             TONEMAP = 0,
             ADAPTIVE = 1,
             ADAPTIVE_WIN = 19,
             ADAPTIVE_C = 0,
             SHARPEN = 1,
+
+            // Morphology + passes
             OPEN = 0,
+            OPEN_ITERS = 2,
             CLOSE = 0,
+            CLOSE_ITERS = 0,
             DILATE = 0,
             ERODE = 5,
+            MORPH_K = 3,
+
+            // Photometric
             CONTRAST = 1.6,
+            BRIGHT = 0,
             INVERT = 1,
+            PREBLUR = 0,
+            PREBLUR_K = 3,
+            CLAHE = 0,
+            CLAHE_CLIP = 2.0,
+            CLAHE_TILE = 8,
+            GAMMA = 1.0,
+
+            // Majority
             MAJORITY = 0,
             MAJORITY_ITERS = 3,
-            OPEN_ITERS = 2,
+
+            // Scale
             UPSCALE = 2,
+
+            // HSV gates (neutral mask)
+            SAT_COLOR = 0.0,
+            VAL_COLOR = 0.0,
+            SAT_GRAY = 1.0,
+            VAL_GRAY = 0.0,
+            GRAYSPACE = "Luma709",
+
+            // Binarizers
+            BINARIZER = "",
+            SAUVOLA_WIN = 61,
+            SAUVOLA_K = 0.34,
+            SAUVOLA_R = 128,
+            WOLF_K = 0.5,
+            WOLF_P = 0.5,
+
+            // Dual-threshold (disabled)
+            DUAL_THR = 0,
+            THR_LOW = 97,   // ~0.38*255
+            THR_HIGH = 140, // ~0.55*255
+
+            // Structural cleanups (disabled)
+            DISTANCE_THICKEN = 0,
+            DISTANCE_R = 1,
+            FILL_HOLES = 0,
+            FILL_HOLES_MAX = 64,
+            REMOVE_DOTS_MAXAREA = 0,
+
+            // Capture-stage
             CAPTURE_TONEBOOST = 1
         };
 
         private static OcrProfile BuildDefaultSdr() => new()
         {
+            // Core
             TONEMAP = 0,
             ADAPTIVE = 0,
             ADAPTIVE_WIN = 0,
             ADAPTIVE_C = 0,
             SHARPEN = 1,
-            DUAL_THR = 0,
-            PREBLUR = 0,
-            PREBLUR_K = 1,
-            CLAHE = 0,
-            GAMMA = 1.0,
-            CONTRAST = 1.40,
-            BRIGHT = 1,
-            INVERT = 1,
+
+            // Morphology + passes
             OPEN = 1,
             OPEN_ITERS = 1,
             CLOSE = 1,
             CLOSE_ITERS = 1,
             DILATE = 0,
             ERODE = 0,
+            MORPH_K = 3,
+
+            // Photometric
+            CONTRAST = 1.40,
+            BRIGHT = 1,
+            INVERT = 1,
+            PREBLUR = 0,
+            PREBLUR_K = 1,
+            CLAHE = 0,
+            CLAHE_CLIP = 2.0,
+            CLAHE_TILE = 8,
+            GAMMA = 1.0,
+
+            // Majority
             MAJORITY = 0,
             MAJORITY_ITERS = 0,
+
+            // Scale
             UPSCALE = 3,
-            GRAYSPACE = "Luma709",
+
+            // HSV gates
             SAT_COLOR = 0.0,
             VAL_COLOR = 0.0,
             SAT_GRAY = 1.0,
             VAL_GRAY = 0.0,
+            GRAYSPACE = "Luma709",
+
+            // Binarizers
             BINARIZER = "sauvola",
             SAUVOLA_WIN = 35,
             SAUVOLA_K = 0.32,
-            SAUVOLA_R = 128
+            SAUVOLA_R = 128,
+            WOLF_K = 0.5,
+            WOLF_P = 0.5,
+
+            // Dual-threshold (disabled)
+            DUAL_THR = 0,
+            THR_LOW = 97,
+            THR_HIGH = 140,
+
+            // Structural cleanups (disabled)
+            DISTANCE_THICKEN = 0,
+            DISTANCE_R = 1,
+            FILL_HOLES = 0,
+            FILL_HOLES_MAX = 64,
+            REMOVE_DOTS_MAXAREA = 0
+
+            // Capture-stage: omit to keep SDR behavior as-is unless you add it.
         };
     }
 }
