@@ -290,7 +290,7 @@ namespace GravityCapture.Services
 
             // Distance thicken + fill/cleanup
             SetBIf("GC_OCR_DISTANCE_THICKEN", p.DISTANCE_THICKEN);
-            SetIIf("GC_OCR_DISTANCE_R", p.DISTANCE_R);
+            SetDIf("GC_OCR_DISTANCE_R", p.DISTANCE_R);
             SetBIf("GC_OCR_FILL_HOLES", p.FILL_HOLES);
             SetIIf("GC_OCR_FILL_HOLES_MAX", p.FILL_HOLES_MAX);
             SetIIf("GC_OCR_REMOVE_DOTS_MAXAREA", p.REMOVE_DOTS_MAXAREA);
