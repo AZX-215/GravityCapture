@@ -9,30 +9,13 @@ namespace GravityCapture.Services
     public static class ScreenCapture
     {
         // Toggle the mild post-capture contrast/gamma tweak via env var.
-// Now scoped by GC_CAPTURE_TONEBOOST only. Default OFF so HDR remains unchanged.
-        private static readonly bool ToneBoostEnabled =
+        // Now scoped by GC_CAPTURE_TONEBOOST only. Default OFF so HDR remains unchanged.
+        private static bool ToneBoostEnabled =>
             string.Equals(Environment.GetEnvironmentVariable("GC_CAPTURE_TONEBOOST"), "1", StringComparison.OrdinalIgnoreCase);
 
         // -------------------------
         // Public API (unchanged)
         // -------------------------
-
-        /// <summary>
-        /// Capture the foreground window (client area) if activeWindow=true,
-        /// otherwise capture the primary monitor.
-        /// </summary>
-        public static Bitmap Capture(bool activeWindow)
-        {
-            if (activeWindow)
-            {
-                var hwnd = GetForegroundWindow();
-                return Capture(hwnd);
-            }
-            else
-            {
-                return CapturePrimaryMonitor();
-            }
-        }
 
         /// <summary>
         /// Capture the client area of the given window handle (HWND). If hwnd == IntPtr.Zero,
@@ -57,13 +40,80 @@ namespace GravityCapture.Services
         /// </summary>
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double x, double y, double w, double h)
         {
-            using var baseBmp = Capture(hwnd);
-            int cx = Clamp((int)Math.Round(x * baseBmp.Width),  0, baseBmp.Width  - 1);
-            int cy = Clamp((int)Math.Round(y * baseBmp.Height), 0, baseBmp.Height - 1);
-            int cw = Clamp((int)Math.Round(w * baseBmp.Width),  1, baseBmp.Width  - cx);
-            int ch = Clamp((int)Math.Round(h * baseBmp.Height), 1, baseBmp.Height - cy);
+            if (hwnd == IntPtr.Zero)
+                hwnd = GetForegroundWindow();
 
-            var rect = new Rectangle(cx, cy, cw, ch);
+            if (!TryGetClientRectOnScreen(hwnd, out var rect))
+            {
+                // Fallback to primary monitor dimensions
+                rect = GetPrimaryMonitorRect();
+            }
+
+            int rw = rect.right - rect.left;
+            int rh = rect.bottom - rect.top;
+
+            int cx = rect.left + (int)Math.Round(x * rw);
+            int cy = rect.top + (int)Math.Round(y * rh);
+            int cw = Math.Max(1, (int)Math.Round(w * rw));
+            int ch = Math.Max(1, (int)Math.Round(h * rh));
+
+            var cropRect = new RECT(cx, cy, cx + cw, cy + ch);
+            return CopyScreenRect(cropRect);
+        }
+
+        /// <summary>
+        /// Encode a bitmap to JPEG bytes with the given quality (1..100).
+        /// </summary>
+        public static byte[] ToJpegBytes(Bitmap bmp, long quality = 90)
+        {
+            using var ms = new MemoryStream();
+            var enc = GetEncoder(ImageFormat.Jpeg);
+            var eps = new EncoderParameters(1);
+            eps.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
+            bmp.Save(ms, enc, eps);
+            return ms.ToArray();
+        }
+
+        /// <summary>
+        /// Dispose-safe helper.
+        /// </summary>
+        public static void DisposeBitmap(Bitmap? bmp)
+        {
+            if (bmp == null) return;
+            try { bmp.Dispose(); } catch { }
+        }
+
+        // -------------------------
+        // Internals
+        // -------------------------
+
+        private static Bitmap CopyScreenRect(RECT rect)
+        {
+            int w = Math.Max(1, rect.right - rect.left);
+            int h = Math.Max(1, rect.bottom - rect.top);
+
+            var bmp = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.CopyFromScreen(rect.left, rect.top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
+            }
+
+            if (ToneBoostEnabled) GentleContrastBoostInPlace(bmp);
+            return bmp;
+        }
+
+        private static Bitmap CapturePrimaryMonitor()
+        {
+            var r = GetPrimaryMonitorRect();
+            return CopyScreenRect(r);
+        }
+
+        /// <summary>
+        /// Crop helper that first captures, then crops in-memory to avoid multiple screen reads.
+        /// </summary>
+        public static Bitmap Crop(Bitmap baseBmp, Rectangle rect)
+        {
             var crop = new Bitmap(rect.Width, rect.Height, PixelFormat.Format24bppRgb);
             using (var g = Graphics.FromImage(crop))
             {
@@ -77,73 +127,8 @@ namespace GravityCapture.Services
         }
 
         /// <summary>
-        /// Encode a bitmap to JPEG bytes with the given quality (10..100).
-        /// </summary>
-        public static byte[] ToJpegBytes(Bitmap bmp, int quality)
-        {
-            using var ms = new MemoryStream();
-            var enc = GetJpegEncoder();
-            var encParams = new EncoderParameters(1);
-            encParams.Param[0] = new EncoderParameter(Encoder.Quality, Clamp(quality, 10, 100));
-            bmp.Save(ms, enc, encParams);
-            return ms.ToArray();
-        }
-
-        // -------------------------
-        // Internal helpers
-        // -------------------------
-
-        private static Bitmap CapturePrimaryMonitor()
-        {
-            var scr = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
-            return CopyScreenRect(new RECT(scr.Left, scr.Top, scr.Right, scr.Bottom));
-        }
-
-        private static Bitmap CopyScreenRect(RECT r)
-        {
-            int w = Math.Max(1, r.right  - r.left);
-            int h = Math.Max(1, r.bottom - r.top);
-
-            var bmp = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-            using (var g = Graphics.FromImage(bmp))
-            {
-                g.CopyFromScreen(r.left, r.top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
-            }
-
-            if (ToneBoostEnabled) GentleContrastBoostInPlace(bmp);
-            return bmp;
-        }
-
-        private static bool TryGetClientRectOnScreen(IntPtr hwnd, out RECT rectScreen)
-        {
-            rectScreen = default;
-            if (hwnd == IntPtr.Zero) return false;
-
-            if (!GetClientRect(hwnd, out var rcClient)) return false;
-
-            var pt = new POINT { X = rcClient.left, Y = rcClient.top };
-            if (!ClientToScreen(hwnd, ref pt)) return false;
-
-            rectScreen = new RECT(pt.X,
-                                  pt.Y,
-                                  pt.X + (rcClient.right  - rcClient.left),
-                                  pt.Y + (rcClient.bottom - rcClient.top));
-            return true;
-        }
-
-        private static int Clamp(int v, int lo, int hi) => v < lo ? lo : (v > hi ? hi : v);
-
-        private static ImageCodecInfo GetJpegEncoder()
-        {
-            foreach (var e in ImageCodecInfo.GetImageEncoders())
-                if (e.MimeType == "image/jpeg") return e;
-            throw new InvalidOperationException("JPEG encoder not found");
-        }
-
-        /// <summary>
-        /// Light, safe tone/gamma tweak to improve text contrast for OCR. On good SDR,
-        /// this is effectively a no-op; on flat/washed frames it pulls highlights down
-        /// and darkens midtones slightly.
+        /// Lightweight, stable “tone boost”: pulls highlights down slightly and gives a mild S-curve.
+        /// Implemented in-place, 24bpp path for speed. Safe for both SDR and HDR captures.
         /// </summary>
         private static void GentleContrastBoostInPlace(Bitmap bmp)
         {
@@ -154,51 +139,49 @@ namespace GravityCapture.Services
                 int stride = data.Stride, h = bmp.Height, w = bmp.Width;
                 int len = Math.Abs(stride) * h;
                 var buf = new byte[len];
-                Marshal.Copy(data.Scan0, buf, 0, len);
 
-                // Quick brightness histogram for 95th percentile & mean
-                var hist = new int[256];
-                double sum = 0;
-                for (int y = 0; y < h; y++)
+                unsafe
                 {
-                    int row = y * stride;
-                    for (int x = 0; x < w; x++)
-                    {
-                        int i = row + x * 3;
-                        byte b = buf[i + 0], g = buf[i + 1], r = buf[i + 2];
-                        byte m = (byte)Math.Max(r, Math.Max(g, b));
-                        hist[m]++; sum += (r + g + b) / 3.0;
-                    }
+                    byte* src = (byte*)data.Scan0;
+                    for (int i = 0; i < len; i++) buf[i] = src[i];
                 }
-                int total = w * h;
-                int acc = 0, p95 = 255, target = (int)(total * 0.95);
-                for (int i = 0; i < 256; i++) { acc += hist[i]; if (acc >= target) { p95 = i; break; } }
-                double mean = sum / Math.Max(1, total);
 
-                double scale = p95 > 235 ? 220.0 / p95 : 1.0; // compress highlights if blown
-                double gamma = mean > 160 ? 1.25 : 1.0;       // darken a touch if too bright
-                if (Math.Abs(scale - 1.0) < 0.01 && Math.Abs(gamma - 1.0) < 0.01) return;
-
-                var lut = new byte[256];
-                for (int i = 0; i < 256; i++)
-                {
-                    double v = i / 255.0;
-                    v = Math.Pow(Math.Min(1.0, v * scale), gamma);
-                    lut[i] = (byte)(v * 255.0 + 0.5);
-                }
+                // Simple per-channel curve: y = x*(1 + a*(x-0.5)) with clamp, a ~ -0.25
+                // Then a small gamma ~ 0.95 to re-open shadows.
+                const float a = -0.25f;
+                const float inv255 = 1f / 255f;
+                const float gamma = 0.95f;
+                const float invGamma = 1f / gamma;
 
                 for (int y = 0; y < h; y++)
                 {
-                    int row = y * stride;
+                    int row = y * Math.Abs(stride);
                     for (int x = 0; x < w; x++)
                     {
-                        int i = row + x * 3;
-                        buf[i + 0] = lut[buf[i + 0]];
-                        buf[i + 1] = lut[buf[i + 1]];
-                        buf[i + 2] = lut[buf[i + 2]];
+                        int idx = row + x * 3; // B,G,R
+                        // B
+                        float nb = buf[idx] * inv255;
+                        nb = nb * (1f + a * (nb - 0.5f));
+                        nb = MathF.Pow(Math.Clamp(nb, 0f, 1f), invGamma);
+                        buf[idx] = (byte)Math.Clamp((int)(nb * 255f + 0.5f), 0, 255);
+                        // G
+                        float ng = buf[idx + 1] * inv255;
+                        ng = ng * (1f + a * (ng - 0.5f));
+                        ng = MathF.Pow(Math.Clamp(ng, 0f, 1f), invGamma);
+                        buf[idx + 1] = (byte)Math.Clamp((int)(ng * 255f + 0.5f), 0, 255);
+                        // R
+                        float nr = buf[idx + 2] * inv255;
+                        nr = nr * (1f + a * (nr - 0.5f));
+                        nr = MathF.Pow(Math.Clamp(nr, 0f, 1f), invGamma);
+                        buf[idx + 2] = (byte)Math.Clamp((int)(nr * 255f + 0.5f), 0, 255);
                     }
                 }
-                Marshal.Copy(buf, 0, data.Scan0, len);
+
+                unsafe
+                {
+                    byte* dst = (byte*)data.Scan0;
+                    for (int i = 0; i < len; i++) dst[i] = buf[i];
+                }
             }
             finally
             {
@@ -207,11 +190,92 @@ namespace GravityCapture.Services
         }
 
         // -------------------------
-        // Win32 P/Invoke (minimal)
+        // Win32 helpers
         // -------------------------
+
+        private static RECT GetPrimaryMonitorRect()
+        {
+            IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, MONITOR_DEFAULTTOPRIMARY);
+            MONITORINFO mi = new MONITORINFO();
+            mi.cbSize = (uint)Marshal.SizeOf(typeof(MONITORINFO));
+            if (GetMonitorInfo(hMonitor, ref mi))
+            {
+                return new RECT(mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right, mi.rcMonitor.bottom);
+            }
+            // Fallback if API fails
+            return new RECT(0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+        }
+
+        private static bool TryGetClientRectOnScreen(IntPtr hwnd, out RECT rectScreen)
+        {
+            rectScreen = default;
+
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            if (!IsWindow(hwnd))
+                return false;
+
+            if (!IsWindowVisible(hwnd))
+                return false;
+
+            if (!GetClientRect(hwnd, out RECT rcClient))
+                return false;
+
+            // Map client (0,0) to screen
+            POINT pt = new POINT { X = 0, Y = 0 };
+            if (!ClientToScreen(hwnd, ref pt))
+                return false;
+
+            rectScreen = new RECT(pt.X, pt.Y, pt.X + (rcClient.right - rcClient.left), pt.Y + (rcClient.bottom - rcClient.top));
+            return true;
+        }
+
+        private static ImageCodecInfo GetEncoder(ImageFormat format)
+        {
+            var codecs = ImageCodecInfo.GetImageDecoders();
+            foreach (var c in codecs)
+            {
+                if (c.FormatID == format.Guid) return c;
+            }
+            return ImageCodecInfo.GetImageDecoders()[1]; // JPEG fallback
+        }
+
+        // -------------------------
+        // Win32 interop
+        // -------------------------
+
+        private const uint MONITOR_DEFAULTTOPRIMARY = 1;
+
+        private const int SM_CXSCREEN = 0;
+        private const int SM_CYSCREEN = 1;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MONITORINFO
+        {
+            public uint cbSize;
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public uint dwFlags;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern int GetSystemMetrics(int nIndex);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
