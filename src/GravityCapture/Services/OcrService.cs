@@ -202,32 +202,21 @@ private static readonly double WolfP      = GetDouble("GC_OCR_WOLF_P", 0.5);
             
 // 6) binarize
 var mono = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-bool didCustom = false;
 if (BinMethod == "sauvola")
 {
-    SauvolaBinarizeSafe(masked, mono, SauvolaWin, SauvolaK, SauvolaR);
-    didCustom = true;
-}
+    SauvolaBinarizeSafe(masked, mono, SauvolaWin, SauvolaK, SauvolaR);}
 else if (BinMethod == "wolf")
 {
-    WolfJolionBinarizeSafe(masked, mono, SauvolaWin, WolfK, WolfP);
-    didCustom = true;
-}
+    WolfJolionBinarizeSafe(masked, mono, SauvolaWin, WolfK, WolfP);}
 else if (DualThr)
 {
-    DualThresholdSafe(masked, mono, ThrLow, ThrHigh);
-    didCustom = true;
-}
+    DualThresholdSafe(masked, mono, ThrLow, ThrHigh);}
 else if (Adaptive)
 {
-    AdaptiveMeanBinarizeSafe(masked, mono, AdaptWin, AdaptC);
-    didCustom = true;
-}
+    AdaptiveMeanBinarizeSafe(masked, mono, AdaptWin, AdaptC);}
 else
 {
-    OtsuBinarizeSafe(masked, mono);
-    didCustom = true;
-}
+    OtsuBinarizeSafe(masked, mono);}
 masked.Dispose();
 if (DebugDump) Dump(mono, "f_bin");
 // 6.5) invert
