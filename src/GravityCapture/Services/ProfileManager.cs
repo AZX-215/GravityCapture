@@ -546,9 +546,8 @@ namespace GravityCapture.Services
             FILL_HOLES_MAX = 64,
             REMOVE_DOTS_MAXAREA = 0,
 
-            // Capture-stage (HDR off)
+            // Capture-stage (OFF)
             CAPTURE_TONEBOOST = 0
-
         };
     }
 }
