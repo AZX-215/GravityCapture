@@ -1,0 +1,15 @@
+<!-- test/OcrSmoke.csproj -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>OcrSmoke</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Compile the client directly from the main project path if present; otherwise fall back to local copy -->
+    <Compile Include="OcrClient.cs" Condition="Exists('OcrClient.cs')" />
+  </ItemGroup>
+</Project>
