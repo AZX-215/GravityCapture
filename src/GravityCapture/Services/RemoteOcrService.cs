@@ -1,35 +1,33 @@
-using System;
-using System.Net.Http;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using GravityCapture.Models;
 
 namespace GravityCapture.Services
 {
-    public sealed class RemoteOcrService
+    public sealed class RemoteOcrService : IOcrService
     {
         private readonly OcrClient _client;
 
-        public RemoteOcrService(AppSettings settings, HttpClient? httpClient = null)
+        public RemoteOcrService(AppSettings settings)
         {
-            if (settings is null) throw new ArgumentNullException(nameof(settings));
-
-            var baseUrl =
-                settings.ApiBaseUrl ??
-                settings.RemoteOcr?.BaseUrl ??
-                throw new InvalidOperationException("OCR API base URL is not configured.");
-
-            var key = settings.Auth?.SharedKey ?? settings.RemoteOcr?.SharedKey ?? string.Empty;
-
-            _client = new OcrClient(baseUrl, key, httpClient);
+            var baseUrl = settings.Api?.BaseUrl ?? "";
+            var apiKey  = settings.Api?.ApiKey;
+            _client = new OcrClient(baseUrl, apiKey);
         }
 
-        // Back-compat: (path, CancellationToken)
-        public Task<ExtractResponse> ExtractAsync(string imagePath, CancellationToken ct)
-            => _client.ExtractAsync(imagePath, engine: null, ct);
+        public async Task<string> ExtractAsync(Bitmap bitmap, CancellationToken ct = default)
+        {
+            using var ms = new MemoryStream();
+            bitmap.Save(ms, ImageFormat.Png);
+            ms.Position = 0;
 
-        // Preferred: (path, engine?, CancellationToken)
-        public Task<ExtractResponse> ExtractAsync(string imagePath, string? engine = null, CancellationToken ct = default)
-            => _client.ExtractAsync(imagePath, engine, ct);
+            // Use 'var' to avoid referencing ExtractResponse directly.
+            var resp = await _client.ExtractAsync(ms, "capture.png", ct);
+            return string.Join(" ", resp.Lines.Select(l => l.Text));
+        }
     }
 }
