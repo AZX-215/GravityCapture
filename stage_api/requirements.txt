@@ -3,3 +3,10 @@ uvicorn[standard]
 asyncpg
 pydantic
 httpx
+opencv-python-headless
+numpy
+Pillow
+onnxruntime
+rapidocr-onnxruntime
+pytesseract
+regex
