@@ -1,12 +1,5 @@
 [phases.setup]
-aptPkgs = [
-  "tesseract-ocr",
-  "libgl1-mesa-glx",
-  "libglib2.0-0",
-  "libsm6",
-  "libxrender1",
-  "libxext6"
-]
+aptPkgs = ["tesseract-ocr"]
 
 [variables]
 PORT = "8080"
