@@ -3,7 +3,6 @@ uvicorn[standard]
 asyncpg
 pydantic
 httpx
-opencv-python-headless==4.10.0.84
 numpy
 Pillow
 onnxruntime==1.18.1
