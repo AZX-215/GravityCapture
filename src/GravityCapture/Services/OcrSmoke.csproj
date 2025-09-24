@@ -5,9 +5,5 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-
-  <!-- Reuse the OcrClient.cs that lives in this Services folder -->
-  <ItemGroup>
-    <Compile Include="OcrClient.cs" />
-  </ItemGroup>
+  <!-- No <Compile Include=...> here; let the SDK include Program.cs and OcrClient.cs once. -->
 </Project>
