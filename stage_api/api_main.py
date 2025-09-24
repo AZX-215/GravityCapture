@@ -1,18 +1,14 @@
 import os
 import re
 import asyncio
-from datetime import datetime, timedelta
 from typing import Optional, List, Set, Any
 
 import asyncpg
 import httpx
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Query
 from pydantic import BaseModel, Field
 
-# --- OCR imports ---
-import numpy as np
-import cv2 as cv
-from fastapi import UploadFile, File, Query
+# OCR router expects raw image bytes
 from ocr.router import extract_text
 
 APP_ENV = os.getenv("ENVIRONMENT", "stage")
@@ -30,7 +26,7 @@ def _csv(name: str, default: str = "") -> List[str]:
     return [s.strip().upper() for s in raw.split(",") if s.strip()]
 
 ALERT_SEVERITIES: Set[str] = set(_csv("ALERT_SEVERITIES", "CRITICAL,IMPORTANT"))
-ALERT_CATEGORIES: Set[str] = set(_csv("ALERT_CATEGORIES", ""))  # empty -> all categories
+ALERT_CATEGORIES: Set[str] = set(_csv("ALERT_CATEGORIES", ""))  # empty -> all
 
 app = FastAPI()
 _pool: Optional[asyncpg.Pool] = None
@@ -53,10 +49,8 @@ class TribeEvent(BaseModel):
 @app.on_event("startup")
 async def _start():
     global _pool, _http
-    # DB pool
     _pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=3)
     async with _pool.acquire() as con:
-        # Base table
         await con.execute(
             """
             create table if not exists tribe_events (
@@ -74,28 +68,27 @@ async def _start():
             );
             """
         )
-        # De-dupe: unique on raw_line (use UNIQUE INDEX so we can IF NOT EXISTS)
         await con.execute(
             "create unique index if not exists tribe_events_raw_line_uidx on tribe_events(raw_line);"
         )
-        # Handy index for recents
         await con.execute(
             "create index if not exists tribe_events_id_desc_idx on tribe_events(id desc);"
         )
 
-    # HTTP client for webhook
     _http = httpx.AsyncClient(timeout=10)
 
 @app.on_event("startup")
 async def warm_ocr():
-    """
-    Pre-warm OCR engines so first request doesn't pay model download/init cost.
-    This should NOT fail startup if models cannot be warmed.
-    """
+    """Warm OCR models using a tiny in-memory PNG. Do not fail startup on error."""
     try:
-        dummy = np.full((64, 256, 3), 255, dtype=np.uint8)
-        extract_text(dummy, engine_pref="ppo")
-        extract_text(dummy, engine_pref="tess")
+        from PIL import Image
+        import io
+        img = Image.new("RGB", (256, 64), color=(255, 255, 255))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        png = buf.getvalue()
+        extract_text(png, engine_hint="ppo")
+        extract_text(png, engine_hint="tess")
         print("[ocr] warmup ok")
     except Exception as e:
         print(f"[ocr] warmup error: {e}")
@@ -121,10 +114,8 @@ def _should_alert(evt: TribeEvent) -> bool:
     return sev_ok and cat_ok
 
 async def _post_discord(evt: TribeEvent):
-    """Post a concise alert to Discord via webhook."""
     if not _http or not WEBHOOK_URL:
         return
-
     color = 0xE74C3C if evt.severity.upper() == "CRITICAL" else 0xF1C40F
     embed = {
         "title": f"{evt.category} • {evt.severity}",
@@ -139,20 +130,17 @@ async def _post_discord(evt: TribeEvent):
         "footer": {"text": f"env={APP_ENV}"},
     }
     payload = {"embeds": [embed], "content": None}
-
     try:
         r = await _http.post(WEBHOOK_URL, json=payload)
-        # Discord returns 204 No Content on success
         if r.status_code not in (200, 204):
             print(f"[alert] webhook failed: {r.status_code} {r.text[:200]}")
     except Exception as e:
         print(f"[alert] exception: {type(e).__name__}: {e}")
 
 
-# ---- ASA double-line dedupe (starved/killed same tame @ same timestamp) ----
+# ---- dedupe helpers ----
 STARVE_RX = re.compile(r"\bstarved\s+to\s+death\b", re.I)
 KILLED_RX = re.compile(r"\bwas\s+killed\b", re.I)
-# Grab the tame identity preceding the verb phrase
 TAME_ID_RX = re.compile(
     r"(?:Your\s+)?(?P<tame>.+?)\s+(?:starved\s+to\s+death|was\s+killed|was\s+ground\s+up|\bwas\s+destroyed\b)",
     re.I,
@@ -161,7 +149,6 @@ TAME_ID_RX = re.compile(
 def _tame_identity(msg: str) -> str:
     m = TAME_ID_RX.search(msg or "")
     ident = (m.group("tame") if m else "").strip()
-    # normalize spaces/case for comparison
     return re.sub(r"\s+", " ", ident).strip().lower()
 
 def _is_starved(msg: str) -> bool:
@@ -174,7 +161,6 @@ def _is_killed(msg: str) -> bool:
 # ---------- routes ----------
 @app.get("/health")
 async def health():
-    # basic DB check
     try:
         async with _pool.acquire() as con:  # type: ignore
             ver = await con.fetchval("select version()")
@@ -187,13 +173,10 @@ async def ingest(evt: TribeEvent, x_gl_key: Optional[str] = Header(None)):
     if not _authorized(x_gl_key):
         raise HTTPException(status_code=401, detail="unauthorized")
 
-    # ------ dedupe window (prefer STARVED over generic KILLED) ------
     fam_ident = _tame_identity(evt.message or evt.raw_line)
     deduped = False
-
     try:
         async with _pool.acquire() as con:  # type: ignore
-            # look back a short window for same tame at same ark time
             rows = await con.fetch(
                 """
                 select id, message
@@ -207,10 +190,8 @@ async def ingest(evt: TribeEvent, x_gl_key: Optional[str] = Header(None)):
 
             for r in rows:
                 if _tame_identity(r["message"]) == fam_ident:
-                    # existing STARVED & new KILLED -> suppress new
                     if _is_starved(r["message"]) and _is_killed(evt.message):
                         deduped = True
-                    # existing KILLED & new STARVED -> upgrade (delete old, keep new)
                     elif _is_killed(r["message"]) and _is_starved(evt.message):
                         await con.execute("delete from tribe_events where id=$1", r["id"])
                     break
@@ -218,7 +199,6 @@ async def ingest(evt: TribeEvent, x_gl_key: Optional[str] = Header(None)):
             if deduped:
                 return {"ok": True, "deduped": True, "alerted": False, "env": APP_ENV}
 
-            # Insert (de-duped on raw_line as a second safety net)
             status: str = await con.execute(
                 """
                 insert into tribe_events
@@ -229,13 +209,11 @@ async def ingest(evt: TribeEvent, x_gl_key: Optional[str] = Header(None)):
                 evt.server, evt.tribe, evt.ark_day, evt.ark_time,
                 evt.severity, evt.category, evt.actor, evt.message, evt.raw_line
             )
-            # asyncpg returns e.g. "INSERT 0 1" or "INSERT 0 0"
             deduped = status.strip().endswith("0")
     except Exception as e:
         print(f"[db] insert error: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail="db insert failed")
 
-    # Optional alert (skip if deduped)
     alerted = False
     if not deduped and _should_alert(evt):
         asyncio.create_task(_post_discord(evt))
@@ -245,10 +223,6 @@ async def ingest(evt: TribeEvent, x_gl_key: Optional[str] = Header(None)):
 
 @app.get("/api/tribe-events/recent")
 async def recent(server: Optional[str] = None, tribe: Optional[str] = None, limit: int = 20):
-    """
-    Return the most recent rows (default 20, max 100), optionally filtered
-    by server and/or tribe. No auth required for staging readbacks.
-    """
     limit = max(1, min(int(limit), 100))
     try:
         async with _pool.acquire() as con:  # type: ignore
@@ -280,18 +254,15 @@ async def recent(server: Optional[str] = None, tribe: Optional[str] = None, limi
 # ---------- OCR route ----------
 @app.post("/api/ocr/extract")
 async def ocr_extract(file: UploadFile = File(...), engine: str = Query("auto")):
-    """
-    Upload an image and extract lines from the Tribe Log region using the OCR router.
-    engine: 'auto' (default), 'ppo', or 'tess' to force an engine.
-    """
     data = await file.read()
-    arr = np.frombuffer(data, dtype=np.uint8)
-    img = cv.imdecode(arr, cv.IMREAD_COLOR)
-    if img is None:
+    if not data:
         raise HTTPException(status_code=400, detail="invalid image data")
-    res = extract_text(img, engine_pref=engine)
+    try:
+        res = extract_text(data, engine_hint=engine or "auto")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OCR failed: {e}")
     return {
-        "engine": res.engine,
-        "conf": round(res.conf, 3),
-        "lines": [{"text": ln.text, "conf": round(ln.conf, 3), "bbox": ln.bbox} for ln in res.lines],
+        "engine": res.get("engine"),
+        "conf": round(res.get("conf", 0.0), 3),
+        "lines": res.get("lines", []),
     }
