@@ -8,7 +8,7 @@ import httpx
 from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Query, Request
 from pydantic import BaseModel, Field
 
-# OCR router expects raw image bytes
+# OCR router expects raw image bytes and returns a dict
 from ocr.router import extract_text
 
 APP_ENV = os.getenv("ENVIRONMENT", "stage")
@@ -79,7 +79,7 @@ async def _start():
 
 @app.on_event("startup")
 async def warm_ocr():
-    """Warm OCR models using a tiny in-memory PNG. Do not fail startup on error."""
+    """Warm OCR using an in-memory PNG. Do not fail startup on error."""
     try:
         from PIL import Image
         import io
@@ -284,6 +284,18 @@ async def ocr_extract(
             )
         data = await request.body()
 
-    # Call the OCR routine (synchronous)
-    text, conf, lines = extract_text(data, engine_hint=engine)
-    return {"engine": engine, "conf": conf, "lines": lines}
+    # Call OCR (returns a dict). Keep response shape compatible: engine/conf/lines.
+    res = extract_text(data, engine_hint=engine)
+    if not isinstance(res, dict):
+        # Fallback if an older router returns a tuple
+        try:
+            text, conf, lines = res  # type: ignore[misc]
+            return {"engine": engine, "conf": conf, "lines": lines}
+        except Exception:
+            raise HTTPException(status_code=500, detail="Unexpected OCR return type")
+
+    return {
+        "engine": res.get("engine", engine),
+        "conf": res.get("conf"),
+        "lines": res.get("lines"),
+    }
