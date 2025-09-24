@@ -7,6 +7,10 @@ using GravityCapture.Models;
 
 namespace GravityCapture.Services
 {
+    /// <summary>
+    /// Thin wrapper around <see cref="OcrClient"/> that loads settings and
+    /// provides a simple file-path based API for the app.
+    /// </summary>
     public sealed class RemoteOcrService : IDisposable
     {
         private readonly OcrClient _client;
@@ -14,26 +18,37 @@ namespace GravityCapture.Services
 
         public RemoteOcrService(AppSettings settings, HttpClient? httpClient = null)
         {
-            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            if (settings is null) throw new ArgumentNullException(nameof(settings));
             if (string.IsNullOrWhiteSpace(settings.ApiBaseUrl))
                 throw new InvalidOperationException("ApiBaseUrl is not configured.");
-            if (settings.Auth == null || string.IsNullOrWhiteSpace(settings.Auth.SharedKey))
+            if (string.IsNullOrWhiteSpace(settings.Auth?.SharedKey))
                 throw new InvalidOperationException("Auth.SharedKey is not configured.");
 
             _http = httpClient ?? new HttpClient();
-            _client = new OcrClient(settings.ApiBaseUrl.TrimEnd('/'), settings.Auth.SharedKey, _http);
+            _client = new OcrClient(settings.ApiBaseUrl.TrimEnd('/'), settings.Auth!.SharedKey!, _http);
         }
 
-        public async Task<OcrClient.ExtractResponse> ExtractAsync(
+        /// <summary>
+        /// Sends an image file to the stage OCR API and returns the client’s response.
+        /// Return type is <c>object</c> to match whatever the current <see cref="OcrClient"/> returns.
+        /// (If your OcrClient exposes a concrete type like <c>ExtractResponse</c>, you can swap it here.)
+        /// </summary>
+        public async Task<object> ExtractAsync(
             string imagePath,
             string contentType = "image/png",
             CancellationToken ct = default)
         {
+            if (string.IsNullOrWhiteSpace(imagePath))
+                throw new ArgumentException("Image path is required.", nameof(imagePath));
             if (!File.Exists(imagePath))
                 throw new FileNotFoundException("Image not found.", imagePath);
 
             await using var fs = File.OpenRead(imagePath);
-            return await _client.ExtractAsync(fs, Path.GetFileName(imagePath), contentType, ct);
+            var fileName = Path.GetFileName(imagePath);
+
+            // Defer to the OcrClient; whatever it returns is passed through.
+            var result = await _client.ExtractAsync(fs, fileName, contentType, ct);
+            return result!;
         }
 
         public void Dispose() => _http.Dispose();
