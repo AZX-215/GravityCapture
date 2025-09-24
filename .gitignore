@@ -5,6 +5,7 @@ obj/
 *.user
 *.suo
 *.cache
+test/
 TestResult*/
 artifacts/
 publish/
@@ -17,6 +18,10 @@ publish/
 Thumbs.db
 
 build/Output/
-n**/bin/
-n**/obj/
-n**/publish/
+
+n**/bin/
+
+n**/obj/
+
+n**/publish/
+
