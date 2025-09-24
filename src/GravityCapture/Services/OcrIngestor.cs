@@ -1,36 +1,37 @@
-using System;
-using System.Net.Http;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using GravityCapture.Models;
+using Microsoft.Extensions.Logging;
 
 namespace GravityCapture.Services
 {
     public sealed class OcrIngestor
     {
         private readonly OcrClient _client;
+        private readonly ILogger<OcrIngestor> _logger;
 
-        public OcrIngestor(AppSettings settings, HttpClient? httpClient = null)
+        public OcrIngestor(OcrClient client, ILogger<OcrIngestor> logger)
         {
-            if (settings is null) throw new ArgumentNullException(nameof(settings));
-
-            // Support both config shapes
-            var baseUrl =
-                settings.ApiBaseUrl ??
-                settings.RemoteOcr?.BaseUrl ??
-                throw new InvalidOperationException("OCR API base URL is not configured.");
-
-            var key = settings.Auth?.SharedKey ?? settings.RemoteOcr?.SharedKey ?? string.Empty;
-
-            _client = new OcrClient(baseUrl, key, httpClient);
+            _client = client;
+            _logger = logger;
         }
 
-        // Back-compat with existing callsites: (path, CancellationToken)
-        public Task<ExtractResponse> ExtractAsync(string imagePath, CancellationToken ct)
-            => _client.ExtractAsync(imagePath, engine: null, ct);
+        public async Task<string> ExtractFromFileAsync(string path, CancellationToken ct = default)
+        {
+            if (!File.Exists(path))
+                throw new FileNotFoundException("Image to OCR not found.", path);
 
-        // Preferred overload: (path, engine?, CancellationToken)
-        public Task<ExtractResponse> ExtractAsync(string imagePath, string? engine = null, CancellationToken ct = default)
-            => _client.ExtractAsync(imagePath, engine, ct);
+            await using var fs = File.OpenRead(path);
+
+            // Use 'var' so we don't need the ExtractResponse type here.
+            var result = await _client.ExtractAsync(fs, Path.GetFileName(path), ct);
+
+            var text = string.Join(" ", result.Lines.Select(l => l.Text));
+            _logger.LogInformation("OCR ({Engine}) conf {Conf:0.###} -> {Chars} chars",
+                result.Engine, result.Conf, text.Length);
+
+            return text;
+        }
     }
 }
