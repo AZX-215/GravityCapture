@@ -1,7 +1,8 @@
-python-multipart
-opencv-python-headless
 fastapi
 uvicorn[standard]
+python-multipart
+opencv-python-headless
+rapidocr-onnxruntime
 asyncpg
 pydantic
 httpx
