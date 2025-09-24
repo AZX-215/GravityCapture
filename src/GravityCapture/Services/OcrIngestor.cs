@@ -9,7 +9,7 @@ namespace GravityCapture.Services
     /// <summary>
     /// Keeps old call sites working; delegates to OcrClient.
     /// </summary>
-    public class OcrIngestor
+    public partial OcrIngestor
     {
         private readonly AppSettings _settings;
         private readonly OcrClient   _client;
