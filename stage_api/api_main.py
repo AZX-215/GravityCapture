@@ -9,6 +9,12 @@ import httpx
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+# --- OCR imports ---
+import numpy as np
+import cv2 as cv
+from fastapi import UploadFile, File, Query
+from ocr.router import extract_text
+
 APP_ENV = os.getenv("ENVIRONMENT", "stage")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 SHARED = os.getenv("GL_SHARED_SECRET", "")
@@ -79,6 +85,20 @@ async def _start():
 
     # HTTP client for webhook
     _http = httpx.AsyncClient(timeout=10)
+
+@app.on_event("startup")
+async def warm_ocr():
+    """
+    Pre-warm OCR engines so first request doesn't pay model download/init cost.
+    This should NOT fail startup if models cannot be warmed.
+    """
+    try:
+        dummy = np.full((64, 256, 3), 255, dtype=np.uint8)
+        extract_text(dummy, engine_pref="ppo")
+        extract_text(dummy, engine_pref="tess")
+        print("[ocr] warmup ok")
+    except Exception as e:
+        print(f"[ocr] warmup error: {e}")
 
 @app.on_event("shutdown")
 async def _stop():
@@ -256,3 +276,22 @@ async def recent(server: Optional[str] = None, tribe: Optional[str] = None, limi
     except Exception as e:
         print(f"[db] recent error: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail="db query failed")
+
+# ---------- OCR route ----------
+@app.post("/api/ocr/extract")
+async def ocr_extract(file: UploadFile = File(...), engine: str = Query("auto")):
+    """
+    Upload an image and extract lines from the Tribe Log region using the OCR router.
+    engine: 'auto' (default), 'ppo', or 'tess' to force an engine.
+    """
+    data = await file.read()
+    arr = np.frombuffer(data, dtype=np.uint8)
+    img = cv.imdecode(arr, cv.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=400, detail="invalid image data")
+    res = extract_text(img, engine_pref=engine)
+    return {
+        "engine": res.engine,
+        "conf": round(res.conf, 3),
+        "lines": [{"text": ln.text, "conf": round(ln.conf, 3), "bbox": ln.bbox} for ln in res.lines],
+    }
