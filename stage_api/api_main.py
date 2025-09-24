@@ -5,7 +5,7 @@ from typing import Optional, List, Set, Any
 
 import asyncpg
 import httpx
-from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Query
+from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Query, Request
 from pydantic import BaseModel, Field
 
 # OCR router expects raw image bytes
@@ -252,33 +252,39 @@ async def recent(server: Optional[str] = None, tribe: Optional[str] = None, limi
         raise HTTPException(status_code=500, detail="db query failed")
 
 # ---------- OCR route ----------
+
 @app.post("/api/ocr/extract")
 async def ocr_extract(
-    file: Optional[UploadFile] = File(None),
-    image: Optional[UploadFile] = File(None),
-    engine: str = Query("auto"),
+    request: Request,
+    file: UploadFile | None = File(None, description="Image file under form field 'file'"),
+    image: UploadFile | None = File(None, description="Image file under form field 'image'"),
+    engine: str = Query("auto", description="ocr engine: auto|tess|rapid")
 ):
     """
-    Accepts multipart form-data with either field name:
-      - 'file'  (original)
-      - 'image' (alias for clients using that name)
-    One of them must be provided.
+    Accepts an image via one of:
+      1) multipart/form-data with field **file**
+      2) multipart/form-data with field **image**
+      3) raw binary body with Content-Type: image/*
+
+    Example (PowerShell using curl.exe):
+      curl.exe -X POST "%RAILWAY_URL%/api/ocr/extract" -F "file=@C:\\path\\to\\img.png;type=image/png"
     """
-    upload = file or image
-    if upload is None:
-        raise HTTPException(status_code=422, detail="Provide a file under field 'file' or 'image'.")
+    # choose the source of bytes
+    data: bytes | None = None
+    if file is not None:
+        data = await file.read()
+    elif image is not None:
+        data = await image.read()
+    else:
+        # try raw body
+        ctype = request.headers.get("content-type", "")
+        if ctype.startswith("image/") or ctype == "application/octet-stream":
+            data = await request.body()
 
-    data = await upload.read()
     if not data:
-        raise HTTPException(status_code=400, detail="invalid image data")
+        raise HTTPException(status_code=422, detail="Provide image as form field 'file' or 'image', or send raw image bytes with Content-Type: image/*")
 
-    try:
-        res = extract_text(data, engine_hint=engine or "auto")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OCR failed: {e}")
+    res = extract_text(data, engine_hint=engine or "auto")
+    return res
 
-    return {
-        "engine": res.get("engine"),
-        "conf": round(res.get("conf", 0.0), 3),
-        "lines": res.get("lines", []),
     }
