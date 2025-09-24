@@ -1,5 +1,6 @@
 [phases.setup]
-aptPkgs = ["tesseract-ocr"]
+# Nix package names (not apt). 'mesa' provides libGL.so.1
+nixPkgs = ["tesseract", "mesa"]
 
 [variables]
 PORT = "8080"
