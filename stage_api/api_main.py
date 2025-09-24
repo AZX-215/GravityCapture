@@ -87,7 +87,7 @@ async def warm_ocr():
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         png = buf.getvalue()
-        extract_text(png, engine_hint="ppo")
+        # Tesseract-only warmup to avoid cv2/libGL requirements
         extract_text(png, engine_hint="tess")
         print("[ocr] warmup ok")
     except Exception as e:
