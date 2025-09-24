@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using GravityCapture.Models;
 
 namespace GravityCapture.Services
 {
@@ -12,7 +11,7 @@ namespace GravityCapture.Services
     {
         private readonly OcrClient _client;
 
-        public RemoteOcrService(AppSettings settings)
+        public RemoteOcrService(Models.AppSettings settings)
         {
             var baseUrl = settings.Api?.BaseUrl ?? "";
             var apiKey  = settings.Api?.ApiKey;
@@ -25,7 +24,6 @@ namespace GravityCapture.Services
             bitmap.Save(ms, ImageFormat.Png);
             ms.Position = 0;
 
-            // Use 'var' to avoid referencing ExtractResponse directly.
             var resp = await _client.ExtractAsync(ms, "capture.png", ct);
             return string.Join(" ", resp.Lines.Select(l => l.Text));
         }
