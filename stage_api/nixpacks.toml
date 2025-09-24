@@ -1,2 +1,5 @@
+[phases.setup]
+aptPkgs = ["tesseract-ocr"]
+
 [variables]
 PORT = "8080"
