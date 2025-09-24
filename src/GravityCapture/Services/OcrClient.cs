@@ -1,120 +1,92 @@
-using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace GravityCapture.Services
 {
-    public sealed class OcrClient : IDisposable
+    public sealed class OcrClient
     {
         private readonly HttpClient _http;
-        private readonly bool _ownsHttp;
         private readonly string _baseUrl;
-        private static readonly JsonSerializerOptions _json = new()
-        {
-            PropertyNameCaseInsensitive = true,
-            ReadCommentHandling = JsonCommentHandling.Skip,
-            AllowTrailingCommas = true
-        };
+        private readonly string _engine;
 
-        public OcrClient(string? baseUrl = null, HttpClient? http = null)
+        public OcrClient(string baseUrl, string engine = "tess", HttpClient? http = null)
         {
-            _http = http ?? new HttpClient();
-            _ownsHttp = http is null;
-
-            var env = Environment.GetEnvironmentVariable("OCR_API_BASE");
-            _baseUrl = (baseUrl ?? env ?? "https://screenshots-api-stage-production.up.railway.app").TrimEnd('/');
+            _baseUrl = baseUrl.TrimEnd('/');
+            _engine  = string.IsNullOrWhiteSpace(engine) ? "tess" : engine;
+            _http    = http ?? new HttpClient();
         }
 
-        public void Dispose()
+        public async Task<OcrResult> ExtractFromFileAsync(string filePath, string? engine = null, CancellationToken ct = default)
         {
-            if (_ownsHttp) _http.Dispose();
+            if (!File.Exists(filePath))
+                throw new FileNotFoundException("Image not found", filePath);
+
+            var url = $"{_baseUrl}/api/ocr/extract?engine={(engine ?? _engine)}";
+            using var fs   = File.OpenRead(filePath);
+            using var cnt  = new StreamContent(fs);
+            cnt.Headers.ContentType = new MediaTypeHeaderValue(GetContentTypeFromPath(filePath)); // ensure image/*
+
+            using var mp   = new MultipartFormDataContent();
+            mp.Add(cnt, "file", Path.GetFileName(filePath)); // API accepts 'file' or 'image'
+
+            using var resp = await _http.PostAsync(url, mp, ct);
+            resp.EnsureSuccessStatusCode();
+
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            var result = JsonSerializer.Deserialize<OcrResult>(json, JsonOpts)
+                         ?? throw new InvalidOperationException("Empty OCR response");
+            return result;
         }
 
-        public async Task<OcrResponse> ExtractFromFileAsync(string filePath, string? engine = null, CancellationToken ct = default)
+        public async Task<OcrResult> ExtractFromBytesAsync(byte[] bytes, string fileName = "image.png", string? engine = null, CancellationToken ct = default)
         {
-            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
-                throw new FileNotFoundError(filePath);
+            var url = $"{_baseUrl}/api/ocr/extract?engine={(engine ?? _engine)}";
+            using var cnt = new ByteArrayContent(bytes);
+            cnt.Headers.ContentType = new MediaTypeHeaderValue(GetContentTypeFromPath(fileName));
 
-            using var form = new MultipartFormDataContent();
-            using var fs = File.OpenRead(filePath);
-            var content = new StreamContent(fs);
-            content.Headers.ContentType = new MediaTypeHeaderValue(DetectContentTypeByExtension(filePath));
-            form.Add(content, "file", Path.GetFileName(filePath));
+            using var mp = new MultipartFormDataContent();
+            mp.Add(cnt, "file", fileName);
 
-            var url = BuildUrl("/api/ocr/extract", engine);
-            using var resp = await _http.PostAsync(url, form, ct).ConfigureAwait(false);
-            await EnsureSuccess(resp).ConfigureAwait(false);
-            using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            var data = await JsonSerializer.DeserializeAsync<OcrResponse>(stream, _json, ct).ConfigureAwait(false);
-            return data ?? throw new InvalidOperationException("Empty OCR response.");
+            using var resp = await _http.PostAsync(url, mp, ct);
+            resp.EnsureSuccessStatusCode();
+
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            return JsonSerializer.Deserialize<OcrResult>(json, JsonOpts)!;
         }
 
-        public async Task<OcrResponse> ExtractFromBytesAsync(byte[] bytes, string contentType = "image/png", string? engine = null, CancellationToken ct = default)
-        {
-            if (bytes is null || bytes.Length == 0) throw new ArgumentException("bytes is empty", nameof(bytes));
-            using var body = new ByteArrayContent(bytes);
-            body.Headers.ContentType = new MediaTypeHeaderValue(contentType);
-
-            var url = BuildUrl("/api/ocr/extract", engine);
-            using var resp = await _http.PostAsync(url, body, ct).ConfigureAwait(false);
-            await EnsureSuccess(resp).ConfigureAwait(false);
-            using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            var data = await JsonSerializer.DeserializeAsync<OcrResponse>(stream, _json, ct).ConfigureAwait(false);
-            return data ?? throw new InvalidOperationException("Empty OCR response.");
-        }
-
-        private string BuildUrl(string path, string? engine) =>
-            engine is null ? $"{_baseUrl}{path}" : $"{_baseUrl}{path}?engine={Uri.EscapeDataString(engine)}";
-
-        private static string DetectContentTypeByExtension(string path)
+        private static string GetContentTypeFromPath(string path)
         {
             var ext = Path.GetExtension(path).ToLowerInvariant();
             return ext switch
             {
-                ".png" => "image/png",
-                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png"  => "image/png",
+                ".jpg"  => "image/jpeg",
+                ".jpeg" => "image/jpeg",
                 ".webp" => "image/webp",
-                _ => "application/octet-stream"
+                ".bmp"  => "image/bmp",
+                _       => "image/png"
             };
         }
 
-        private static async Task EnsureSuccess(HttpResponseMessage resp)
+        private static readonly JsonSerializerOptions JsonOpts = new()
         {
-            if (resp.IsSuccessStatusCode) return;
-            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-            throw new HttpRequestException($"OCR API error {(int)resp.StatusCode} {resp.ReasonPhrase}: {body}");
-        }
+            PropertyNameCaseInsensitive = true,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
     }
 
-    public sealed class OcrResponse
+    public sealed class OcrResult
     {
-        [JsonPropertyName("engine")]
-        public string Engine { get; set; } = "";
-
-        [JsonPropertyName("conf")]
-        public double Conf { get; set; }
-
-        [JsonPropertyName("lines")]
-        public List<OcrLine> Lines { get; set; } = new();
+        [JsonPropertyName("engine")] public string Engine { get; set; } = "";
+        [JsonPropertyName("conf")]   public double Conf { get; set; }
+        [JsonPropertyName("lines")]  public List<OcrLine> Lines { get; set; } = new();
     }
 
     public sealed class OcrLine
     {
-        [JsonPropertyName("text")]
-        public string Text { get; set; } = "";
-
-        [JsonPropertyName("conf")]
-        public double Conf { get; set; }
-
-        // [x1, y1, x2, y2]
-        [JsonPropertyName("bbox")]
-        public int[] Bbox { get; set; } = Array.Empty<int>();
-    }
-
-    // Custom exception so callers can catch missing files clearly
-    public sealed class FileNotFoundError : FileNotFoundException
-    {
-        public FileNotFoundError(string? path) : base($"File not found: {path}", path) { }
+        [JsonPropertyName("text")] public string Text { get; set; } = "";
+        [JsonPropertyName("conf")] public double Conf { get; set; }
+        [JsonPropertyName("bbox")] public int[] Bbox { get; set; } = Array.Empty<int>();
     }
 }
