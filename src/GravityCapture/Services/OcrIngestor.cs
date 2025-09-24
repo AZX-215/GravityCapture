@@ -1,58 +1,70 @@
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
+using System;
 using System.Collections.Generic;
-using GravityCapture.Models;
+using System.Drawing;
 
 namespace GravityCapture.Services
 {
     /// <summary>
-    /// Keeps old call sites working; delegates to OcrClient.
+    /// Legacy holder for OCR ingestion helpers. The real OCR work now happens
+    /// in IOcrService implementations; this remains for compatibility.
     /// </summary>
-    public partial OcrIngestor
+    public sealed partial class OcrIngestor
     {
-        private readonly AppSettings _settings;
-        private readonly OcrClient   _client;
+        /// <summary>A single OCR line (text + confidence + bounding box).</summary>
+        public readonly record struct OcrLine(string Text, float Confidence, Rectangle Bbox);
 
-        public OcrIngestor() : this(AppSettings.Load()) { }
+        // Small rolling set of recently seen lines to reduce duplicate posts.
+        private readonly RollingWindow<string> _recent = new(200);
 
-        public OcrIngestor(AppSettings settings)
+        public OcrIngestor() { }
+
+        /// <summary>Record a line if it hasn't been seen recently.</summary>
+        public bool TryRegisterLine(string text)
         {
-            _settings = settings ?? new AppSettings();
-            var baseUrl = string.IsNullOrWhiteSpace(_settings.RemoteOcrBaseUrl)
-                ? _settings.ApiBaseUrl
-                : _settings.RemoteOcrBaseUrl;
-
-            _client = new OcrClient(baseUrl, _settings.RemoteOcrApiKey);
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            var key = text.Trim();
+            if (_recent.Contains(key)) return false;
+            _recent.Add(key);
+            return true;
         }
 
-        public Task<ExtractResponse> ScanAndPostAsync(string imagePath) =>
-            ScanAndPostAsync(imagePath, CancellationToken.None);
-
-        public async Task<ExtractResponse> ScanAndPostAsync(string imagePath, CancellationToken ct)
-        {
-            using var fs = File.OpenRead(imagePath);
-            return await ScanAndPostAsync(fs, ct);
-        }
-
-        public Task<ExtractResponse> ScanAndPostAsync(Stream stream) =>
-            ScanAndPostAsync(stream, CancellationToken.None);
-
-        public async Task<ExtractResponse> ScanAndPostAsync(Stream stream, CancellationToken ct)
-        {
-            return await _client.ExtractAsync(stream, ct);
-        }
-
-        public Task<ExtractResponse> ExtractAsync(Stream stream, CancellationToken ct = default) =>
-            _client.ExtractAsync(stream, ct);
-
-        public async Task<ExtractResponse> ExtractAsync(string path, CancellationToken ct = default)
-        {
-            using var fs = File.OpenRead(path);
-            return await _client.ExtractAsync(fs, ct);
-        }
+        /// <summary>Clears the in-memory duplicate filter.</summary>
+        public void ResetRecent() => _recent.Clear();
     }
 
-    // Keep ExtractResponse here; OcrLine already exists elsewhere in Services.
-    public record ExtractResponse(string engine, double conf, List<OcrLine> lines);
+    /// <summary>Fixed-size FIFO set with O(1) add/contains for small N.</summary>
+    internal sealed class RollingWindow<T>
+    {
+        private readonly int _capacity;
+        private readonly Queue<T> _queue;
+        private readonly HashSet<T> _set;
+
+        public RollingWindow(int capacity)
+        {
+            if (capacity <= 0) throw new ArgumentOutOfRangeException(nameof(capacity));
+            _capacity = capacity;
+            _queue = new Queue<T>(capacity);
+            _set = new HashSet<T>();
+        }
+
+        public void Add(T value)
+        {
+            if (_set.Contains(value)) return;
+            _queue.Enqueue(value);
+            _set.Add(value);
+            if (_queue.Count > _capacity)
+            {
+                var old = _queue.Dequeue();
+                _set.Remove(old);
+            }
+        }
+
+        public bool Contains(T value) => _set.Contains(value);
+
+        public void Clear()
+        {
+            _queue.Clear();
+            _set.Clear();
+        }
+    }
 }
