@@ -253,14 +253,30 @@ async def recent(server: Optional[str] = None, tribe: Optional[str] = None, limi
 
 # ---------- OCR route ----------
 @app.post("/api/ocr/extract")
-async def ocr_extract(file: UploadFile = File(...), engine: str = Query("auto")):
-    data = await file.read()
+async def ocr_extract(
+    file: Optional[UploadFile] = File(None),
+    image: Optional[UploadFile] = File(None),
+    engine: str = Query("auto"),
+):
+    """
+    Accepts multipart form-data with either field name:
+      - 'file'  (original)
+      - 'image' (alias for clients using that name)
+    One of them must be provided.
+    """
+    upload = file or image
+    if upload is None:
+        raise HTTPException(status_code=422, detail="Provide a file under field 'file' or 'image'.")
+
+    data = await upload.read()
     if not data:
         raise HTTPException(status_code=400, detail="invalid image data")
+
     try:
         res = extract_text(data, engine_hint=engine or "auto")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OCR failed: {e}")
+
     return {
         "engine": res.get("engine"),
         "conf": round(res.get("conf", 0.0), 3),
