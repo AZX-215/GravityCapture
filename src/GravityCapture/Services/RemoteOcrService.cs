@@ -1,31 +1,31 @@
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using GravityCapture.Models;
 
 namespace GravityCapture.Services
 {
-    public sealed class RemoteOcrService : IOcrService
+    /// <summary>
+    /// Minimal helper the UI can new-up to call Remote OCR.
+    /// No ILogger / DI to keep Stage app simple.
+    /// </summary>
+    public class RemoteOcrService
     {
         private readonly OcrClient _client;
 
-        public RemoteOcrService(Models.AppSettings settings)
+        public RemoteOcrService(AppSettings settings)
         {
-            var baseUrl = settings.Api?.BaseUrl ?? "";
-            var apiKey  = settings.Api?.ApiKey;
-            _client = new OcrClient(baseUrl, apiKey);
+            var baseUrl = (settings?.RemoteOcrBaseUrl ?? "").TrimEnd('/');
+            _client = new OcrClient(baseUrl, settings?.RemoteOcrApiKey ?? "");
         }
 
-        public async Task<string> ExtractAsync(Bitmap bitmap, CancellationToken ct = default)
-        {
-            using var ms = new MemoryStream();
-            bitmap.Save(ms, ImageFormat.Png);
-            ms.Position = 0;
+        public Task<ExtractResponse> ExtractAsync(Stream image, CancellationToken ct = default) =>
+            _client.ExtractAsync(image, ct);
 
-            var resp = await _client.ExtractAsync(ms, "capture.png", ct);
-            return string.Join(" ", resp.Lines.Select(l => l.Text));
+        public async Task<ExtractResponse> ExtractAsync(string path, CancellationToken ct = default)
+        {
+            using var fs = File.OpenRead(path);
+            return await _client.ExtractAsync(fs, ct);
         }
     }
 }
