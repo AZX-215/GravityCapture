@@ -284,5 +284,6 @@ async def ocr_extract(
             )
         data = await request.body()
 
-    text, conf, lines = await extract_text(data, engine)
+    # Call the OCR routine (synchronous)
+    text, conf, lines = extract_text(data, engine_hint=engine)
     return {"engine": engine, "conf": conf, "lines": lines}
