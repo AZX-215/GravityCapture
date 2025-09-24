@@ -1,28 +1,65 @@
+using System;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using GravityCapture.Models;
 
 namespace GravityCapture.Services
 {
-    public sealed class OcrIngestor
+    /// <summary>
+    /// Thin wrapper that preserves the old public surface so callers like
+    /// MainWindow and Program keep compiling. Internally calls OcrClient.
+    /// </summary>
+    public class OcrIngestor
     {
-        private readonly OcrClient _client;
+        private readonly AppSettings _settings;
+        private readonly OcrClient   _client;
 
-        public OcrIngestor(OcrClient client)
+        public OcrIngestor() : this(AppSettings.Load()) { }
+
+        public OcrIngestor(AppSettings settings)
         {
-            _client = client;
+            _settings = settings ?? new AppSettings();
+            // Prefer new Remote OCR settings; fall back to legacy ApiBaseUrl if set.
+            var baseUrl = string.IsNullOrWhiteSpace(_settings.RemoteOcrBaseUrl)
+                ? _settings.ApiBaseUrl
+                : _settings.RemoteOcrBaseUrl;
+
+            _client = new OcrClient(baseUrl, _settings.RemoteOcrApiKey);
         }
 
-        public async Task<string> ExtractFromFileAsync(string path, CancellationToken ct = default)
+        // ===== Back-compat overloads used throughout the app =====
+
+        public Task<ExtractResponse> ScanAndPostAsync(string imagePath) =>
+            ScanAndPostAsync(imagePath, CancellationToken.None);
+
+        public async Task<ExtractResponse> ScanAndPostAsync(string imagePath, CancellationToken ct)
         {
-            if (!File.Exists(path))
-                throw new FileNotFoundException("Image to OCR not found.", path);
+            using var fs = File.OpenRead(imagePath);
+            return await ScanAndPostAsync(fs, ct);
+        }
 
-            await using var fs = File.OpenRead(path);
+        public Task<ExtractResponse> ScanAndPostAsync(Stream stream) =>
+            ScanAndPostAsync(stream, CancellationToken.None);
 
-            var result = await _client.ExtractAsync(fs, Path.GetFileName(path), ct);
-            return string.Join(" ", result.Lines.Select(l => l.Text));
+        public async Task<ExtractResponse> ScanAndPostAsync(Stream stream, CancellationToken ct)
+        {
+            // Stage app only needs OCR; “post”/ingest is handled elsewhere.
+            return await _client.ExtractAsync(stream, ct);
+        }
+
+        // Some callers use ExtractAsync naming
+        public Task<ExtractResponse> ExtractAsync(Stream stream, CancellationToken ct = default) =>
+            _client.ExtractAsync(stream, ct);
+
+        public async Task<ExtractResponse> ExtractAsync(string path, CancellationToken ct = default)
+        {
+            using var fs = File.OpenRead(path);
+            return await _client.ExtractAsync(fs, ct);
         }
     }
+
+    /// <summary>Shared models so the app compiles even if callers referenced them.</summary>
+    public record OcrLine(string text, double conf, int[] bbox);
+    public record ExtractResponse(string engine, double conf, System.Collections.Generic.List<OcrLine> lines);
 }
