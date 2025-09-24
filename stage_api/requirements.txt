@@ -1,4 +1,5 @@
 python-multipart
+opencv-python-headless
 fastapi
 uvicorn[standard]
 asyncpg
