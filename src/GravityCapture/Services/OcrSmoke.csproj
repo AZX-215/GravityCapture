@@ -7,6 +7,11 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
+  <!-- Disable SDK-generated AssemblyInfo to avoid duplicate attributes -->
+  <PropertyGroup>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="OcrClient.cs" />
