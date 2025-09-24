@@ -252,39 +252,37 @@ async def recent(server: Optional[str] = None, tribe: Optional[str] = None, limi
         raise HTTPException(status_code=500, detail="db query failed")
 
 # ---------- OCR route ----------
-
 @app.post("/api/ocr/extract")
 async def ocr_extract(
     request: Request,
-    file: UploadFile | None = File(None, description="Image file under form field 'file'"),
-    image: UploadFile | None = File(None, description="Image file under form field 'image'"),
-    engine: str = Query("auto", description="ocr engine: auto|tess|rapid")
+    file: UploadFile | None = File(None),
+    image: UploadFile | None = File(None),
+    engine: str = Query("auto"),
 ):
-    """
-    Accepts an image via one of:
-      1) multipart/form-data with field **file**
-      2) multipart/form-data with field **image**
-      3) raw binary body with Content-Type: image/*
+    """Extract text from an image.
 
-    Example (PowerShell using curl.exe):
-      curl.exe -X POST "%RAILWAY_URL%/api/ocr/extract" -F "file=@C:\\path\\to\\img.png;type=image/png"
+    Accepts **either** a multipart form field named `file` **or** `image`.
+    Also supports posting **raw image bytes** with a `Content-Type: image/*` header.
     """
-    # choose the source of bytes
-    data: bytes | None = None
-    if file is not None:
-        data = await file.read()
-    elif image is not None:
-        data = await image.read()
+    up = file or image
+    data: bytes
+    content_type: str
+
+    if up is not None:
+        content_type = (up.content_type or "").lower()
+        if not content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Uploaded part must be an image (png, jpeg, webp).")
+        data = await up.read()
     else:
-        # try raw body
-        ctype = request.headers.get("content-type", "")
-        if ctype.startswith("image/") or ctype == "application/octet-stream":
-            data = await request.body()
+        # No multipart field provided: try raw body
+        content_type = (request.headers.get("content-type") or "").lower()
+        if not content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=422,
+                detail="No file provided. Send multipart form-data with field 'file' or 'image', "
+                       "or send raw image bytes with Content-Type: image/*."
+            )
+        data = await request.body()
 
-    if not data:
-        raise HTTPException(status_code=422, detail="Provide image as form field 'file' or 'image', or send raw image bytes with Content-Type: image/*")
-
-    res = extract_text(data, engine_hint=engine or "auto")
-    return res
-
-    }
+    text, conf, lines = await extract_text(data, engine)
+    return {"engine": engine, "conf": conf, "lines": lines}
