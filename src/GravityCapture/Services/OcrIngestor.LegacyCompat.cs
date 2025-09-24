@@ -1,44 +1,73 @@
 #nullable enable
 using System;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using GravityCapture.Models; // ExtractResponse
+using GravityCapture.Models;
 
 namespace GravityCapture.Services
 {
     /// <summary>
-    /// Legacy compatibility shims for older call sites that still invoke
-    /// ScanAndPostAsync(... apiKey, channelId, tribeName, ...).
-    /// These forward to the remote OCR path.
+    /// Legacy compatibility for older call sites. Provides:
+    /// - ScanAndPostAsync(IntPtr hwnd, AppSettings, server, tribe, statusCb)
+    /// - ScanAndPostAsync(Stream|string|byte[], ...)
+    /// For remote OCR it uses RemoteOcrService. Parsed lines are posted via LogIngestClient.
     /// </summary>
     public partial class OcrIngestor
     {
-        private readonly RemoteOcrService _client;
-
-        public OcrIngestor(RemoteOcrService client)
+        public async Task ScanAndPostAsync(
+            IntPtr hwnd,
+            AppSettings settings,
+            string server,
+            string tribe,
+            Func<string, Task> status)
         {
-            _client = client ?? throw new ArgumentNullException(nameof(client));
+            using var bmp = settings.UseCrop
+                ? ScreenCapture.CaptureCropNormalized(hwnd, settings.CropX, settings.CropY, settings.CropW, settings.CropH)
+                : ScreenCapture.Capture(hwnd);
+
+            await status("Captured.");
+
+            using var ms = new MemoryStream();
+            bmp.Save(ms, ImageFormat.Png);
+            ms.Position = 0;
+
+            var remote = new RemoteOcrService(settings);
+            var res = await remote.ExtractAsync(ms, CancellationToken.None);
+
+            int posted = 0, seen = 0;
+            foreach (var line in res.Lines)
+            {
+                var text = (line.Text ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(text)) continue;
+                seen++;
+                if (!TryRegisterLine(text)) continue;
+
+                var (okParse, evt, _err) = LogLineParser.TryParse(text, server, tribe);
+                if (!okParse || evt is null) continue;
+
+                var (ok, _error) = await LogIngestClient.PostEventAsync(evt);
+                if (ok) posted++;
+            }
+
+            await status($"OCR lines: {seen}, posted: {posted}.");
         }
 
-        /// <summary>
-        /// Legacy signature: forwards the provided image stream to the remote OCR API.
-        /// Unused parameters are accepted for compatibility.
-        /// </summary>
-        public Task<ExtractResponse> ScanAndPostAsync(
+        // Stream/path/bytes shims for test utilities.
+        public async Task<ExtractResponse> ScanAndPostAsync(
             Stream stream,
             string _apiKey,
             string _channelId,
             string _tribeName,
             CancellationToken ct)
         {
-            if (stream is null) throw new ArgumentNullException(nameof(stream));
-            return _client.ExtractAsync(stream, ct);
+            var settings = AppSettings.Load();
+            var remote = new RemoteOcrService(settings);
+            return await remote.ExtractAsync(stream, ct);
         }
 
-        /// <summary>
-        /// Legacy signature: convenience overload for file paths.
-        /// </summary>
         public async Task<ExtractResponse> ScanAndPostAsync(
             string path,
             string _apiKey,
@@ -46,14 +75,11 @@ namespace GravityCapture.Services
             string _tribeName,
             CancellationToken ct)
         {
-            if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", nameof(path));
-            await using var fs = File.OpenRead(path);
-            return await _client.ExtractAsync(fs, ct).ConfigureAwait(false);
+            var settings = AppSettings.Load();
+            var remote = new RemoteOcrService(settings);
+            return await remote.ExtractAsync(path, ct);
         }
 
-        /// <summary>
-        /// Legacy signature: convenience overload for byte arrays.
-        /// </summary>
         public Task<ExtractResponse> ScanAndPostAsync(
             byte[] bytes,
             string _apiKey,
@@ -61,10 +87,8 @@ namespace GravityCapture.Services
             string _tribeName,
             CancellationToken ct)
         {
-            if (bytes is null) throw new ArgumentNullException(nameof(bytes));
             var ms = new MemoryStream(bytes, writable: false);
-            // Intentionally not disposing ms here since the callee reads from the stream asynchronously.
-            return _client.ExtractAsync(ms, ct);
+            return ScanAndPostAsync(ms, _apiKey, _channelId, _tribeName, ct);
         }
     }
 }
