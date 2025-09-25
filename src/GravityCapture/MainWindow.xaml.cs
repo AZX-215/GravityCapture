@@ -22,6 +22,7 @@ namespace GravityCapture
 
         [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hWnd);
 
         public MainWindow()
         {
@@ -34,7 +35,7 @@ namespace GravityCapture
 
             Loaded += (_, __) =>
             {
-                _previewTimer.Start();      // preview without pressing Start
+                _previewTimer.Start();      // start preview loop
                 UpdatePreview();
             };
         }
@@ -55,6 +56,7 @@ namespace GravityCapture
         private void StopBtn_Click(object sender, RoutedEventArgs e)
         {
             _previewTimer.Stop();
+            LivePreview.Source = null;
             StatusText.Text = "Preview stopped.";
         }
 
@@ -103,12 +105,17 @@ namespace GravityCapture
             StatusText.Text = "Sent.";
         }
 
+        // Only allow preview when: a) we have a valid target window, b) it’s not minimized,
+        // and c) if "active window only" is set, it is the foreground window.
         private bool PreviewAllowed()
         {
-            bool activeOnly = _settings.Capture?.ActiveWindow ?? true;
-            if (!activeOnly || _hwnd == IntPtr.Zero) return true;
-            if (IsIconic(_hwnd)) return false;                 // minimized
-            return GetForegroundWindow() == _hwnd;             // must be foreground
+            if (_hwnd == IntPtr.Zero || !IsWindow(_hwnd)) return false;
+            if (IsIconic(_hwnd)) return false;
+
+            bool requireForeground = _settings.Capture?.ActiveWindow ?? true;
+            if (!requireForeground) return true;
+
+            return GetForegroundWindow() == _hwnd;
         }
 
         private void UpdatePreview()
@@ -117,8 +124,7 @@ namespace GravityCapture
             {
                 if (!PreviewAllowed())
                 {
-                    LivePreview.Source = null;
-                    StatusText.Text = "Preview paused (window inactive/minimized).";
+                    LivePreview.Source = null; // clear when paused
                     return;
                 }
 
@@ -130,6 +136,7 @@ namespace GravityCapture
             }
             catch (Exception ex)
             {
+                LivePreview.Source = null;
                 StatusText.Text = $"Preview error: {ex.Message}";
             }
         }
