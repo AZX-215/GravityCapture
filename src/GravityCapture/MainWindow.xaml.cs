@@ -1,314 +1,138 @@
-// src/GravityCapture/MainWindow.xaml.cs
 using System;
-using System.Drawing;
-using System.IO;
 using System.Runtime.InteropServices;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Interop;
-using System.Windows.Media.Imaging;
-using System.Windows.Threading;
+using System.Windows.Media;
+using System.Windows.Shapes;
+// Explicit WPF aliases to avoid clashes with Windows Forms / System.Drawing.
+using WpfPoint = System.Windows.Point;
+using WpfMouseEventArgs = System.Windows.Input.MouseEventArgs;
+using WpfMouseButtonEventArgs = System.Windows.Input.MouseButtonEventArgs;
+using DrawingRectangle = System.Drawing.Rectangle;
 
-using GravityCapture.Models;
-using GravityCapture.Services;
-
-namespace GravityCapture
+namespace GravityCapture.Views
 {
-    public partial class MainWindow : Window
+    public partial class RegionSelectorWindow : Window
     {
-        private AppSettings _settings = null!;
-        private RemoteOcrService? _remote;
-        private DispatcherTimer? _liveTimer;
+        private readonly IntPtr _preferredHwnd;
 
-        // Handle management
-        private IntPtr _lockedHwnd = IntPtr.Zero;  // stick to ARK until user reselects
-        private IntPtr _lastHwnd   = IntPtr.Zero;  // cache for title-hint resolve
+        private WpfPoint _start;
+        private bool _dragging;
 
-        [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr hObject);
+        public DrawingRectangle SelectedRect { get; private set; } = DrawingRectangle.Empty;
+        public IntPtr CapturedHwnd { get; private set; } = IntPtr.Zero;
 
-        public MainWindow()
+        private const int MinSelWidth = 40;
+        private const int MinSelHeight = 40;
+
+        public RegionSelectorWindow(IntPtr preferredHwnd)
         {
             InitializeComponent();
+            _preferredHwnd = preferredHwnd;
 
-            Loaded += OnLoaded;
-            Unloaded += OnUnloaded;
-
-            Activated += (_, __) => UpdatePreviewRunState();
-            Deactivated += (_, __) => UpdatePreviewRunState();
-            IsVisibleChanged += (_, __) => UpdatePreviewRunState();
-            StateChanged += (_, __) => UpdatePreviewRunState();
-
-            SourceInitialized += (_, __) => ApplyDarkTitleBar();
-        }
-
-        private void OnLoaded(object? sender, RoutedEventArgs e)
-        {
-            _settings = AppSettings.Load();
-            BindFromSettings();
-            LogIngestClient.Configure(_settings);
-            _remote = new RemoteOcrService(_settings);
-
-            _liveTimer = new DispatcherTimer(DispatcherPriority.Background)
+            Loaded += (_, __) =>
             {
-                Interval = TimeSpan.FromMilliseconds(500)
+                if (_preferredHwnd != IntPtr.Zero && GetWindowRect(_preferredHwnd, out var wr))
+                {
+                    Left = wr.left; Top = wr.top;
+                    Width = Math.Max(1, wr.right - wr.left);
+                    Height = Math.Max(1, wr.bottom - wr.top);
+                }
+                else
+                {
+                    Left = SystemParameters.VirtualScreenLeft;
+                    Top = SystemParameters.VirtualScreenTop;
+                    Width = SystemParameters.VirtualScreenWidth;
+                    Height = SystemParameters.VirtualScreenHeight;
+                }
+
+                Sel!.Visibility = Visibility.Collapsed;
+                RootCanvas!.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(40, 0, 0, 0));
             };
-            _liveTimer.Tick += async (_, __) => await UpdateLivePreviewAsync();
 
-            UpdatePreviewRunState();
+            KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) { DialogResult = false; Close(); } };
         }
 
-        private void OnUnloaded(object? sender, RoutedEventArgs e)
+        private void OnDown(object sender, WpfMouseButtonEventArgs e)
         {
-            _liveTimer?.Stop();
-            _liveTimer = null;
-            LivePreview.Source = null;
+            _dragging = true;
+            _start = e.GetPosition(RootCanvas!);
+
+            // Lock the window under the cursor (top-level).
+            var screenPt = PointToScreen(_start);
+            CapturedHwnd = GetAncestor(WindowFromPhysicalPoint((int)screenPt.X, (int)screenPt.Y), 2 /*GA_ROOT*/);
+
+            System.Windows.Controls.Canvas.SetLeft(Sel!, _start.X);
+            System.Windows.Controls.Canvas.SetTop(Sel!, _start.Y);
+            Sel!.Width = 0;
+            Sel!.Height = 0;
+            Sel!.Visibility = Visibility.Visible;
+            CaptureMouse();
         }
 
-        private void UpdatePreviewRunState()
+        private void OnMove(object sender, WpfMouseEventArgs e)
         {
-            bool shouldRun = IsActive && IsVisible && WindowState != WindowState.Minimized;
-            if (_liveTimer == null) return;
+            if (!_dragging) return;
 
-            if (shouldRun && !_liveTimer.IsEnabled)
-                _liveTimer.Start();
-            else if (!shouldRun && _liveTimer.IsEnabled)
+            var cur = e.GetPosition(RootCanvas!);
+            var x = Math.Min(cur.X, _start.X);
+            var y = Math.Min(cur.Y, _start.Y);
+            var w = Math.Abs(cur.X - _start.X);
+            var h = Math.Abs(cur.Y - _start.Y);
+
+            System.Windows.Controls.Canvas.SetLeft(Sel!, x);
+            System.Windows.Controls.Canvas.SetTop(Sel!, y);
+            Sel!.Width = w;
+            Sel!.Height = h;
+        }
+
+        private void OnUp(object sender, WpfMouseButtonEventArgs e)
+        {
+            if (!_dragging) return;
+            _dragging = false;
+            ReleaseMouseCapture();
+
+            var x = System.Windows.Controls.Canvas.GetLeft(Sel!);
+            var y = System.Windows.Controls.Canvas.GetTop(Sel!);
+            var w = Sel!.Width;
+            var h = Sel!.Height;
+
+            var tl = PointToScreen(new WpfPoint(x, y));
+            var br = PointToScreen(new WpfPoint(x + w, y + h));
+
+            int ix = (int)Math.Round(tl.X);
+            int iy = (int)Math.Round(tl.Y);
+            int iw = Math.Max(0, (int)Math.Round(br.X - tl.X));
+            int ih = Math.Max(0, (int)Math.Round(br.Y - tl.Y));
+
+            if (iw < MinSelWidth || ih < MinSelHeight)
             {
-                _liveTimer.Stop();
-                LivePreview.Source = null;
-            }
-        }
-
-        private void ApplyDarkTitleBar()
-        {
-            try
-            {
-                const int DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
-                const int DWMWA_USE_IMMERSIVE_DARK_MODE_NEW = 20;
-                [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
-                var hwnd = new WindowInteropHelper(this).Handle;
-                int v = 1;
-                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_NEW, ref v, sizeof(int));
-                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref v, sizeof(int));
-            }
-            catch { }
-        }
-
-        // ----------------- UI <-> Settings -----------------
-
-        private void BindFromSettings()
-        {
-            ApiUrlBox.Text   = _settings.ApiBaseUrl ?? "";
-            ApiKeyBox.Text   = _settings.Auth?.ApiKey ?? "";
-            ChannelBox.Text  = _settings.Image?.ChannelId ?? "";
-            IntervalBox.Text = _settings.IntervalMinutes.ToString();
-            ActiveWindowCheck.IsChecked = _settings.Capture?.ActiveWindow ?? true;
-            QualitySlider.Value = _settings.Image?.JpegQuality ?? 90;
-            QualityLabel.Text = ((int)QualitySlider.Value).ToString();
-            ServerBox.Text = _settings.Capture?.ServerName ?? "";
-            TribeBox.Text  = _settings.TribeName ?? "";
-            AutoOcrCheck.IsChecked = _settings.AutoOcrEnabled;
-            RedOnlyCheck.IsChecked = _settings.PostOnlyCritical;
-            FilterTameCheck.IsChecked = _settings.Image?.FilterTameDeath ?? false;
-            FilterStructCheck.IsChecked = _settings.Image?.FilterStructureDestroyed ?? false;
-            FilterTribeCheck.IsChecked = _settings.Image?.FilterTribeMateDeath ?? false;
-        }
-
-        private void BindToSettings()
-        {
-            _settings.ApiBaseUrl = (ApiUrlBox.Text ?? "").Trim();
-            _settings.Auth ??= new AppSettings.AuthSettings();
-            _settings.Auth.ApiKey = (ApiKeyBox.Text ?? "").Trim();
-
-            _settings.Image ??= new AppSettings.ImageSettings();
-            _settings.Image.ChannelId = (ChannelBox.Text ?? "").Trim();
-            _settings.Image.JpegQuality = Math.Clamp((int)QualitySlider.Value, 50, 100);
-
-            _settings.Capture ??= new AppSettings.CaptureSettings();
-            _settings.Capture.ActiveWindow = ActiveWindowCheck.IsChecked == true;
-            _settings.Capture.ServerName = (ServerBox.Text ?? "").Trim();
-
-            _settings.TribeName = (TribeBox.Text ?? "").Trim();
-
-            _settings.IntervalMinutes = int.TryParse(IntervalBox.Text, out var m) ? Math.Max(1, m) : 1;
-            _settings.AutoOcrEnabled  = AutoOcrCheck.IsChecked == true;
-            _settings.PostOnlyCritical = RedOnlyCheck.IsChecked == true;
-
-            _settings.Image.FilterTameDeath = FilterTameCheck.IsChecked == true;
-            _settings.Image.FilterStructureDestroyed = FilterStructCheck.IsChecked == true;
-            _settings.Image.FilterTribeMateDeath = FilterTribeCheck.IsChecked == true;
-        }
-
-        // ----------------- Buttons -----------------
-
-        private void SaveBtn_Click(object sender, RoutedEventArgs e)
-        {
-            BindToSettings();
-            _settings.Save();
-            LogIngestClient.Configure(_settings);
-            _remote = new RemoteOcrService(_settings);
-            SetStatus("Saved.");
-        }
-
-        private void StartBtn_Click(object sender, RoutedEventArgs e)
-        {
-            UpdatePreviewRunState();
-            SetStatus("Live preview running.");
-        }
-
-        private void StopBtn_Click(object sender, RoutedEventArgs e)
-        {
-            _liveTimer?.Stop();
-            LivePreview.Source = null;
-            SetStatus("Live preview stopped.");
-        }
-
-        private async void SelectCropBtn_Click(object sender, RoutedEventArgs e)
-        {
-            // Prefer current lock; else attempt title-hint resolve to place the overlay
-            var hint = _settings.Image?.TargetWindowHint ?? "ARK";
-            if (_lockedHwnd == IntPtr.Zero)
-            {
-                ScreenCapture.ResolveWindowByTitleHint(hint, _lastHwnd, out var found);
-                if (found != IntPtr.Zero) { _lockedHwnd = found; _lastHwnd = found; }
+                DialogResult = false;
+                Close();
+                return;
             }
 
-            // Bounded selector when we have a window; else full screen
-            var sel = ScreenCapture.SelectRegion(_lockedHwnd);
-            if (!sel.ok) { SetStatus("Selection cancelled."); return; }
-
-            // Lock to the handle used by the selector if available
-            if (sel.hwndUsed != IntPtr.Zero) { _lockedHwnd = sel.hwndUsed; _lastHwnd = sel.hwndUsed; }
-
-            // Normalize against the locked window if possible, else desktop
-            if (ScreenCapture.TryNormalizeRect(_lockedHwnd, sel.rectScreen, out var nx, out var ny, out var nw, out var nh) ||
-                ScreenCapture.TryNormalizeRectDesktop(sel.rectScreen, out nx, out ny, out nw, out nh))
-            {
-                _settings.UseCrop = true;
-                _settings.CropX = nx; _settings.CropY = ny; _settings.CropW = nw; _settings.CropH = nh;
-                _settings.Save();
-                SetStatus($"Region set (locked) nx={nx:F3} ny={ny:F3} w={nw:F3} h={nh:F3}");
-                await UpdateLivePreviewAsync(forceCrop: true);
-            }
-            else
-            {
-                SetStatus("Failed to normalize selection.");
-            }
+            SelectedRect = new DrawingRectangle(ix, iy, iw, ih);
+            DialogResult = true;
+            Close();
         }
 
-        private async void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
-        {
-            if (_remote is null) { SetStatus("Remote OCR not configured."); return; }
+        // ---- Win32 interop ----
 
-            using var bmp = await CaptureForOcrAsync();
-            var jpeg = ScreenCapture.ToJpegBytes(bmp, _settings.Image?.JpegQuality ?? 90);
-            using var ms = new MemoryStream(jpeg);
+        [DllImport("user32.dll")]
+        private static extern IntPtr WindowFromPhysicalPoint(POINT Point);
+        private static IntPtr WindowFromPhysicalPoint(int x, int y)
+            => WindowFromPhysicalPoint(new POINT { x = x, y = y });
 
-            try
-            {
-                var resp = await _remote.ExtractAsync(ms, System.Threading.CancellationToken.None);
-                // Print OCR text lines
-                LogLineBox.Text = resp.TextJoined;
-                SetStatus($"OCR ok. {resp.Lines?.Count ?? 0} lines.");
-            }
-            catch (Exception ex)
-            {
-                SetStatus("OCR error: " + ex.Message);
-            }
-        }
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetAncestor(IntPtr hWnd, int gaFlags);
 
-        private void OcrCropBtn_Click(object sender, RoutedEventArgs e)
-        {
-            _ = Task.Run(async () =>
-            {
-                using var bmp = await CaptureForOcrAsync();
-                var bytes = ScreenCapture.ToJpegBytes(bmp, _settings.Image?.JpegQuality ?? 90);
-                Dispatcher.Invoke(() => SetStatus($"Cropped JPEG {bytes.Length:N0} bytes."));
-            });
-        }
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
-        private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
-        {
-            SetStatus("Parsed log line send stub.");
-        }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT { public int x; public int y; }
 
-        // ----------------- Live preview & capture -----------------
-
-        private async Task UpdateLivePreviewAsync(bool forceCrop = false)
-        {
-            try
-            {
-                using var bmp = await Task.Run(() =>
-                {
-                    var hwnd = ResolveTargetHwnd();
-                    if (hwnd == IntPtr.Zero) return (Bitmap?)null;
-
-                    bool crop = forceCrop || _settings.UseCrop;
-                    if (crop && _settings.CropW > 0 && _settings.CropH > 0)
-                        return ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
-
-                    return ScreenCapture.Capture(hwnd);
-                });
-
-                if (bmp is null)
-                {
-                    LivePreview.Source = null;
-                    return;
-                }
-
-                IntPtr hBmp = bmp.GetHbitmap();
-                try
-                {
-                    var src = Imaging.CreateBitmapSourceFromHBitmap(
-                        hBmp, IntPtr.Zero, Int32Rect.Empty,
-                        BitmapSizeOptions.FromEmptyOptions());
-                    src.Freeze();
-                    LivePreview.Source = src;
-                }
-                finally { DeleteObject(hBmp); }
-            }
-            catch (Exception ex)
-            {
-                SetStatus("Preview error: " + ex.Message);
-            }
-        }
-
-        private Task<Bitmap> CaptureForOcrAsync()
-        {
-            return Task.Run(() =>
-            {
-                var hwnd = ResolveTargetHwnd();
-                if (hwnd == IntPtr.Zero)
-                    throw new InvalidOperationException("Target window not found.");
-
-                if (_settings.UseCrop && _settings.CropW > 0 && _settings.CropH > 0)
-                    return ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
-
-                return ScreenCapture.Capture(hwnd);
-            });
-        }
-
-        private IntPtr ResolveTargetHwnd()
-        {
-            // 1) Use locked handle if still valid
-            if (_lockedHwnd != IntPtr.Zero && ScreenCapture.TryGetWindowRect(_lockedHwnd, out _))
-                return _lockedHwnd;
-
-            // 2) Try to reacquire by title hint
-            var hint = _settings.Image?.TargetWindowHint ?? "ARK";
-            ScreenCapture.ResolveWindowByTitleHint(hint, _lastHwnd, out var found);
-            if (found != IntPtr.Zero)
-            {
-                _lockedHwnd = found;
-                _lastHwnd = found;
-                return _lockedHwnd;
-            }
-
-            // 3) No fallback to desktop to avoid picking random foreground
-            return IntPtr.Zero;
-        }
-
-        // ----------------- Helpers -----------------
-
-        private void SetStatus(string text) => StatusText.Text = text;
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT { public int left, top, right, bottom; }
     }
 }
