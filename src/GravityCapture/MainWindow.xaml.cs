@@ -150,7 +150,8 @@ namespace GravityCapture
             _settings.Auth.ApiKey = ApiKeyBox.Text ?? string.Empty;
         }
 
-        private void EnvBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        // NOTE: fully qualified type name fixes CS0246 without extra using
+        private void EnvBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
         {
             SaveTextBoxesIntoEnvFields();
             _settings.LogEnvironment = CurrentEnv;
