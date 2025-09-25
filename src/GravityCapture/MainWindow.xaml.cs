@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -18,6 +19,9 @@ namespace GravityCapture
         private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(800) };
 
         private AppSettings _settings = AppSettings.Load();
+
+        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
 
         public MainWindow()
         {
@@ -99,10 +103,25 @@ namespace GravityCapture
             StatusText.Text = "Sent.";
         }
 
+        private bool PreviewAllowed()
+        {
+            bool activeOnly = _settings.Capture?.ActiveWindow ?? true;
+            if (!activeOnly || _hwnd == IntPtr.Zero) return true;
+            if (IsIconic(_hwnd)) return false;                 // minimized
+            return GetForegroundWindow() == _hwnd;             // must be foreground
+        }
+
         private void UpdatePreview()
         {
             try
             {
+                if (!PreviewAllowed())
+                {
+                    LivePreview.Source = null;
+                    StatusText.Text = "Preview paused (window inactive/minimized).";
+                    return;
+                }
+
                 using Bitmap bmp = _haveCrop
                     ? ScreenCapture.CaptureCropNormalized(_hwnd, _nx, _ny, _nw, _nh)
                     : ScreenCapture.Capture(_hwnd);
