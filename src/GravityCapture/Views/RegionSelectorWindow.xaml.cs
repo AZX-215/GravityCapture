@@ -1,8 +1,6 @@
 using System;
 using System.Windows;
 using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Shapes;
 
 namespace GravityCapture.Views
 {
@@ -13,10 +11,23 @@ namespace GravityCapture.Views
 
         public Rect SelectedRect { get; private set; } = Rect.Empty;
 
+        // Default ctor: caller may set WindowState=Maximized for full-screen selection.
         public RegionSelectorWindow()
         {
             InitializeComponent();
-            KeyDown += (_, e) => { if (e.Key == Key.Escape) { DialogResult = false; Close(); } };
+            KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Escape) { DialogResult = false; Close(); }
+            };
+        }
+
+        // Bounded overlay ctor: restrict selection to given screen rectangle.
+        public RegionSelectorWindow(Rect screenBounds) : this()
+        {
+            Left = screenBounds.Left;
+            Top  = screenBounds.Top;
+            Width  = screenBounds.Width;
+            Height = screenBounds.Height;
         }
 
         private void OnDown(object sender, MouseButtonEventArgs e)
@@ -59,7 +70,7 @@ namespace GravityCapture.Views
 
             if (w < 2 || h < 2) { DialogResult = false; Close(); return; }
 
-            // Convert to screen coordinates
+            // Convert to absolute screen coordinates
             var p0 = PointToScreen(new Point(x, y));
             SelectedRect = new Rect(p0.X, p0.Y, w, h);
 
