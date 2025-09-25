@@ -1,6 +1,5 @@
 #nullable enable
 using System;
-using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Threading;
@@ -10,7 +9,7 @@ using GravityCapture.Models;
 namespace GravityCapture.Services
 {
     /// <summary>
-    /// Legacy compatibility shims for older call sites.
+    /// Legacy compatibility + remote OCR pipeline glue.
     /// </summary>
     public partial class OcrIngestor
     {
@@ -21,38 +20,46 @@ namespace GravityCapture.Services
             string tribe,
             Func<string, Task> status)
         {
-            using var bmp = settings.UseCrop
+            var bmp = settings.UseCrop
                 ? ScreenCapture.CaptureCropNormalized(hwnd, settings.CropX, settings.CropY, settings.CropW, settings.CropH)
                 : ScreenCapture.Capture(hwnd);
 
             await status("Captured.");
 
-            using var ms = new MemoryStream();
-            bmp.Save(ms, ImageFormat.Png);
-            ms.Position = 0;
-
-            var remote = new RemoteOcrServiceAdapter(settings);
-            var res = await remote.ExtractAsync(ms, CancellationToken.None);
-
-            int posted = 0, seen = 0;
-            foreach (var line in res.Lines)
+            try
             {
-                var text = (line.Text ?? string.Empty).Trim();
-                if (string.IsNullOrWhiteSpace(text)) continue;
-                seen++;
-                if (!TryRegisterLine(text)) continue;
+                await using var ms = new MemoryStream();
+                // Save as PNG for OCR
+                bmp.Save(ms, ImageFormat.Png);
+                ms.Position = 0;
 
-                var (okParse, evt, _err) = LogLineParser.TryParse(text, server, tribe);
-                if (!okParse || evt is null) continue;
+                var remote = new RemoteOcrService(settings);
+                var res = await remote.ExtractAsync(ms, CancellationToken.None);
 
-                var (ok, _error) = await LogIngestClient.PostEventAsync(evt);
-                if (ok) posted++;
+                int posted = 0, seen = 0;
+                foreach (var line in res.Lines)
+                {
+                    var text = (line.Text ?? string.Empty).Trim();
+                    if (string.IsNullOrWhiteSpace(text)) continue;
+                    seen++;
+                    if (!TryRegisterLine(text)) continue;
+
+                    var (okParse, evt, _err) = LogLineParser.TryParse(text, server, tribe);
+                    if (!okParse || evt is null) continue;
+
+                    var (ok, _error) = await LogIngestClient.PostEventAsync(evt);
+                    if (ok) posted++;
+                }
+
+                await status($"OCR lines: {seen}, posted: {posted}.");
             }
-
-            await status($"OCR lines: {seen}, posted: {posted}.");
+            finally
+            {
+                bmp.Dispose();
+            }
         }
 
-        // Stream/path/bytes convenience for smoke tools
+        // Stream/path/bytes shims used by smoke tools
         public Task<ExtractResponse> ScanAndPostAsync(
             Stream stream,
             string _apiKey,
@@ -61,7 +68,7 @@ namespace GravityCapture.Services
             CancellationToken ct)
         {
             var settings = AppSettings.Load();
-            var remote = new RemoteOcrServiceAdapter(settings);
+            var remote = new RemoteOcrService(settings);
             return remote.ExtractAsync(stream, ct);
         }
 
@@ -73,9 +80,8 @@ namespace GravityCapture.Services
             CancellationToken ct)
         {
             var settings = AppSettings.Load();
-            var remote = new RemoteOcrServiceAdapter(settings);
-            await using var fs = File.OpenRead(path);
-            return await remote.ExtractAsync(fs, ct);
+            var remote = new RemoteOcrService(settings);
+            return await remote.ExtractAsync(path, ct).ConfigureAwait(false);
         }
 
         public Task<ExtractResponse> ScanAndPostAsync(
@@ -87,20 +93,6 @@ namespace GravityCapture.Services
         {
             var ms = new MemoryStream(bytes, writable: false);
             return ScanAndPostAsync(ms, _apiKey, _channelId, _tribeName, ct);
-        }
-
-        private sealed class RemoteOcrServiceAdapter
-        {
-            private readonly OcrClient _client;
-            public RemoteOcrServiceAdapter(AppSettings s)
-            {
-                var baseUrl = (s?.RemoteOcrBaseUrl ?? s?.ApiUrl ?? "").TrimEnd('/');
-                var key = s?.RemoteOcrApiKey ?? s?.ApiKey ?? "";
-                _client = new OcrClient(baseUrl, key);
-            }
-
-            public Task<ExtractResponse> ExtractAsync(Stream image, CancellationToken ct) =>
-                _client.ExtractAsync(image, ct);
         }
     }
 }
