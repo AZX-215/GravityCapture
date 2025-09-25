@@ -1,171 +1,159 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.IO;
 using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Forms;
+using System.Windows.Interop;
+using GravityCapture.Views;
 
 namespace GravityCapture.Services
 {
     public static class ScreenCapture
     {
-        private static bool ToneBoostEnabled =>
-            string.Equals(Environment.GetEnvironmentVariable("GC_CAPTURE_TONEBOOST"), "1", StringComparison.OrdinalIgnoreCase);
+        [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT { public int Left, Top, Right, Bottom; public Rectangle ToRectangle() => Rectangle.FromLTRB(Left, Top, Right, Bottom); }
+
+        // Resolve by title hint (best-effort). Returns IntPtr.Zero if not found.
+        public static IntPtr ResolveWindowByTitleHint(string hint, IntPtr lastHwnd, out IntPtr resolved)
+        {
+            resolved = IntPtr.Zero;
+            if (!string.IsNullOrWhiteSpace(hint))
+            {
+                foreach (System.Diagnostics.Process p in System.Diagnostics.Process.GetProcesses())
+                {
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(p.MainWindowTitle) &&
+                            p.MainWindowTitle.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            resolved = p.MainWindowHandle;
+                            break;
+                        }
+                    } catch { }
+                }
+            }
+            if (resolved == IntPtr.Zero) resolved = lastHwnd; // fall back to last
+            return resolved;
+        }
 
         public static Bitmap Capture(IntPtr hwnd)
         {
-            if (hwnd == IntPtr.Zero) hwnd = GetForegroundWindow();
-            if (!TryGetClientRectOnScreen(hwnd, out var r)) r = GetPrimaryMonitorRect();
-            return CaptureScreenRect(r.left, r.top, r.right - r.left, r.bottom - r.top);
+            Rectangle rect;
+            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r)) rect = Screen.PrimaryScreen.Bounds;
+            else rect = r.ToRectangle();
+
+            var bmp = new Bitmap(rect.Width, rect.Height, PixelFormat.Format24bppRgb);
+            using var g = Graphics.FromImage(bmp);
+            g.CopyFromScreen(rect.Left, rect.Top, 0, 0, rect.Size, CopyPixelOperation.SourceCopy);
+            return bmp;
         }
 
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double x, double y, double w, double h)
         {
-            if (hwnd == IntPtr.Zero) hwnd = GetForegroundWindow();
-            if (!TryGetClientRectOnScreen(hwnd, out var r)) r = GetPrimaryMonitorRect();
+            if (w <= 0 || h <= 0) return Capture(hwnd);
+            Rectangle baseRect;
+            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r)) baseRect = Screen.PrimaryScreen.Bounds;
+            else baseRect = r.ToRectangle();
 
-            int rw = r.right - r.left, rh = r.bottom - r.top;
-            int cx = r.left + (int)Math.Round(x * rw);
-            int cy = r.top  + (int)Math.Round(y * rh);
-            int cw =          (int)Math.Round(w * rw);
-            int ch =          (int)Math.Round(h * rh);
+            int rx = baseRect.Left + (int)Math.Round(baseRect.Width  * x);
+            int ry = baseRect.Top  + (int)Math.Round(baseRect.Height * y);
+            int rw = Math.Max(1, (int)Math.Round(baseRect.Width  * w));
+            int rh = Math.Max(1, (int)Math.Round(baseRect.Height * h));
 
-            return CaptureScreenRect(cx, cy, cw, ch);
+            var bmp = new Bitmap(rw, rh, PixelFormat.Format24bppRgb);
+            using var g = Graphics.FromImage(bmp);
+            g.CopyFromScreen(rx, ry, 0, 0, new Size(rw, rh), CopyPixelOperation.SourceCopy);
+            return bmp;
         }
 
         public static byte[] ToJpegBytes(Bitmap bmp, int quality)
         {
-            if (ToneBoostEnabled) ToneBoostInPlace(bmp);
-            using var ms = new MemoryStream();
-            var enc = GetImageCodec(ImageFormat.Jpeg);
-            using var ep = new EncoderParameters(1);
-            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, Math.Clamp(quality, 1, 100));
+            using var ms = new System.IO.MemoryStream();
+            var enc = GetEncoder(ImageFormat.Jpeg);
+            var ep = new EncoderParameters(1);
+            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, Math.Min(100L, Math.Max(50L, (long)quality)));
             bmp.Save(ms, enc, ep);
             return ms.ToArray();
         }
 
-        public static (bool ok, Rectangle rectScreen, IntPtr lastHwnd) SelectRegion(IntPtr lastKnownHwnd)
+        private static ImageCodecInfo GetEncoder(ImageFormat fmt)
         {
-            var hwnd = GetForegroundWindow();
-            if (hwnd == IntPtr.Zero) return (false, Rectangle.Empty, lastKnownHwnd);
-            if (!TryGetClientRectOnScreen(hwnd, out var r)) return (false, Rectangle.Empty, lastKnownHwnd);
-            return (true, new Rectangle(r.left, r.top, r.right - r.left, r.bottom - r.top), hwnd);
+            foreach (var c in ImageCodecInfo.GetImageDecoders())
+                if (c.FormatID == fmt.Guid) return c;
+            return ImageCodecInfo.GetImageDecoders()[0];
         }
 
+        // --- Region selection ---
+
+        public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) SelectRegion(IntPtr preferredHwnd)
+        {
+            // Overlay allows selection anywhere on screen
+            var win = new RegionSelectorWindow();
+            win.Owner = GetActiveWpfWindow();
+            var ok = win.ShowDialog() == true;
+            Rectangle rect = Rectangle.Empty;
+            if (ok && win.SelectedRect.HasValue)
+            {
+                var r = win.SelectedRect.Value; // WPF Rect in screen coords
+                rect = Rectangle.FromLTRB((int)r.Left, (int)r.Top, (int)r.Right, (int)r.Bottom);
+                if (rect.Width < 2 || rect.Height < 2) ok = false;
+            }
+
+            // Re-resolve target window after selection (mouse likely over it)
+            IntPtr used = preferredHwnd;
+            if (used == IntPtr.Zero)
+            {
+                // try the window at the center of selection
+                var center = new System.Drawing.Point(rect.Left + rect.Width / 2, rect.Top + rect.Height / 2);
+                used = WindowFromPoint(center);
+            }
+
+            return (ok, rect, used);
+        }
+
+        [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(System.Drawing.Point p);
+
+        private static Window GetActiveWpfWindow()
+        {
+            foreach (Window w in Application.Current.Windows)
+                if (w.IsActive) return w;
+            return Application.Current.MainWindow;
+        }
+
+        // Normalize against a specific HWND; returns false if hwnd invalid
         public static bool TryNormalizeRect(IntPtr hwnd, Rectangle rectScreen, out double nx, out double ny, out double nw, out double nh)
         {
             nx = ny = nw = nh = 0;
-            if (!TryGetClientRectOnScreen(hwnd, out var r)) return false;
-            double rw = r.right - r.left, rh = r.bottom - r.top;
-            if (rw <= 0 || rh <= 0) return false;
+            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r)) return false;
+            var baseRect = r.ToRectangle();
+            return NormalizeAgainst(baseRect, rectScreen, out nx, out ny, out nw, out nh);
+        }
 
-            double x = rectScreen.Left - r.left, y = rectScreen.Top - r.top;
-            nx = Math.Clamp(x / rw, 0, 1); ny = Math.Clamp(y / rh, 0, 1);
-            nw = Math.Clamp(rectScreen.Width / rw, 0, 1);
-            nh = Math.Clamp(rectScreen.Height / rh, 0, 1);
+        // Fallback: normalize against the desktop bounds when hwnd cannot be resolved.
+        public static bool TryNormalizeRectDesktop(Rectangle rectScreen, out double nx, out double ny, out double nw, out double nh)
+        {
+            var baseRect = Screen.PrimaryScreen.Bounds;
+            return NormalizeAgainst(baseRect, rectScreen, out nx, out ny, out nw, out nh);
+        }
+
+        private static bool NormalizeAgainst(Rectangle baseRect, Rectangle rectScreen,
+                                             out double nx, out double ny, out double nw, out double nh)
+        {
+            nx = ny = nw = nh = 0;
+            if (baseRect.Width <= 1 || baseRect.Height <= 1) return false;
+
+            // clamp to base
+            var rc = Rectangle.Intersect(baseRect, rectScreen);
+            if (rc.Width < 2 || rc.Height < 2) return false;
+
+            nx = (rc.Left - baseRect.Left) / (double)baseRect.Width;
+            ny = (rc.Top  - baseRect.Top ) / (double)baseRect.Height;
+            nw = rc.Width  / (double)baseRect.Width;
+            nh = rc.Height / (double)baseRect.Height;
             return true;
         }
-
-        public static IntPtr ResolveWindowByTitleHint(string hint, IntPtr fallback, out IntPtr chosen)
-        {
-            IntPtr found = IntPtr.Zero;
-
-            if (string.IsNullOrWhiteSpace(hint))
-            {
-                found = fallback != IntPtr.Zero ? fallback : GetForegroundWindow();
-                chosen = found;
-                return found;
-            }
-
-            EnumWindows((h, _) =>
-            {
-                if (!IsWindowVisible(h)) return true;
-                var sb = new System.Text.StringBuilder(512);
-                GetWindowText(h, sb, sb.Capacity);
-                if (sb.ToString().IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0) { found = h; return false; }
-                return true;
-            }, IntPtr.Zero);
-
-            if (found == IntPtr.Zero)
-                found = fallback != IntPtr.Zero ? fallback : GetForegroundWindow();
-
-            chosen = found;
-            return found;
-        }
-
-        private static Bitmap CaptureScreenRect(int x, int y, int w, int h)
-        {
-            var bmp = new Bitmap(Math.Max(1, w), Math.Max(1, h), PixelFormat.Format24bppRgb);
-            using var g = Graphics.FromImage(bmp);
-            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-            g.CopyFromScreen(x, y, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
-            return bmp;
-        }
-
-        private static void ToneBoostInPlace(Bitmap bmp)
-        {
-            var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
-            var data = bmp.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
-            try
-            {
-                unsafe
-                {
-                    byte* p0 = (byte*)data.Scan0.ToPointer();
-                    for (int y = 0; y < bmp.Height; y++)
-                    {
-                        byte* row = p0 + y * data.Stride;
-                        for (int x = 0; x < bmp.Width; x++)
-                        {
-                            int o = x * 3;
-                            row[o + 0] = Gamma(row[o + 0]);
-                            row[o + 1] = Gamma(row[o + 1]);
-                            row[o + 2] = Gamma(row[o + 2]);
-                        }
-                    }
-                }
-                static byte Gamma(byte v)
-                {
-                    double f = v / 255.0;
-                    f = Math.Pow(f, 1.0 / 1.1);
-                    return (byte)Math.Clamp((int)Math.Round(f * 255.0), 0, 255);
-                }
-            }
-            finally { bmp.UnlockBits(data); }
-        }
-
-        private static ImageCodecInfo GetImageCodec(ImageFormat fmt)
-        {
-            foreach (var e in ImageCodecInfo.GetImageEncoders())
-                if (e.FormatID == fmt.Guid) return e;
-            return ImageCodecInfo.GetImageEncoders()[0];
-        }
-
-        private static RECT GetPrimaryMonitorRect()
-        {
-            var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
-            return new RECT(b.Left, b.Top, b.Right, b.Bottom);
-        }
-
-        private static bool TryGetClientRectOnScreen(IntPtr hwnd, out RECT rectScreen)
-        {
-            rectScreen = default;
-            if (!IsWindow(hwnd)) return false;
-            if (!GetClientRect(hwnd, out var rc)) return false;
-            var tl = new POINT { X = 0, Y = 0 };
-            if (!ClientToScreen(hwnd, ref tl)) return false;
-            rectScreen = new RECT(tl.X, tl.Y, tl.X + rc.right, tl.Y + rc.bottom);
-            return true;
-        }
-
-        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
-        [DllImport("user32.dll")] private static extern bool   IsWindow(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern bool   IsWindowVisible(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern int    GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
-        [DllImport("user32.dll")] private static extern bool   EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-        internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-        [DllImport("user32.dll", SetLastError = true)] private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
-        [DllImport("user32.dll", SetLastError = true)] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
-
-        [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X; public int Y; }
-        [StructLayout(LayoutKind.Sequential)] private struct RECT { public int left, top, right, bottom; public RECT(int l, int t, int r, int b){ left=l; top=t; right=r; bottom=b; } }
     }
 }
+
