@@ -4,13 +4,17 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using DrawingRectangle = System.Drawing.Rectangle;
+using WpfPoint = System.Windows.Point;
+using WpfMouseEventArgs = System.Windows.Input.MouseEventArgs;
+using WpfMouseButtonEventArgs = System.Windows.Input.MouseButtonEventArgs;
+using WpfKeyEventArgs = System.Windows.Input.KeyEventArgs;
 
 namespace GravityCapture.Views
 {
     public partial class RegionSelectorWindow : Window
     {
         private readonly IntPtr _preferredHwnd;
-        private Point _start;
+        private WpfPoint _start;
         private bool _dragging;
 
         public DrawingRectangle SelectedRect { get; private set; } = DrawingRectangle.Empty;
@@ -49,18 +53,18 @@ namespace GravityCapture.Views
             };
         }
 
-        private void OnKeyDown(object? sender, KeyEventArgs e)
+        private void OnKeyDown(object? sender, WpfKeyEventArgs e)
         {
             if (e.Key == Key.Escape) { DialogResult = false; Close(); }
         }
 
-        private void OnCancel(object? sender, MouseButtonEventArgs e)
+        private void OnCancel(object? sender, WpfMouseButtonEventArgs e)
         {
             DialogResult = false;
             Close();
         }
 
-        private void OnDown(object? sender, MouseButtonEventArgs e)
+        private void OnDown(object? sender, WpfMouseButtonEventArgs e)
         {
             _dragging = true;
             _start = e.GetPosition(RootCanvas);
@@ -77,7 +81,7 @@ namespace GravityCapture.Views
             RootCanvas.CaptureMouse();
         }
 
-        private void OnMove(object? sender, MouseEventArgs e)
+        private void OnMove(object? sender, WpfMouseEventArgs e)
         {
             if (!_dragging) return;
 
@@ -93,7 +97,7 @@ namespace GravityCapture.Views
             Sel.Height = h;
         }
 
-        private void OnUp(object? sender, MouseButtonEventArgs e)
+        private void OnUp(object? sender, WpfMouseButtonEventArgs e)
         {
             if (!_dragging) return;
             _dragging = false;
@@ -104,8 +108,8 @@ namespace GravityCapture.Views
             var w = Sel.Width;
             var h = Sel.Height;
 
-            var tl = PointToScreen(new Point(x, y));
-            var br = PointToScreen(new Point(x + w, y + h));
+            var tl = PointToScreen(new WpfPoint(x, y));
+            var br = PointToScreen(new WpfPoint(x + w, y + h));
 
             int ix = (int)Math.Round(tl.X);
             int iy = (int)Math.Round(tl.Y);
