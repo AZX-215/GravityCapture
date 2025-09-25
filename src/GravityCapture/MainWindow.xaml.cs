@@ -19,7 +19,10 @@ namespace GravityCapture
         private AppSettings _settings = null!;
         private RemoteOcrService? _remote;
         private DispatcherTimer? _liveTimer;
-        private IntPtr _lastHwnd = IntPtr.Zero;
+
+        // Handle management
+        private IntPtr _lockedHwnd = IntPtr.Zero;  // stick to ARK until user reselects
+        private IntPtr _lastHwnd   = IntPtr.Zero;  // cache for title-hint resolve
 
         [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr hObject);
 
@@ -51,7 +54,7 @@ namespace GravityCapture
             };
             _liveTimer.Tick += async (_, __) => await UpdateLivePreviewAsync();
 
-            UpdatePreviewRunState(); // start or pause based on current window state
+            UpdatePreviewRunState();
         }
 
         private void OnUnloaded(object? sender, RoutedEventArgs e)
@@ -71,7 +74,7 @@ namespace GravityCapture
             else if (!shouldRun && _liveTimer.IsEnabled)
             {
                 _liveTimer.Stop();
-                LivePreview.Source = null; // free GPU/GDI
+                LivePreview.Source = null;
             }
         }
 
@@ -161,26 +164,30 @@ namespace GravityCapture
 
         private async void SelectCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Resolve target window by title hint
+            // Prefer current lock; else attempt title-hint resolve to place the overlay
             var hint = _settings.Image?.TargetWindowHint ?? "ARK";
-            _lastHwnd = ScreenCapture.ResolveWindowByTitleHint(hint, _lastHwnd, out var hwnd);
-            _lastHwnd = hwnd;
+            if (_lockedHwnd == IntPtr.Zero)
+            {
+                ScreenCapture.ResolveWindowByTitleHint(hint, _lastHwnd, out var found);
+                if (found != IntPtr.Zero) { _lockedHwnd = found; _lastHwnd = found; }
+            }
 
-            // Bounded selector when the window is known; else full screen
-            (bool ok, System.Drawing.Rectangle rectScreen, IntPtr usedHwnd) = ScreenCapture.SelectRegion(_lastHwnd);
-            if (!ok) { SetStatus("Selection cancelled."); return; }
+            // Bounded selector when we have a window; else full screen
+            var sel = ScreenCapture.SelectRegion(_lockedHwnd);
+            if (!sel.ok) { SetStatus("Selection cancelled."); return; }
 
-            // Normalize against the game window if possible, else desktop
-            if (ScreenCapture.TryNormalizeRect(usedHwnd, rectScreen, out var nx, out var ny, out var nw, out var nh) ||
-                ScreenCapture.TryNormalizeRectDesktop(rectScreen, out nx, out ny, out nw, out nh))
+            // Lock to the handle used by the selector if available
+            if (sel.hwndUsed != IntPtr.Zero) { _lockedHwnd = sel.hwndUsed; _lastHwnd = sel.hwndUsed; }
+
+            // Normalize against the locked window if possible, else desktop
+            if (ScreenCapture.TryNormalizeRect(_lockedHwnd, sel.rectScreen, out var nx, out var ny, out var nw, out var nh) ||
+                ScreenCapture.TryNormalizeRectDesktop(sel.rectScreen, out nx, out ny, out nw, out nh))
             {
                 _settings.UseCrop = true;
                 _settings.CropX = nx; _settings.CropY = ny; _settings.CropW = nw; _settings.CropH = nh;
                 _settings.Save();
-                _lastHwnd = usedHwnd;
-                SetStatus($"Region set nx={nx:F3} ny={ny:F3} w={nw:F3} h={nh:F3}");
-
-                await UpdateLivePreviewAsync(forceCrop: true); // show cropped preview immediately
+                SetStatus($"Region set (locked) nx={nx:F3} ny={ny:F3} w={nw:F3} h={nh:F3}");
+                await UpdateLivePreviewAsync(forceCrop: true);
             }
             else
             {
@@ -199,7 +206,8 @@ namespace GravityCapture
             try
             {
                 var resp = await _remote.ExtractAsync(ms, System.Threading.CancellationToken.None);
-                LogLineBox.Text = string.Join(Environment.NewLine, resp.Lines ?? []);
+                // Print OCR text lines
+                LogLineBox.Text = resp.TextJoined;
                 SetStatus($"OCR ok. {resp.Lines?.Count ?? 0} lines.");
             }
             catch (Exception ex)
@@ -231,19 +239,21 @@ namespace GravityCapture
             {
                 using var bmp = await Task.Run(() =>
                 {
-                    var hint = _settings.Image?.TargetWindowHint ?? "ARK";
-                    _lastHwnd = ScreenCapture.ResolveWindowByTitleHint(hint, _lastHwnd, out var resolved);
-                    _lastHwnd = resolved;
+                    var hwnd = ResolveTargetHwnd();
+                    if (hwnd == IntPtr.Zero) return (Bitmap?)null;
 
                     bool crop = forceCrop || _settings.UseCrop;
                     if (crop && _settings.CropW > 0 && _settings.CropH > 0)
-                    {
-                        return ScreenCapture.CaptureCropNormalized(
-                            _lastHwnd,
-                            _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
-                    }
-                    return ScreenCapture.Capture(_lastHwnd);
+                        return ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
+
+                    return ScreenCapture.Capture(hwnd);
                 });
+
+                if (bmp is null)
+                {
+                    LivePreview.Source = null;
+                    return;
+                }
 
                 IntPtr hBmp = bmp.GetHbitmap();
                 try
@@ -252,7 +262,7 @@ namespace GravityCapture
                         hBmp, IntPtr.Zero, Int32Rect.Empty,
                         BitmapSizeOptions.FromEmptyOptions());
                     src.Freeze();
-                    LivePreview.Source = src; // shows cropped region if UseCrop = true
+                    LivePreview.Source = src;
                 }
                 finally { DeleteObject(hBmp); }
             }
@@ -266,18 +276,35 @@ namespace GravityCapture
         {
             return Task.Run(() =>
             {
-                var hint = _settings.Image?.TargetWindowHint ?? "ARK";
-                _lastHwnd = ScreenCapture.ResolveWindowByTitleHint(hint, _lastHwnd, out var resolved);
-                _lastHwnd = resolved;
+                var hwnd = ResolveTargetHwnd();
+                if (hwnd == IntPtr.Zero)
+                    throw new InvalidOperationException("Target window not found.");
 
                 if (_settings.UseCrop && _settings.CropW > 0 && _settings.CropH > 0)
-                {
-                    return ScreenCapture.CaptureCropNormalized(
-                        _lastHwnd,
-                        _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
-                }
-                return ScreenCapture.Capture(_lastHwnd);
+                    return ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
+
+                return ScreenCapture.Capture(hwnd);
             });
+        }
+
+        private IntPtr ResolveTargetHwnd()
+        {
+            // 1) Use locked handle if still valid
+            if (_lockedHwnd != IntPtr.Zero && ScreenCapture.TryGetWindowRect(_lockedHwnd, out _))
+                return _lockedHwnd;
+
+            // 2) Try to reacquire by title hint
+            var hint = _settings.Image?.TargetWindowHint ?? "ARK";
+            ScreenCapture.ResolveWindowByTitleHint(hint, _lastHwnd, out var found);
+            if (found != IntPtr.Zero)
+            {
+                _lockedHwnd = found;
+                _lastHwnd = found;
+                return _lockedHwnd;
+            }
+
+            // 3) No fallback to desktop to avoid picking random foreground
+            return IntPtr.Zero;
         }
 
         // ----------------- Helpers -----------------
