@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
@@ -9,8 +10,8 @@ using Windows.Graphics.DirectX.Direct3D11;
 using WinForms = System.Windows.Forms;
 
 // Vortice
-using Vortice.Direct3D;                // DriverType
-using Vortice.Direct3D11;              // ID3D11* types, enums
+using Vortice.Direct3D;
+using Vortice.Direct3D11;
 using DXGI = Vortice.DXGI;
 using D3D11Api = Vortice.Direct3D11.D3D11;
 
@@ -60,7 +61,6 @@ namespace GravityCapture.Services
 
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
         {
-            // Desktop path: compute crop directly from the desktop without taking a full window shot.
             if (hwnd == IntPtr.Zero)
             {
                 var b = WinForms.Screen.PrimaryScreen.Bounds;
@@ -135,8 +135,7 @@ namespace GravityCapture.Services
             return r.Width > 0 && r.Height > 0;
         }
 
-        // -------- WGC (occlusion-proof) --------
-
+        // -------- Windows.Graphics.Capture path (no occlusion) --------
         private static bool TryCaptureWgc(IntPtr hwnd, out Bitmap bmp)
         {
             bmp = null!;
@@ -149,27 +148,25 @@ namespace GravityCapture.Services
 
                 using var device = CreateD3DDevice();
                 using var d3d = CreateDirect3DDevice(device);
-                var size = item.Size;
 
                 using var pool = Direct3D11CaptureFramePool.Create(
-                    d3d, DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, size);
+                    d3d, DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, item.Size);
                 using var session = pool.CreateCaptureSession(item);
+                session.IsCursorCaptureEnabled = false;
+                session.IsBorderRequired = false;
 
                 Direct3D11CaptureFrame? frame = null;
                 using var got = new ManualResetEventSlim(false);
 
                 void onFrame(Direct3D11CaptureFramePool s, object e)
                 {
-                    if (frame is null)
-                    {
-                        frame = s.TryGetNextFrame();
-                        got.Set();
-                    }
+                    frame ??= s.TryGetNextFrame();
+                    if (frame != null) got.Set();
                 }
 
                 pool.FrameArrived += onFrame;
                 session.StartCapture();
-                got.Wait(250);
+                got.Wait(500);
                 pool.FrameArrived -= onFrame;
                 session.Dispose();
 
@@ -183,15 +180,10 @@ namespace GravityCapture.Services
                 }
                 return true;
             }
-            catch
-            {
-                bmp = null!;
-                return false;
-            }
+            catch { bmp = null!; return false; }
         }
 
         // -------- GDI helpers --------
-
         private static Bitmap CaptureGdi(IntPtr hwnd)
         {
             if (!TryGetWindowRect(hwnd, out var wr))
@@ -202,7 +194,7 @@ namespace GravityCapture.Services
 
             var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
             using var g = Graphics.FromImage(bmp);
-            g.CopyFromScreen(wr.Left, wr.Top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
+            g.CopyFromScreen(wr.left, wr.top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
             return bmp;
         }
 
@@ -248,12 +240,14 @@ namespace GravityCapture.Services
             throw new InvalidOperationException("JPEG encoder not found.");
         }
 
+        // ---- WGC interop helpers ----
         private static GraphicsCaptureItem? CreateItemForWindow(IntPtr hwnd)
         {
-            var interop = (IGraphicsCaptureItemInterop)Activator.CreateInstance(typeof(GraphicsCaptureItem))!;
-            Guid iid = typeof(GraphicsCaptureItem).GUID;
-            int hr = interop.CreateForWindow(hwnd, ref iid, out GraphicsCaptureItem item);
-            return hr == 0 ? item : null;
+            var factory = (IGraphicsCaptureItemInterop)WindowsRuntimeMarshal.GetActivationFactory(typeof(GraphicsCaptureItem));
+            var iid = typeof(GraphicsCaptureItem).GUID;
+            IntPtr pItem = factory.CreateForWindow(hwnd, ref iid);
+            if (pItem == IntPtr.Zero) return null;
+            return WinRT.MarshalInterface<GraphicsCaptureItem>.FromAbi(pItem);
         }
 
         private static ID3D11Device CreateD3DDevice()
@@ -271,9 +265,8 @@ namespace GravityCapture.Services
 
         private static Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice CreateDirect3DDevice(ID3D11Device device)
         {
-            var dxgi = device.QueryInterface<DXGI.IDXGIDevice>();
+            using var dxgi = device.QueryInterface<DXGI.IDXGIDevice>();
             int hr = CreateDirect3D11DeviceFromDXGIDevice(dxgi.NativePointer, out var unk);
-            dxgi.Dispose();
             if (hr < 0) Marshal.ThrowExceptionForHR(hr);
             return WinRT.MarshalInterface<Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice>.FromAbi(unk);
         }
@@ -331,16 +324,15 @@ namespace GravityCapture.Services
             }
         }
 
-        [ComImport, Guid("3628E81B-3CAC-4A9E-8545-75C971C37E80"),
-         InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        // interop
+        [ComImport, Guid("3628E81B-3CAC-4A9E-8545-75C971C37E80"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IGraphicsCaptureItemInterop
         {
-            int CreateForWindow(IntPtr hwnd, ref Guid iid, out GraphicsCaptureItem result);
-            int CreateForMonitor(IntPtr hmon, ref Guid iid, out GraphicsCaptureItem result);
+            IntPtr CreateForWindow(IntPtr hwnd, ref Guid iid);
+            IntPtr CreateForMonitor(IntPtr hmon, ref Guid iid);
         }
 
-        [ComImport, Guid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1"),
-         InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [ComImport, Guid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IDirect3DDxgiInterfaceAccess
         {
             IntPtr GetInterface(ref Guid iid);
