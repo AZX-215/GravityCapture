@@ -43,10 +43,10 @@ namespace GravityCapture.Services
                     seen++;
                     if (!TryRegisterLine(text)) continue;
 
-                    var (okParse, evt, _err) = LogLineParser.TryParse(text, server, tribe);
+                    var (okParse, evt, _) = LogLineParser.TryParse(text, server, tribe);
                     if (!okParse || evt is null) continue;
 
-                    var (ok, _error) = await LogIngestClient.PostEventAsync(evt);
+                    var (ok, _) = await LogIngestClient.PostEventAsync(evt);
                     if (ok) posted++;
                 }
 
