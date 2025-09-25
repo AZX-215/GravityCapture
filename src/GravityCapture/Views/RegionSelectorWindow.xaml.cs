@@ -2,7 +2,8 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
-// Explicit WPF aliases to avoid clashes with Windows Forms / System.Drawing.
+using System.Windows.Shapes;
+// Explicit WPF aliases
 using WpfPoint = System.Windows.Point;
 using WpfMouseEventArgs = System.Windows.Input.MouseEventArgs;
 using WpfMouseButtonEventArgs = System.Windows.Input.MouseButtonEventArgs;
@@ -45,7 +46,8 @@ namespace GravityCapture.Views
                 }
 
                 Sel!.Visibility = Visibility.Collapsed;
-                RootCanvas!.Background = new SolidColorBrush(Color.FromArgb(40, 0, 0, 0));
+                // Qualify Color to WPF to avoid ambiguity
+                RootCanvas!.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(40, 0, 0, 0));
             };
 
             KeyDown += (_, e) =>
@@ -59,7 +61,6 @@ namespace GravityCapture.Views
             _dragging = true;
             _start = e.GetPosition(RootCanvas!);
 
-            // Lock the window under the cursor (top-level).
             var screenPt = PointToScreen(_start);
             CapturedHwnd = GetAncestor(WindowFromPhysicalPoint((int)screenPt.X, (int)screenPt.Y), 2 /*GA_ROOT*/);
 
