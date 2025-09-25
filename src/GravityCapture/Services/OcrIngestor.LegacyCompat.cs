@@ -9,7 +9,7 @@ using GravityCapture.Models;
 namespace GravityCapture.Services
 {
     /// <summary>
-    /// Legacy compatibility + remote OCR pipeline glue.
+    /// Legacy compatibility + remote OCR pipeline glue. Single source of truth.
     /// </summary>
     public partial class OcrIngestor
     {
@@ -29,7 +29,6 @@ namespace GravityCapture.Services
             try
             {
                 await using var ms = new MemoryStream();
-                // Save as PNG for OCR
                 bmp.Save(ms, ImageFormat.Png);
                 ms.Position = 0;
 
@@ -59,7 +58,8 @@ namespace GravityCapture.Services
             }
         }
 
-        // Stream/path/bytes shims used by smoke tools
+        // ---- Legacy overloads used by tools/tests ----
+
         public Task<ExtractResponse> ScanAndPostAsync(
             Stream stream,
             string _apiKey,
