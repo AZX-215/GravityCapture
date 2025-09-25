@@ -10,10 +10,7 @@ using GravityCapture.Models;
 namespace GravityCapture.Services
 {
     /// <summary>
-    /// Legacy compatibility for older call sites. Provides:
-    /// - ScanAndPostAsync(IntPtr hwnd, AppSettings, server, tribe, statusCb)
-    /// - ScanAndPostAsync(Stream|string|byte[], ...)
-    /// For remote OCR it uses RemoteOcrService. Parsed lines are posted via LogIngestClient.
+    /// Legacy compatibility shims for older call sites.
     /// </summary>
     public partial class OcrIngestor
     {
@@ -34,7 +31,7 @@ namespace GravityCapture.Services
             bmp.Save(ms, ImageFormat.Png);
             ms.Position = 0;
 
-            var remote = new RemoteOcrService(settings);
+            var remote = new RemoteOcrServiceAdapter(settings);
             var res = await remote.ExtractAsync(ms, CancellationToken.None);
 
             int posted = 0, seen = 0;
@@ -55,8 +52,8 @@ namespace GravityCapture.Services
             await status($"OCR lines: {seen}, posted: {posted}.");
         }
 
-        // Stream/path/bytes shims for test utilities.
-        public async Task<ExtractResponse> ScanAndPostAsync(
+        // Stream/path/bytes convenience for smoke tools
+        public Task<ExtractResponse> ScanAndPostAsync(
             Stream stream,
             string _apiKey,
             string _channelId,
@@ -64,8 +61,8 @@ namespace GravityCapture.Services
             CancellationToken ct)
         {
             var settings = AppSettings.Load();
-            var remote = new RemoteOcrService(settings);
-            return await remote.ExtractAsync(stream, ct);
+            var remote = new RemoteOcrServiceAdapter(settings);
+            return remote.ExtractAsync(stream, ct);
         }
 
         public async Task<ExtractResponse> ScanAndPostAsync(
@@ -76,8 +73,9 @@ namespace GravityCapture.Services
             CancellationToken ct)
         {
             var settings = AppSettings.Load();
-            var remote = new RemoteOcrService(settings);
-            return await remote.ExtractAsync(path, ct);
+            var remote = new RemoteOcrServiceAdapter(settings);
+            await using var fs = File.OpenRead(path);
+            return await remote.ExtractAsync(fs, ct);
         }
 
         public Task<ExtractResponse> ScanAndPostAsync(
@@ -89,6 +87,20 @@ namespace GravityCapture.Services
         {
             var ms = new MemoryStream(bytes, writable: false);
             return ScanAndPostAsync(ms, _apiKey, _channelId, _tribeName, ct);
+        }
+
+        private sealed class RemoteOcrServiceAdapter
+        {
+            private readonly OcrClient _client;
+            public RemoteOcrServiceAdapter(AppSettings s)
+            {
+                var baseUrl = (s?.RemoteOcrBaseUrl ?? s?.ApiUrl ?? "").TrimEnd('/');
+                var key = s?.RemoteOcrApiKey ?? s?.ApiKey ?? "";
+                _client = new OcrClient(baseUrl, key);
+            }
+
+            public Task<ExtractResponse> ExtractAsync(Stream image, CancellationToken ct) =>
+                _client.ExtractAsync(image, ct);
         }
     }
 }
