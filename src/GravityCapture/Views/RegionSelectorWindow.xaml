@@ -1,16 +1,22 @@
 <Window x:Class="GravityCapture.Views.RegionSelectorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        WindowStyle="None" AllowsTransparency="True" Background="#40000000"
-        Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
-        Title="Select Region">
-  <Canvas x:Name="RootCanvas" Background="Transparent"
-          MouseLeftButtonDown="OnDown"
-          MouseMove="OnMove"
-          MouseLeftButtonUp="OnUp">
-    <Rectangle x:Name="Sel" Stroke="#FF66CCFF" StrokeThickness="2"
-               Fill="#4088CCFF" Visibility="Collapsed"/>
-    <TextBlock Foreground="White" FontSize="16" Margin="12"
-               Text="Drag to select the log area. ESC cancels."/>
-  </Canvas>
+        Title="Select Region"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize">
+    <Canvas x:Name="RootCanvas"
+            MouseLeftButtonDown="OnDown"
+            MouseMove="OnMove"
+            MouseLeftButtonUp="OnUp">
+        <Rectangle x:Name="Sel"
+                   Stroke="DeepSkyBlue"
+                   StrokeThickness="2"
+                   Fill="#40FFFFFF"
+                   RadiusX="2" RadiusY="2"
+                   IsHitTestVisible="False" />
+    </Canvas>
 </Window>
