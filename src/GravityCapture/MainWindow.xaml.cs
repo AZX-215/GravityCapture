@@ -53,7 +53,7 @@ namespace GravityCapture
             EnvBox.SelectedIndex = _settings.LogEnvironment.Equals("Prod", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
             LoadEnvFieldsIntoTextBoxes();
 
-            ChannelBox.Text  = _settings.ChannelId == 0 ? "" : _settings.ChannelId.ToString();
+            ChannelBox.Text  = _settings.ChannelId == 0UL ? "" : _settings.ChannelId.ToString();
             IntervalBox.Text = _settings.IntervalMinutes.ToString();
             ActiveWindowCheck.IsChecked = _settings.CaptureActiveWindow;
 
