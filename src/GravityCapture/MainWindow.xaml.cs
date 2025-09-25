@@ -22,7 +22,6 @@ namespace GravityCapture
         public MainWindow()
         {
             InitializeComponent();
-
             BindFromSettings();
 
             QualityLabel.Text = ((int)QualitySlider.Value).ToString();
@@ -64,7 +63,6 @@ namespace GravityCapture
 
             if (normOk)
             {
-                // Persist normalized crop into settings
                 _settings.UseCrop = true;
                 _settings.CropX = _nx; _settings.CropY = _ny; _settings.CropW = _nw; _settings.CropH = _nh;
             }
@@ -124,32 +122,50 @@ namespace GravityCapture
             return img;
         }
 
-        // Settings ↔ UI
+        // ---- settings ↔ UI ----
         private void BindFromSettings()
         {
-            ChannelBox.Text = _settings.ChannelId ?? "";
-            ApiUrlBox.Text = _settings.ApiBaseUrl ?? _settings.ApiUrl ?? "";
+            ChannelBox.Text = _settings.Image?.ChannelId ?? "";
+            ApiUrlBox.Text = _settings.ApiBaseUrl ?? "";
             ApiKeyBox.Text = _settings.Auth?.ApiKey ?? "";
             IntervalBox.Text = Math.Max(1, _settings.IntervalMinutes).ToString();
-            ActiveWindowCheck.IsChecked = _settings.ActiveWindowOnly;
-            ServerBox.Text = _settings.Server ?? "";
-            TribeBox.Text = _settings.Tribe ?? "";
-            QualitySlider.Value = _settings.JpegQuality <= 0 ? 85 : _settings.JpegQuality;
+
+            ActiveWindowCheck.IsChecked = _settings.Capture?.ActiveWindow ?? true;
+            ServerBox.Text = _settings.Capture?.ServerName ?? "";
+            TribeBox.Text = _settings.TribeName ?? "";
+
+            QualitySlider.Value = (_settings.Image?.JpegQuality ?? 90);
+            AutoOcrCheck.IsChecked = _settings.AutoOcrEnabled;
+            RedOnlyCheck.IsChecked = _settings.PostOnlyCritical;
+
+            // optional filters if you wired them in XAML
+            FilterTameCheck.IsChecked = _settings.Image?.FilterTameDeath ?? false;
+            FilterStructCheck.IsChecked = _settings.Image?.FilterStructureDestroyed ?? false;
+            FilterTribeCheck.IsChecked = _settings.Image?.FilterTribeMateDeath ?? false;
         }
 
         private void BindToSettings()
         {
-            _settings.ChannelId = ChannelBox.Text?.Trim() ?? "";
-            _settings.ApiBaseUrl = ApiUrlBox.Text?.Trim() ?? "";
+            _settings.Image ??= new AppSettings.ImageSettings();
+            _settings.Capture ??= new AppSettings.CaptureSettings();
             _settings.Auth ??= new AppSettings.AuthSettings();
-            _settings.Auth.ApiKey = ApiKeyBox.Text?.Trim() ?? "";
-            _settings.ActiveWindowOnly = ActiveWindowCheck.IsChecked == true;
-            _settings.Server = ServerBox.Text?.Trim() ?? "";
-            _settings.Tribe = TribeBox.Text?.Trim() ?? "";
-            _settings.JpegQuality = (int)QualitySlider.Value;
 
-            if (!int.TryParse(IntervalBox.Text, out var mins) || mins < 1) mins = 1;
-            _settings.IntervalMinutes = mins;
+            _settings.Image.ChannelId = ChannelBox.Text?.Trim() ?? "";
+            _settings.ApiBaseUrl = ApiUrlBox.Text?.Trim() ?? "";
+            _settings.Auth.ApiKey = ApiKeyBox.Text?.Trim() ?? "";
+            _settings.TribeName = TribeBox.Text?.Trim() ?? "";
+            _settings.IntervalMinutes = int.TryParse(IntervalBox.Text, out var mins) && mins > 0 ? mins : 1;
+
+            _settings.Capture.ActiveWindow = ActiveWindowCheck.IsChecked == true;
+            _settings.Capture.ServerName = ServerBox.Text?.Trim() ?? "";
+
+            _settings.Image.JpegQuality = (int)QualitySlider.Value;
+            _settings.AutoOcrEnabled = AutoOcrCheck.IsChecked == true;
+            _settings.PostOnlyCritical = RedOnlyCheck.IsChecked == true;
+
+            _settings.Image.FilterTameDeath = FilterTameCheck.IsChecked == true;
+            _settings.Image.FilterStructureDestroyed = FilterStructCheck.IsChecked == true;
+            _settings.Image.FilterTribeMateDeath = FilterTribeCheck.IsChecked == true;
         }
     }
 }
