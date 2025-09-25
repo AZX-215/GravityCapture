@@ -53,24 +53,25 @@ namespace GravityCapture
             EnvBox.SelectedIndex = _settings.LogEnvironment.Equals("Prod", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
             LoadEnvFieldsIntoTextBoxes();
 
-            ChannelBox.Text  = _settings.ChannelId == 0UL ? "" : _settings.ChannelId.ToString();
+            // ChannelId is a string in stage config
+            ChannelBox.Text  = _settings.Image?.ChannelId ?? string.Empty;
             IntervalBox.Text = _settings.IntervalMinutes.ToString();
-            ActiveWindowCheck.IsChecked = _settings.CaptureActiveWindow;
+            ActiveWindowCheck.IsChecked = _settings.Capture?.ActiveWindow ?? true;
 
-            QualitySlider.Value = _settings.JpegQuality;
-            QualityLabel.Text   = _settings.JpegQuality.ToString();
+            QualitySlider.Value = _settings.Image?.JpegQuality ?? 90;
+            QualityLabel.Text   = ((int)QualitySlider.Value).ToString();
             QualitySlider.ValueChanged += (_, __) => QualityLabel.Text = ((int)QualitySlider.Value).ToString();
 
-            TitleHintBox.Text = _settings.TargetWindowHint ?? string.Empty;
-            ServerBox.Text    = _settings.ServerName ?? string.Empty;
+            TitleHintBox.Text = _settings.Image?.TargetWindowHint ?? string.Empty;
+            ServerBox.Text    = _settings.Capture?.ServerName ?? string.Empty;
             TribeBox.Text     = _settings.TribeName  ?? string.Empty;
 
             AutoOcrCheck.IsChecked = _settings.AutoOcrEnabled;
             RedOnlyCheck.IsChecked = _settings.PostOnlyCritical;
 
-            FilterTameCheck.IsChecked   = _settings.FilterTameDeath;
-            FilterStructCheck.IsChecked = _settings.FilterStructureDestroyed;
-            FilterTribeCheck.IsChecked  = _settings.FilterTribeMateDeath;
+            FilterTameCheck.IsChecked   = _settings.Image?.FilterTameDeath          ?? false;
+            FilterStructCheck.IsChecked = _settings.Image?.FilterStructureDestroyed ?? false;
+            FilterTribeCheck.IsChecked  = _settings.Image?.FilterTribeMateDeath     ?? false;
 
             LogIngestClient.Configure(_settings);
 
@@ -90,18 +91,11 @@ namespace GravityCapture
                 Status($"OCR profile → {ProfileManager.ActiveProfile}");
             };
 
-            // Ctrl+F6 keyboard toggle
-            PreviewKeyDown += (s, e) =>
-            {
-                if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && e.Key == Key.F6)
-                {
-                    ToggleOcrProfile();
-                    e.Handled = true;
-                }
-            };
-
+            // Autostart
             if (_settings.Autostart)
-                StartCapture();
+            {
+                try { StartCapture(); } catch { }
+            }
         }
 
         private void ApplyDarkTitleBar()
@@ -109,34 +103,21 @@ namespace GravityCapture
             try
             {
                 var hwnd = new WindowInteropHelper(this).Handle;
-                if (hwnd == IntPtr.Zero) return;
-                int enable = 1;
-                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_NEW, ref enable, sizeof(int));
-                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref enable, sizeof(int));
+                int useImmersiveDarkMode = 1;
+                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_NEW, ref useImmersiveDarkMode, sizeof(int));
+                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref useImmersiveDarkMode, sizeof(int));
             }
             catch { }
         }
 
-        // --- OCR PROFILE EXPORT ---
-        private static void ApplyActiveProfile()
-{
-    // Env application is handled by ProfileManager.Initialize/Switch.
-    // Keep only the label-driving GC_PROFILE for external visibility.
-    Environment.SetEnvironmentVariable(
-        "GC_PROFILE",
-        ProfileManager.ActiveProfile,
-        EnvironmentVariableTarget.Process);
-}
-
-        private void UpdateActiveProfileLabel()
+        private void Status(string msg) => Dispatcher.Invoke(() =>
         {
-            if (ActiveProfileLabel != null)
-                ActiveProfileLabel.Text = $"Active: {ProfileManager.ActiveProfile}";
-        }
+            StatusText.Text = msg;
+        });
 
         private void ToggleOcrProfile()
         {
-            var next = ProfileManager.ActiveProfile.Equals("HDR", StringComparison.OrdinalIgnoreCase) ? "SDR" : "HDR";
+            var next = ProfileManager.ActiveProfile == "SDR" ? "HDR" : "SDR";
             ProfileManager.Switch(next);
             // ProfileChanged updates env + label
             WpfMessageBox.Show($"Switched OCR profile → {next}", "Gravity Capture",
@@ -151,15 +132,16 @@ namespace GravityCapture
         private void LoadEnvFieldsIntoTextBoxes()
         {
             _settings.LogEnvironment = CurrentEnv;
-            var (url, key) = _settings.GetActiveLogApi();
-            ApiUrlBox.Text = url ?? string.Empty;
-            ApiKeyBox.Text = key ?? string.Empty;
+            ApiUrlBox.Text = _settings.ApiBaseUrl?.TrimEnd('/') ?? string.Empty;
+            ApiKeyBox.Text = _settings.Auth?.ApiKey ?? string.Empty;
         }
 
         private void SaveTextBoxesIntoEnvFields()
         {
             _settings.LogEnvironment = CurrentEnv;
-            _settings.SetActiveLogApi(ApiUrlBox.Text?.TrimEnd('/') ?? string.Empty, ApiKeyBox.Text ?? string.Empty);
+            _settings.ApiBaseUrl = ApiUrlBox.Text?.TrimEnd('/') ?? string.Empty;
+            _settings.Auth ??= new AppSettings.AuthSettings();
+            _settings.Auth.ApiKey = ApiKeyBox.Text ?? string.Empty;
         }
 
         private void EnvBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -190,20 +172,23 @@ namespace GravityCapture
         {
             SaveTextBoxesIntoEnvFields();
 
-            _settings.ChannelId           = ulong.TryParse(ChannelBox.Text, out var ch) ? ch : 0;
-            _settings.IntervalMinutes     = int.TryParse(IntervalBox.Text, out var m) ? Math.Max(1, m) : 1;
-            _settings.CaptureActiveWindow = ActiveWindowCheck.IsChecked == true;
-            _settings.JpegQuality         = (int)QualitySlider.Value;
-            _settings.TargetWindowHint    = TitleHintBox.Text ?? string.Empty;
+            _settings.Image ??= new AppSettings.ImageSettings();
+            _settings.Capture ??= new AppSettings.CaptureSettings();
 
-            _settings.ServerName = ServerBox.Text?.Trim() ?? string.Empty;
-            _settings.TribeName  = TribeBox.Text?.Trim()  ?? string.Empty;
+            _settings.Image.ChannelId   = ChannelBox.Text?.Trim() ?? string.Empty;
+            _settings.IntervalMinutes   = int.TryParse(IntervalBox.Text, out var m) ? Math.Max(1, m) : 1;
+            _settings.Capture.ActiveWindow = ActiveWindowCheck.IsChecked == true;
+            _settings.Image.JpegQuality = (int)QualitySlider.Value;
+            _settings.Image.TargetWindowHint = TitleHintBox.Text ?? string.Empty;
+
+            _settings.Capture.ServerName = ServerBox.Text?.Trim() ?? string.Empty;
+            _settings.TribeName          = TribeBox.Text?.Trim()  ?? string.Empty;
 
             _settings.AutoOcrEnabled           = AutoOcrCheck.IsChecked == true;
             _settings.PostOnlyCritical         = RedOnlyCheck.IsChecked == true;
-            _settings.FilterTameDeath          = FilterTameCheck.IsChecked   == true;
-            _settings.FilterStructureDestroyed = FilterStructCheck.IsChecked == true;
-            _settings.FilterTribeMateDeath     = FilterTribeCheck.IsChecked  == true;
+            _settings.Image.FilterTameDeath          = FilterTameCheck.IsChecked   == true;
+            _settings.Image.FilterStructureDestroyed = FilterStructCheck.IsChecked == true;
+            _settings.Image.FilterTribeMateDeath     = FilterTribeCheck.IsChecked  == true;
 
             _settings.Save();
             LogIngestClient.Configure(_settings);
@@ -211,7 +196,8 @@ namespace GravityCapture
 
         private void StartCapture()
         {
-            _api = new ApiClient(_settings.ApiUrl, _settings.ApiKey);
+            // Uses ApiBaseUrl/Auth.ApiKey now
+            _api = new ApiClient(_settings.ApiBaseUrl ?? "", _settings.Auth?.ApiKey ?? "");
             _timer.Interval = TimeSpan.FromMinutes(_settings.IntervalMinutes).TotalMilliseconds;
             _timer.Start();
             StartBtn.IsEnabled = false;
@@ -275,379 +261,96 @@ namespace GravityCapture
 
                 using (bmp)
                 {
-                    var bytes = ScreenCapture.ToJpegBytes(bmp, _settings.JpegQuality);
+                    var bytes = ScreenCapture.ToJpegBytes(bmp, _settings.Image?.JpegQuality ?? 90);
                     string fname = $"gravity_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
-                    bool ok = await _api.SendScreenshotAsync(bytes, fname, _settings.ChannelId, "Gravity capture");
+                    // ChannelId is string now
+                    bool ok = await _api.SendScreenshotAsync(bytes, fname, _settings.Image?.ChannelId ?? "", "Gravity capture");
                     Status(ok ? $"Sent {fname}" : "Send failed (HTTP)");
                 }
             }
-            catch (Exception ex) { Status("Error: " + ex.Message); }
+            catch (Exception ex)
+            {
+                Status($"Capture error: {ex.Message}");
+            }
         }
 
-        private void Status(string s) => Dispatcher.Invoke(() => StatusText.Text = s);
-
-        // --- MANUAL POSTS ---
-        private async void SendTestBtn_Click(object sender, RoutedEventArgs e)
-        {
-            SaveSettings();
-            WpfMouse.OverrideCursor = WpfCursors.Wait;
-            Status($"Posting test to {CurrentEnv}…");
-            try
-            {
-                var (ok, error) = await LogIngestClient.SendTestAsync();
-                if (ok)
-                {
-                    Status("Test event posted ✅");
-                    WpfMessageBox.Show($"Posted to {CurrentEnv} ✅",
-                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
-                else
-                {
-                    Status("Test failed ❌");
-                    WpfMessageBox.Show($"Failed to post.\n\n{error}",
-                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
-            finally { WpfMouse.OverrideCursor = null; }
-        }
-
-        private async void SendParsedBtn_Click(object sender, RoutedEventArgs e)
-        {
-            var raw    = (LogLineBox.Text ?? string.Empty).Trim();
-            var server = (ServerBox.Text ?? string.Empty).Trim();
-            var tribe  = (TribeBox.Text  ?? string.Empty).Trim();
-
-            if (string.IsNullOrWhiteSpace(raw))
-            {
-                WpfMessageBox.Show("Paste a tribe log line first.", "Gravity Capture",
-                    MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(tribe))
-            {
-                WpfMessageBox.Show("Enter Server and Tribe (top of the window).", "Gravity Capture",
-                    MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                return;
-            }
-
-            var (okParse, evt, parseErr) = LogLineParser.TryParse(raw, server, tribe);
-            if (!okParse || evt == null)
-            {
-                WpfMessageBox.Show($"Couldn't parse that line.\n\n{parseErr}", "Gravity Capture",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            WpfMouse.OverrideCursor = WpfCursors.Wait;
-            Status($"Posting parsed event to {CurrentEnv}…");
-            try
-            {
-                var (ok, error) = await LogIngestClient.PostEventAsync(evt);
-                if (ok)
-                {
-                    Status("Parsed event posted ✅");
-                    WpfMessageBox.Show($"Posted to {CurrentEnv} ✅",
-                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
-                else
-                {
-                    Status("Post failed ❌");
-                    WpfMessageBox.Show($"Post failed.\n\n{error}",
-                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
-            finally { WpfMouse.OverrideCursor = null; }
-        }
-
-        private async void RefreshRecentBtn_Click(object sender, RoutedEventArgs e)
-        {
-            var server = (ServerBox.Text ?? string.Empty).Trim();
-            var tribe  = (TribeBox.Text  ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(tribe))
-            {
-                WpfMessageBox.Show("Enter Server and Tribe (top of the window).", "Gravity Capture",
-                    MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                return;
-            }
-
-            WpfMouse.OverrideCursor = WpfCursors.Wait;
-            Status($"Loading recent events from {CurrentEnv}…");
-            try
-            {
-                var (ok, items, err) = await LogIngestClient.GetRecentAsync(server, tribe, 25);
-                if (!ok || items == null)
-                {
-                    Status("Load failed ❌");
-                    WpfMessageBox.Show(err ?? "Unknown error.",
-                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-
-                if (FindName("RecentGrid") is DataGrid grid)
-                    grid.ItemsSource = items;
-
-                Status($"Loaded {items.Count} rows.");
-            }
-            finally { WpfMouse.OverrideCursor = null; }
-        }
-
-        // --- WINDOW TARGETING & OCR ---
         private IntPtr ResolveTargetWindow()
         {
-            if (_lastCropHwnd != IntPtr.Zero &&
-                WindowUtil.TryGetClientBoundsOnScreen(_lastCropHwnd, out _, out _, out _, out _, out _))
-                return _lastCropHwnd;
-
-            var hint = _settings.TargetWindowHint?.Trim();
-            if (!string.IsNullOrEmpty(hint))
-            {
-                var byTitle = WindowUtil.FindBestWindowByTitleHint(hint);
-                if (byTitle != IntPtr.Zero) return byTitle;
-            }
-            return WindowUtil.GetForegroundWindow();
+            var hint = (TitleHintBox.Text ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(hint))
+                hint = _settings.Image?.TargetWindowHint ?? "ARK";
+            return ScreenCapture.ResolveWindowByTitleHint(hint, _lastCropHwnd, out _lastCropHwnd);
         }
 
-        private async void SelectCropBtn_Click(object sender, RoutedEventArgs e)
+        // --- region selection UI (unchanged) ---
+        private void SelectRegionBtn_Click(object sender, RoutedEventArgs e)
         {
-            SaveSettings();
-
-            var dlg = new RegionSelectorWindow();
-            var ok = dlg.ShowDialog() == true;
-            if (!ok) return;
-
-            var s = dlg.SelectedRect;
-            int midX = (int)Math.Round(s.X + s.Width  / 2.0);
-            int midY = (int)Math.Round(s.Y + s.Height / 2.0);
-            var underSelection = WindowUtil.GetTopLevelWindowFromPoint(midX, midY);
-
-            var hwnd = underSelection != IntPtr.Zero ? underSelection : ResolveTargetWindow();
-            _lastCropHwnd = hwnd;
-
-            var chosenName = WindowUtil.GetWindowDebugName(hwnd);
-            Status(string.IsNullOrWhiteSpace(chosenName) ? "Target window: <unknown>" : $"Target window: {chosenName}");
-
-            if (!WindowUtil.TryGetClientBoundsOnScreen(hwnd, out int cx, out int cy, out int cw, out int ch, out _))
-            {
-                WpfMessageBox.Show("Could not resolve game window client area.", "Gravity Capture",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            int sx = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X)));
-            int sy = Math.Max(cy, Math.Min(cy + ch, (int)Math.Round(s.Y)));
-            int ex = Math.Max(cx, Math.Min(cx + cw, (int)Math.Round(s.X + s.Width)));
-            int ey = Math.Max(cy, Math.Min(cy + ch, (int)Math.Round(s.Y + s.Height)));
-            int selW = Math.Max(1, ex - sx);
-            int selH = Math.Max(1, ey - sy);
-
-            _settings.CropX = (double)(sx - cx) / cw;
-            _settings.CropY = (double)(sy - cy) / ch;
-            _settings.CropW = (double)selW / cw;
-            _settings.CropH = (double)selH / ch;
-            _settings.UseCrop = true;
-            _settings.Save();
-
-            Status($"Saved crop for '{chosenName}': x={_settings.CropX:F3} y={_settings.CropY:F3} w={_settings.CropW:F3} h={_settings.CropH:F3}");
-            await System.Threading.Tasks.Task.CompletedTask;
-        }
-
-        private void PreviewCropBtn_Click(object sender, RoutedEventArgs e)
-        {
-            SaveSettings();
-
-            if (!_settings.UseCrop)
-            {
-                WpfMessageBox.Show("No crop saved. Click 'Select Log Area…' first.", "Gravity Capture",
-                    MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                return;
-            }
-
-            var hwnd = _lastCropHwnd != IntPtr.Zero ? _lastCropHwnd : ResolveTargetWindow();
-            var chosenName = WindowUtil.GetWindowDebugName(hwnd);
-            Status(string.IsNullOrWhiteSpace(chosenName) ? "Preview target: <unknown>" : $"Preview target: {chosenName}");
-
             try
             {
-                using var bmp = ScreenCapture.CaptureCropNormalized(
-                    hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
+                Cursor = WpfCursors.Cross;
+                var hwnd = ResolveTargetWindow();
+                var (success, rectScreen, lastHwnd) = RegionSelectorWindow.SelectRegion(hwnd);
+                _lastCropHwnd = lastHwnd;
+                Cursor = WpfCursors.Arrow;
 
-                var w = new Window { Title = "Crop Preview", Width = Math.Min(900, bmp.Width + 24), Height = Math.Min(700, bmp.Height + 48) };
-                var img = new System.Windows.Controls.Image();
-                using var ms = new MemoryStream();
-                bmp.Save(ms, ImageFormat.Png);
-                ms.Position = 0;
-
-                var bi = new BitmapImage();
-                bi.BeginInit(); bi.CacheOption = BitmapCacheOption.OnLoad; bi.StreamSource = ms; bi.EndInit();
-                img.Source = bi;
-
-                w.Content = new ScrollViewer { Content = img };
-                w.ShowDialog();
-            }
-            catch (Exception ex)
-            {
-                WpfMessageBox.Show("Preview failed: " + ex.Message, "Gravity Capture",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void OcrCropBtn_Click(object sender, RoutedEventArgs e)
-        {
-            SaveSettings();
-            if (!_settings.UseCrop)
-            {
-                WpfMessageBox.Show("No crop saved. Click 'Select Log Area…' first.", "Gravity Capture",
-                    MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                return;
-            }
-
-            try
-            {
-                var hwnd = _lastCropHwnd != IntPtr.Zero ? _lastCropHwnd : ResolveTargetWindow();
-                using var bmp = ScreenCapture.CaptureCropNormalized(
-                    hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
-
-                var lines = OcrService.ReadLines(bmp);
-                if (lines.Count == 0)
+                if (success)
                 {
-                    Status("OCR: no text detected.");
-                    return;
-                }
-
-                LogLineBox.Text = string.Join(Environment.NewLine, lines);
-                Status($"OCR: {lines.Count} line(s). Review/edit then click 'Send Pasted Log Line (Stage/Prod)'.");
-            }
-            catch (Exception ex)
-            {
-                WpfMessageBox.Show("OCR failed: " + ex.Message, "Gravity Capture",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private async void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
-        {
-            SaveSettings();
-
-            if (!_settings.UseCrop)
-            {
-                WpfMessageBox.Show("No crop saved. Click 'Select Log Area…' first.",
-                    "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                return;
-            }
-
-            var server = (ServerBox.Text ?? string.Empty).Trim();
-            var tribe  = (TribeBox.Text  ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(tribe))
-            {
-                WpfMessageBox.Show("Enter Server and Tribe (top of the window) before posting.",
-                    "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                return;
-            }
-
-            try
-            {
-                WpfMouse.OverrideCursor = WpfCursors.Wait;
-                Status("OCR: capturing…");
-
-                var hwnd = _lastCropHwnd != IntPtr.Zero ? _lastCropHwnd : ResolveTargetWindow();
-
-                using var bmp = ScreenCapture.CaptureCropNormalized(
-                    hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
-
-                var lines = OcrService.ReadLines(bmp);
-                if (lines.Count == 0)
-                {
-                    Status("OCR: no text detected.");
-                    WpfMessageBox.Show("OCR returned no text. Try a tighter crop or adjust brightness/contrast.",
-                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
-                    return;
-                }
-
-                var reDay = new Regex(@"^\s*Day\s+\d+", RegexOptions.IgnoreCase);
-                var candidate = lines.Find(l => reDay.IsMatch(l)) ?? lines.Find(l => !string.IsNullOrWhiteSpace(l));
-
-                if (string.IsNullOrWhiteSpace(candidate))
-                {
-                    Status("OCR: couldn't find a 'Day ...' line.");
-                    WpfMessageBox.Show("Couldn't find a line starting with 'Day ...' in the OCR result.",
-                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
-                    return;
-                }
-
-                LogLineBox.Text = candidate;
-
-                var (okParse, evt, parseErr) = LogLineParser.TryParse(candidate, server, tribe);
-                if (!okParse || evt == null)
-                {
-                    Status("Parse failed.");
-                    WpfMessageBox.Show($"Couldn't parse the OCR’d line:\n\n{candidate}\n\n{parseErr}",
-                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-
-                if (_settings.PostOnlyCritical &&
-                    !string.Equals(GetSeverityValue(evt) ?? "", "CRITICAL", StringComparison.OrdinalIgnoreCase))
-                {
-                    Status("Filtered (not critical).");
-                    WpfMessageBox.Show("Parsed line is not CRITICAL and was filtered by your settings.",
-                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
-                    return;
-                }
-
-                Status($"Posting to {(_settings.LogEnvironment ?? "Stage")}…");
-                var (ok, error) = await LogIngestClient.PostEventAsync(evt);
-
-                if (ok)
-                {
-                    Status("Posted ✅");
-                    WpfMessageBox.Show($"Posted to {(_settings.LogEnvironment ?? "Stage")} ✅",
-                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
-                else
-                {
-                    Status("Post failed ❌");
-                    WpfMessageBox.Show($"Post failed.\n\n{error}",
-                        "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
+                    var r = rectScreen;
+                    // Normalize to [0..1] relative to window/client rect
+                    if (ScreenCapture.TryNormalizeRect(lastHwnd, r, out var nx, out var ny, out var nw, out var nh))
+                    {
+                        _settings.UseCrop = true;
+                        _settings.CropX   = nx; _settings.CropY = ny; _settings.CropW = nw; _settings.CropH = nh;
+                        _settings.Save();
+                        Status($"Region set: x={nx:0.###} y={ny:0.###} w={nw:0.###} h={nh:0.###}");
+                    }
+                    else
+                    {
+                        Status("Could not compute normalized crop.");
+                    }
                 }
             }
             catch (Exception ex)
             {
-                Status("Error: " + ex.Message);
-                WpfMessageBox.Show("OCR & Post failed:\n\n" + ex.Message,
-                    "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                WpfMouse.OverrideCursor = null;
+                Cursor = WpfCursors.Arrow;
+                Status($"Region selection error: {ex.Message}");
             }
         }
 
-        private static string? GetSeverityValue(object evt)
+        private void CopyActiveProfileBtn_Click(object sender, RoutedEventArgs e)
         {
-            var t = evt.GetType();
-            var flags = System.Reflection.BindingFlags.Instance |
-                        System.Reflection.BindingFlags.Public |
-                        System.Reflection.BindingFlags.IgnoreCase;
-
-            var p = t.GetProperty("Severity", flags)
-                 ?? t.GetProperty("Level", flags)
-                 ?? t.GetProperty("severity", flags)
-                 ?? t.GetProperty("level",   flags);
-
-            var val = p?.GetValue(evt)?.ToString();
-            return string.IsNullOrWhiteSpace(val) ? null : val;
+            try
+            {
+                Clipboard.SetText(ProfileManager.ActiveProfile);
+                Status("Profile name copied.");
+            }
+            catch { }
         }
 
-        // legacy handler names
-        private void RefreshRecent_Click(object sender, RoutedEventArgs e)       => RefreshRecentBtn_Click(sender, e);
-        private void SelectCropArea_Click(object sender, RoutedEventArgs e)      => SelectCropBtn_Click(sender, e);
-        private void PreviewCrop_Click(object sender, RoutedEventArgs e)         => PreviewCropBtn_Click(sender, e);
-        private void OcrCropPaste_Click(object sender, RoutedEventArgs e)        => OcrCropBtn_Click(sender, e);
-        private void OcrAndPostNow_Click(object sender, RoutedEventArgs e)       => OcrAndPostNowBtn_Click(sender, e);
-        private void SendTestTribeEvent_Click(object sender, RoutedEventArgs e)  => SendTestBtn_Click(sender, e);
-        private void SendPastedLine_Click(object sender, RoutedEventArgs e)      => SendParsedBtn_Click(sender, e);
+        private void UpdateActiveProfileLabel()
+        {
+            ActiveProfileText.Text = $"Active OCR Profile: {ProfileManager.ActiveProfile}";
+        }
 
-        private IntPtr ResolveTopLevelFromPoint(int x, int y) =>
-            WindowUtil.GetTopLevelWindowFromPoint(x, y);
+        private void ApplyActiveProfile()
+        {
+            var p = ProfileManager.GetActive();
+            SetEnvInt("OCR_BIN", (int)p.Engine);
+            SetEnvDouble("OCR_SCALE", p.Scale);
+            SetEnvDouble("OCR_BIN_THR", p.BinaryThreshold);
+            SetEnvDouble("OCR_STDDEV", p.StdDev);
+            SetEnvInt("OCR_ERODE", p.Erode);
+            SetEnvInt("OCR_DILATE", p.Dilate);
+            SetEnvInt("OCR_MIN_H", p.MinHeight);
+            SetEnvInt("OCR_MAX_H", p.MaxHeight);
+            SetEnvDouble("OCR_MIN_AR", p.MinAspectRatio);
+            SetEnvDouble("OCR_MAX_AR", p.MaxAspectRatio);
+            SetEnvDouble("OCR_MIN_SOL", p.MinSolidity);
+            SetEnvDouble("OCR_MIN_CONTRAST", p.MinContrast);
+            SetEnvDouble("OCR_MIN_DARK", p.MinDarkPct);
+            SetEnvDouble("OCR_MAX_DARK", p.MaxDarkPct);
+            SetEnvDouble("OCR_MIN_LIGHT", p.MinLightPct);
+            SetEnvDouble("OCR_MAX_LIGHT", p.MaxLightPct);
+        }
     }
 }
