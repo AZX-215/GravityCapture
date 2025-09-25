@@ -1,15 +1,13 @@
 // src/GravityCapture/MainWindow.xaml.cs
 using System;
+using System.Drawing;
 using System.IO;
-using System.Threading;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using System.Drawing;
-using System.Runtime.InteropServices;
 
 using GravityCapture.Models;
 using GravityCapture.Services;
@@ -28,33 +26,68 @@ namespace GravityCapture
         public MainWindow()
         {
             InitializeComponent();
+
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
+
+            Activated += (_, __) => UpdatePreviewRunState();
+            Deactivated += (_, __) => UpdatePreviewRunState();
+            IsVisibleChanged += (_, __) => UpdatePreviewRunState();
+            StateChanged += (_, __) => UpdatePreviewRunState();
+
+            SourceInitialized += (_, __) => ApplyDarkTitleBar();
         }
 
-        private void OnLoaded(object sender, RoutedEventArgs e)
+        private void OnLoaded(object? sender, RoutedEventArgs e)
         {
             _settings = AppSettings.Load();
             BindFromSettings();
             LogIngestClient.Configure(_settings);
             _remote = new RemoteOcrService(_settings);
 
-            // live preview ticks every 500ms
             _liveTimer = new DispatcherTimer(DispatcherPriority.Background)
             {
                 Interval = TimeSpan.FromMilliseconds(500)
             };
-            _liveTimer.Tick += (_, __) => _ = UpdateLivePreviewAsync();
-            _liveTimer.Start();
+            _liveTimer.Tick += async (_, __) => await UpdateLivePreviewAsync();
+
+            UpdatePreviewRunState(); // start or pause based on current window state
         }
 
         private void OnUnloaded(object? sender, RoutedEventArgs e)
         {
-            if (_liveTimer is not null)
+            _liveTimer?.Stop();
+            _liveTimer = null;
+            LivePreview.Source = null;
+        }
+
+        private void UpdatePreviewRunState()
+        {
+            bool shouldRun = IsActive && IsVisible && WindowState != WindowState.Minimized;
+            if (_liveTimer == null) return;
+
+            if (shouldRun && !_liveTimer.IsEnabled)
+                _liveTimer.Start();
+            else if (!shouldRun && _liveTimer.IsEnabled)
             {
                 _liveTimer.Stop();
-                _liveTimer = null;
+                LivePreview.Source = null; // free GPU/GDI
             }
+        }
+
+        private void ApplyDarkTitleBar()
+        {
+            try
+            {
+                const int DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
+                const int DWMWA_USE_IMMERSIVE_DARK_MODE_NEW = 20;
+                [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+                var hwnd = new WindowInteropHelper(this).Handle;
+                int v = 1;
+                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_NEW, ref v, sizeof(int));
+                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref v, sizeof(int));
+            }
+            catch { }
         }
 
         // ----------------- UI <-> Settings -----------------
@@ -79,21 +112,21 @@ namespace GravityCapture
 
         private void BindToSettings()
         {
-            _settings.ApiBaseUrl = ApiUrlBox.Text.Trim();
+            _settings.ApiBaseUrl = (ApiUrlBox.Text ?? "").Trim();
             _settings.Auth ??= new AppSettings.AuthSettings();
-            _settings.Auth.ApiKey = ApiKeyBox.Text.Trim();
+            _settings.Auth.ApiKey = (ApiKeyBox.Text ?? "").Trim();
 
             _settings.Image ??= new AppSettings.ImageSettings();
-            _settings.Image.ChannelId = ChannelBox.Text.Trim();
+            _settings.Image.ChannelId = (ChannelBox.Text ?? "").Trim();
             _settings.Image.JpegQuality = Math.Clamp((int)QualitySlider.Value, 50, 100);
 
             _settings.Capture ??= new AppSettings.CaptureSettings();
             _settings.Capture.ActiveWindow = ActiveWindowCheck.IsChecked == true;
-            _settings.Capture.ServerName = ServerBox.Text.Trim();
+            _settings.Capture.ServerName = (ServerBox.Text ?? "").Trim();
 
-            _settings.TribeName = TribeBox.Text.Trim();
+            _settings.TribeName = (TribeBox.Text ?? "").Trim();
 
-            _settings.IntervalMinutes = SafeInt(IntervalBox.Text, 1);
+            _settings.IntervalMinutes = int.TryParse(IntervalBox.Text, out var m) ? Math.Max(1, m) : 1;
             _settings.AutoOcrEnabled  = AutoOcrCheck.IsChecked == true;
             _settings.PostOnlyCritical = RedOnlyCheck.IsChecked == true;
 
@@ -115,46 +148,44 @@ namespace GravityCapture
 
         private void StartBtn_Click(object sender, RoutedEventArgs e)
         {
-            // no background loop here; live preview already runs
-            SetStatus("Started live preview.");
+            UpdatePreviewRunState();
+            SetStatus("Live preview running.");
         }
 
         private void StopBtn_Click(object sender, RoutedEventArgs e)
         {
             _liveTimer?.Stop();
-            SetStatus("Stopped live preview.");
+            LivePreview.Source = null;
+            SetStatus("Live preview stopped.");
         }
 
         private async void SelectCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            // 1) Let user drag a screen rect
-            var (ok, rectScreen, hwndUsed) = ScreenCapture.SelectRegion(_lastHwnd);
-            if (!ok)
+            // Resolve target window by title hint
+            var hint = _settings.Image?.TargetWindowHint ?? "ARK";
+            _lastHwnd = ScreenCapture.ResolveWindowByTitleHint(hint, _lastHwnd, out var hwnd);
+            _lastHwnd = hwnd;
+
+            // Bounded selector when the window is known; else full screen
+            (bool ok, System.Drawing.Rectangle rectScreen, IntPtr usedHwnd) = ScreenCapture.SelectRegion(_lastHwnd);
+            if (!ok) { SetStatus("Selection cancelled."); return; }
+
+            // Normalize against the game window if possible, else desktop
+            if (ScreenCapture.TryNormalizeRect(usedHwnd, rectScreen, out var nx, out var ny, out var nw, out var nh) ||
+                ScreenCapture.TryNormalizeRectDesktop(rectScreen, out nx, out ny, out nw, out nh))
             {
-                SetStatus("Selection cancelled.");
-                return;
+                _settings.UseCrop = true;
+                _settings.CropX = nx; _settings.CropY = ny; _settings.CropW = nw; _settings.CropH = nh;
+                _settings.Save();
+                _lastHwnd = usedHwnd;
+                SetStatus($"Region set nx={nx:F3} ny={ny:F3} w={nw:F3} h={nh:F3}");
+
+                await UpdateLivePreviewAsync(forceCrop: true); // show cropped preview immediately
             }
-
-            // 2) Normalize against window when possible, else desktop
-            double nx, ny, nw, nh;
-            bool normOk = ScreenCapture.TryNormalizeRect(hwndUsed, rectScreen, out nx, out ny, out nw, out nh)
-                          || ScreenCapture.TryNormalizeRectDesktop(rectScreen, out nx, out ny, out nw, out nh);
-
-            if (!normOk || nw <= 0 || nh <= 0)
+            else
             {
                 SetStatus("Failed to normalize selection.");
-                return;
             }
-
-            // 3) Persist crop
-            _settings.UseCrop = true;
-            _settings.CropX = nx; _settings.CropY = ny; _settings.CropW = nw; _settings.CropH = nh;
-            _settings.Save();
-
-            _lastHwnd = hwndUsed;
-            SetStatus($"Region set nx={nx:F3} ny={ny:F3} w={nw:F3} h={nh:F3}");
-
-            await UpdateLivePreviewAsync(forceCrop:true);
         }
 
         private async void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
@@ -162,11 +193,12 @@ namespace GravityCapture
             if (_remote is null) { SetStatus("Remote OCR not configured."); return; }
 
             using var bmp = await CaptureForOcrAsync();
-            using var ms = new MemoryStream(ScreenCapture.ToJpegBytes(bmp, _settings.Image?.JpegQuality ?? 90));
+            var jpeg = ScreenCapture.ToJpegBytes(bmp, _settings.Image?.JpegQuality ?? 90);
+            using var ms = new MemoryStream(jpeg);
 
             try
             {
-                var resp = await _remote.ExtractAsync(ms, CancellationToken.None);
+                var resp = await _remote.ExtractAsync(ms, System.Threading.CancellationToken.None);
                 LogLineBox.Text = string.Join(Environment.NewLine, resp.Lines ?? []);
                 SetStatus($"OCR ok. {resp.Lines?.Count ?? 0} lines.");
             }
@@ -178,7 +210,6 @@ namespace GravityCapture
 
         private void OcrCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            // For dev: paste the cropped image bytes length
             _ = Task.Run(async () =>
             {
                 using var bmp = await CaptureForOcrAsync();
@@ -189,7 +220,6 @@ namespace GravityCapture
 
         private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Placeholder for your ingestion pipeline
             SetStatus("Parsed log line send stub.");
         }
 
@@ -215,20 +245,16 @@ namespace GravityCapture
                     return ScreenCapture.Capture(_lastHwnd);
                 });
 
-                // Push to WPF Image
-                var hBmp = bmp.GetHbitmap();
+                IntPtr hBmp = bmp.GetHbitmap();
                 try
                 {
                     var src = Imaging.CreateBitmapSourceFromHBitmap(
                         hBmp, IntPtr.Zero, Int32Rect.Empty,
                         BitmapSizeOptions.FromEmptyOptions());
                     src.Freeze();
-                    LivePreview.Source = src;
+                    LivePreview.Source = src; // shows cropped region if UseCrop = true
                 }
-                finally
-                {
-                    DeleteObject(hBmp);
-                }
+                finally { DeleteObject(hBmp); }
             }
             catch (Exception ex)
             {
@@ -256,12 +282,6 @@ namespace GravityCapture
 
         // ----------------- Helpers -----------------
 
-        private static int SafeInt(string? s, int dflt)
-            => int.TryParse(s, out var v) ? v : dflt;
-
-        private void SetStatus(string text)
-        {
-            StatusText.Text = text;
-        }
+        private void SetStatus(string text) => StatusText.Text = text;
     }
 }
