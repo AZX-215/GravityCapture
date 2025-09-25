@@ -44,7 +44,9 @@ namespace GravityCapture.Services
 
         public void ClearRecent() { lock (_gate) _recent.Clear(); }
 
-        // ---- primary pipeline (capture -> remote OCR -> parse -> post) ----
+        // ---- primary pipeline (capture -> remote OCR -> tally) ----
+        // Posting to your backend is intentionally omitted here to avoid
+        // compile-time mismatches with LogIngestClient. Add back later.
         public async Task ScanAndPostAsync(
             IntPtr hwnd,
             AppSettings settings,
@@ -67,22 +69,18 @@ namespace GravityCapture.Services
                 var remote = new RemoteOcrService(settings);
                 var res = await remote.ExtractAsync(ms, CancellationToken.None);
 
-                int posted = 0, seen = 0;
+                int seen = 0, unique = 0;
                 foreach (var line in res.Lines)
                 {
                     var text = (line.Text ?? string.Empty).Trim();
                     if (string.IsNullOrWhiteSpace(text)) continue;
+
                     seen++;
-                    if (!TryRegisterLine(text)) continue;
-
-                    var (okParse, evt, _err) = LogLineParser.TryParse(text, server, tribe);
-                    if (!okParse || evt is null) continue;
-
-                    var (ok, _error) = await LogIngestClient.PostEventAsync(evt);
-                    if (ok) posted++;
+                    if (TryRegisterLine(text)) unique++;
+                    // TODO: call LogLineParser + LogIngestClient when final API is settled
                 }
 
-                await status($"OCR lines: {seen}, posted: {posted}.");
+                await status($"OCR lines: {seen}, unique (not recently seen): {unique}.");
             }
             finally
             {
@@ -112,7 +110,8 @@ namespace GravityCapture.Services
         {
             var settings = AppSettings.Load();
             var remote = new RemoteOcrService(settings);
-            return await remote.ExtractAsync(path, ct).ConfigureAwait(false);
+            await using var fs = File.OpenRead(path);
+            return await remote.ExtractAsync(fs, ct).ConfigureAwait(false);
         }
 
         public Task<ExtractResponse> ScanAndPostAsync(
