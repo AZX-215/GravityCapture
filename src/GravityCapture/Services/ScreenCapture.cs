@@ -8,6 +8,9 @@ using SWF = System.Windows.Forms;
 
 using GravityCapture.Views;
 
+// Alias the GDI+ PixelFormat to avoid clash with System.Windows.Media.PixelFormat
+using DPixelFormat = System.Drawing.Imaging.PixelFormat;
+
 namespace GravityCapture.Services
 {
     public static class ScreenCapture
@@ -62,7 +65,7 @@ namespace GravityCapture.Services
             else
                 rect = r.ToRectangle();
 
-            var bmp = new Bitmap(rect.Width, rect.Height, PixelFormat.Format24bppRgb);
+            var bmp = new Bitmap(rect.Width, rect.Height, DPixelFormat.Format24bppRgb);
             using var g = Graphics.FromImage(bmp);
             g.CopyFromScreen(rect.Left, rect.Top, 0, 0,
                 new System.Drawing.Size(rect.Width, rect.Height), CopyPixelOperation.SourceCopy);
@@ -84,7 +87,7 @@ namespace GravityCapture.Services
             int rw = Math.Max(1, (int)Math.Round(baseRect.Width * w));
             int rh = Math.Max(1, (int)Math.Round(baseRect.Height * h));
 
-            var bmp = new Bitmap(rw, rh, PixelFormat.Format24bppRgb);
+            var bmp = new Bitmap(rw, rh, DPixelFormat.Format24bppRgb);
             using var g = Graphics.FromImage(bmp);
             g.CopyFromScreen(rx, ry, 0, 0, new System.Drawing.Size(rw, rh), CopyPixelOperation.SourceCopy);
             return bmp;
@@ -114,22 +117,21 @@ namespace GravityCapture.Services
             RegionSelectorWindow win;
             if (TryGetWindowRect(preferredHwnd, out var wrect))
             {
-                // Limit selection overlay to the actual game window bounds (pixels → ctor converts to DIPs)
+                // Limit overlay to the game window (px → DIPs inside the window ctor)
                 win = new RegionSelectorWindow(wrect);
             }
             else
             {
-                // Fallback: full-screen overlay
                 win = new RegionSelectorWindow { WindowState = WindowState.Maximized };
             }
 
             win.Owner = GetActiveWpfWindow();
             var ok = win.ShowDialog() == true;
 
-            var rDip = win.SelectedRect;            // screen coordinates in DIPs
+            var rDip = win.SelectedRect;                    // screen coords in DIPs
             var got = ok && rDip.Width >= 2 && rDip.Height >= 2;
 
-            // Convert DIPs back to pixels using the overlay window’s DPI
+            // Convert back to pixels using the overlay DPI
             var rectPx = Rectangle.Empty;
             if (got)
             {
@@ -154,9 +156,9 @@ namespace GravityCapture.Services
 
         private static Window GetActiveWpfWindow()
         {
-            foreach (Window w in Application.Current.Windows)
+            foreach (Window w in System.Windows.Application.Current.Windows)
                 if (w.IsActive) return w;
-            return Application.Current.MainWindow;
+            return System.Windows.Application.Current.MainWindow!;
         }
 
         public static bool TryNormalizeRect(IntPtr hwnd, Rectangle rectScreen,
