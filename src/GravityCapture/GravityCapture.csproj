@@ -1,28 +1,40 @@
-<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+<Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <!-- Windows 10 (2004) or newer so Windows.Graphics.Capture is available -->
     <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
+
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <!-- Silence cross-platform System.Drawing warnings we already gate to Windows -->
     <NoWarn>$(NoWarn);CA1416</NoWarn>
+
+    <!-- Disable SDK-generated AssemblyInfo to avoid duplicate attributes -->
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
+  <!-- Copy runtime settings/assets -->
   <ItemGroup>
     <Content Include="appsettings*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+
     <None Update="tessdata\eng.traineddata">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
+
     <Resource Include="Assets\Gravity_Logs_Background.png" />
   </ItemGroup>
 
+  <!-- Seed OCR profiles on first run -->
   <ItemGroup>
     <Content Include="Config\default.profiles.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -30,14 +42,19 @@
     </Content>
   </ItemGroup>
 
+  <!-- WinRT + Win32 interop for Windows.Graphics.Capture + P/Invokes -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.2.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4948" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.205" PrivateAssets="all" />
+
+    <!-- Existing dependency -->
     <PackageReference Include="Tesseract" Version="5.2.0" />
   </ItemGroup>
 
+  <!-- Tell CsWin32 which APIs to generate -->
   <ItemGroup>
     <AdditionalFiles Include="NativeMethods.txt" />
   </ItemGroup>
+
 </Project>
