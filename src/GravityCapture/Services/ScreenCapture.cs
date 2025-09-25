@@ -15,15 +15,8 @@ using D3D11Api = Vortice.Direct3D11.D3D11;
 
 namespace GravityCapture.Services
 {
-    /// <summary>
-    /// Screen/window capture helpers.
-    /// Uses Windows.Graphics.Capture when available (not occluded),
-    /// and falls back to GDI CopyFromScreen when needed.
-    /// </summary>
     public static class ScreenCapture
     {
-        // -------- Public API used by MainWindow --------
-
         public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) SelectRegion(IntPtr targetHwndOrZero)
             => OverlaySelector.Select(targetHwndOrZero);
 
@@ -61,7 +54,7 @@ namespace GravityCapture.Services
         {
             if (hwnd == IntPtr.Zero) throw new InvalidOperationException("Capture target handle is null.");
             if (TryCaptureWgc(hwnd, out var bmp)) return bmp;
-            return CaptureGdi(hwnd); // occluded if covered
+            return CaptureGdi(hwnd);
         }
 
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
@@ -126,8 +119,6 @@ namespace GravityCapture.Services
             return r.Width > 0 && r.Height > 0;
         }
 
-        // -------- WGC (occlusion-proof) --------
-
         private static bool TryCaptureWgc(IntPtr hwnd, out Bitmap bmp)
         {
             bmp = null!;
@@ -181,8 +172,6 @@ namespace GravityCapture.Services
             }
         }
 
-        // -------- GDI fallback (occluded if covered) --------
-
         private static Bitmap CaptureGdi(IntPtr hwnd)
         {
             if (!TryGetWindowRect(hwnd, out var wr))
@@ -193,11 +182,10 @@ namespace GravityCapture.Services
 
             var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
             using var g = Graphics.FromImage(bmp);
-            g.CopyFromScreen(wr.left, wr.top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
+            // Use Rectangle.Left/Top (System.Drawing.Rectangle)
+            g.CopyFromScreen(wr.Left, wr.Top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
             return bmp;
         }
-
-        // -------- Overlay region selector --------
 
         private static class OverlaySelector
         {
@@ -216,8 +204,6 @@ namespace GravityCapture.Services
             }
         }
 
-        // -------- Helpers --------
-
         private static Rectangle GetClientScreenRect(IntPtr hwnd)
         {
             GetClientRect(hwnd, out var rc);
@@ -233,8 +219,6 @@ namespace GravityCapture.Services
                 if (c.FormatID == format.Guid) return c;
             throw new InvalidOperationException("JPEG encoder not found.");
         }
-
-        // -------- WGC plumbing --------
 
         private static GraphicsCaptureItem? CreateItemForWindow(IntPtr hwnd)
         {
@@ -277,6 +261,7 @@ namespace GravityCapture.Services
         private static Bitmap CopyTextureToBitmap(ID3D11Device device, ID3D11Texture2D src)
         {
             var desc = src.Description;
+
             var stagingDesc = desc;
             stagingDesc.BindFlags = 0;
             stagingDesc.CPUAccessFlags = CpuAccessFlags.Read;
@@ -289,17 +274,22 @@ namespace GravityCapture.Services
             var map = device.ImmediateContext.Map(staging, 0, MapMode.Read, MapFlags.None);
             try
             {
-                var bmp = new Bitmap(desc.Width, desc.Height, PixelFormat.Format32bppPArgb);
-                var data = bmp.LockBits(new Rectangle(0, 0, desc.Width, desc.Height),
+                // Ensure exact int types for Bitmap overload resolution
+                int width = (int)desc.Width;
+                int height = (int)desc.Height;
+                int rowPitch = (int)map.RowPitch;
+
+                var bmp = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
+                var data = bmp.LockBits(new Rectangle(0, 0, width, height),
                     ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
 
-                int rowBytes = desc.Width * 4;
+                int rowBytes = width * 4;
                 unsafe
                 {
-                    for (int y = 0; y < desc.Height; y++)
+                    for (int y = 0; y < height; y++)
                     {
                         Buffer.MemoryCopy(
-                            (void*)IntPtr.Add(map.DataPointer, y * map.RowPitch),
+                            (void*)IntPtr.Add(map.DataPointer, y * rowPitch),
                             (void*)IntPtr.Add(data.Scan0, y * data.Stride),
                             rowBytes, rowBytes);
                     }
@@ -313,8 +303,6 @@ namespace GravityCapture.Services
                 device.ImmediateContext.Unmap(staging, 0);
             }
         }
-
-        // -------- Win32 / WinRT interop --------
 
         [ComImport, Guid("3628E81B-3CAC-4A9E-8545-75C971C37E80"),
          InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
