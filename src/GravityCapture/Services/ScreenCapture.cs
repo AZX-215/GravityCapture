@@ -1,4 +1,3 @@
-// src/GravityCapture/Services/ScreenCapture.cs
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -8,8 +7,10 @@ using System.Threading;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
-using Vortice.Direct3D11;
-using Vortice.DXGI;
+
+// Use explicit aliases to avoid any enum/type name collisions.
+using D3D11 = Vortice.Direct3D11;
+using DXGI = Vortice.DXGI;
 
 namespace GravityCapture.Services
 {
@@ -17,20 +18,26 @@ namespace GravityCapture.Services
     {
         // ---------- Public API used by MainWindow ----------
 
+        /// <summary>
+        /// Shows the overlay selector. If <paramref name="targetHwndOrZero"/> is non-zero,
+        /// we try to size the overlay to that window; otherwise we span the desktop.
+        /// Returns: success, absolute screen rectangle in pixels, and the HWND we locked.
+        /// </summary>
         public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) SelectRegion(IntPtr targetHwndOrZero)
             => OverlaySelector.Select(targetHwndOrZero);
 
-        public static bool TryNormalizeRect(IntPtr hwnd, Rectangle screenRect, out double nx, out double ny, out double nw, out double nh)
+        /// <summary>
+        /// Normalize a screen-space rectangle against the client rect of the given HWND.
+        /// </summary>
+        public static bool TryNormalizeRect(IntPtr hwnd, Rectangle screenRect,
+            out double nx, out double ny, out double nw, out double nh)
         {
             nx = ny = nw = nh = 0;
             if (hwnd == IntPtr.Zero) return false;
-            if (!TryGetWindowRect(hwnd, out var wrect)) return false;
 
-            // convert absolute pixels -> relative to hwnd client rect
             var client = GetClientScreenRect(hwnd);
             if (client.Width <= 0 || client.Height <= 0) return false;
 
-            // intersect to client to avoid out-of-range
             var inter = Rectangle.Intersect(screenRect, client);
             if (inter.Width <= 0 || inter.Height <= 0) return false;
 
@@ -41,27 +48,31 @@ namespace GravityCapture.Services
             return true;
         }
 
-        public static bool TryNormalizeRectDesktop(Rectangle screenRect, out double nx, out double ny, out double nw, out double nh)
+        /// <summary>Normalize against the primary desktop (fallback path).</summary>
+        public static bool TryNormalizeRectDesktop(Rectangle screenRect,
+            out double nx, out double ny, out double nw, out double nh)
         {
-            var bounds = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
-            nx = (screenRect.X - bounds.X) / (double)bounds.Width;
-            ny = (screenRect.Y - bounds.Y) / (double)bounds.Height;
-            nw = screenRect.Width / (double)bounds.Width;
-            nh = screenRect.Height / (double)bounds.Height;
+            var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+            nx = (screenRect.X - b.X) / (double)b.Width;
+            ny = (screenRect.Y - b.Y) / (double)b.Height;
+            nw = screenRect.Width / (double)b.Width;
+            nh = screenRect.Height / (double)b.Height;
             return true;
         }
 
+        /// <summary>Capture the full window. Uses WGC (occlusion-proof) if available, else GDI.</summary>
         public static Bitmap Capture(IntPtr hwnd)
         {
             if (hwnd == IntPtr.Zero) throw new InvalidOperationException("Capture target handle is null.");
             if (TryCaptureWgc(hwnd, out var bmp)) return bmp;
-            // Fallback: GDI (occluded)
-            return CaptureGdi(hwnd);
+            return CaptureGdi(hwnd); // fallback (occluded if covered)
         }
 
+        /// <summary>Capture a normalized crop (nx,ny,nw,nh are 0..1 relative to the window’s client area).</summary>
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
         {
             using var full = Capture(hwnd);
+
             var rx = (int)Math.Round(nx * full.Width);
             var ry = (int)Math.Round(ny * full.Height);
             var rw = (int)Math.Round(nw * full.Width);
@@ -83,12 +94,13 @@ namespace GravityCapture.Services
         {
             using var ms = new System.IO.MemoryStream();
             var codec = GetEncoder(ImageFormat.Jpeg);
-            var ep = new EncoderParameters(1);
+            using var ep = new EncoderParameters(1);
             ep.Param[0] = new EncoderParameter(Encoder.Quality, Math.Clamp(quality, 50, 100));
             bmp.Save(ms, codec, ep);
             return ms.ToArray();
         }
 
+        /// <summary>Find a window by substring in its title (fallback to reuse last handle if still valid).</summary>
         public static IntPtr ResolveWindowByTitleHint(string hint, IntPtr last, out IntPtr resolved)
         {
             resolved = last;
@@ -99,7 +111,8 @@ namespace GravityCapture.Services
             {
                 if (!IsWindowVisible(h)) return true;
                 var title = GetWindowText(h);
-                if (!string.IsNullOrEmpty(title) && title.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0)
+                if (!string.IsNullOrEmpty(title) &&
+                    title.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     found = h; return false;
                 }
@@ -128,11 +141,9 @@ namespace GravityCapture.Services
             {
                 if (Environment.OSVersion.Version.Major < 10) return false;
 
-                // Create GraphicsCaptureItem for the window
                 var item = CreateItemForWindow(hwnd);
                 if (item is null) return false;
 
-                // D3D11 device with BGRA support
                 using var device = CreateD3DDevice();
                 using var d3d = CreateDirect3DDevice(device);
                 var size = item.Size;
@@ -143,6 +154,7 @@ namespace GravityCapture.Services
 
                 Direct3D11CaptureFrame? frame = null;
                 using var got = new ManualResetEventSlim(false);
+
                 void onFrame(Direct3D11CaptureFramePool s, object e)
                 {
                     if (frame is null)
@@ -154,18 +166,15 @@ namespace GravityCapture.Services
 
                 pool.FrameArrived += onFrame;
                 session.StartCapture();
-                got.Wait(250); // a single frame
-
+                got.Wait(250); // wait one frame
                 pool.FrameArrived -= onFrame;
-                session.Dispose(); // end capture
+                session.Dispose();
 
                 if (frame is null) return false;
+
                 using (frame)
                 {
-                    // ID3D11Texture2D from frame.Surface
                     var tex = GetD3DTexture2D(device, frame.Surface);
-
-                    // Copy to staging & readback
                     bmp = CopyTextureToBitmap(device, tex);
                     tex.Dispose();
                 }
@@ -200,9 +209,16 @@ namespace GravityCapture.Services
         {
             public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) Select(IntPtr preferredHwnd)
             {
-                using var win = new Views.RegionSelectorWindow(preferredHwnd);
-                var ok = win.ShowDialog() == true;
-                return (ok, win.SelectedRect, win.CapturedHwnd);
+                var win = new Views.RegionSelectorWindow(preferredHwnd);
+                try
+                {
+                    var ok = win.ShowDialog() == true;
+                    return (ok, win.SelectedRect, win.CapturedHwnd);
+                }
+                finally
+                {
+                    if (win.IsVisible) win.Close();
+                }
             }
         }
 
@@ -234,46 +250,46 @@ namespace GravityCapture.Services
             return hr == 0 ? item : null;
         }
 
-        private static ID3D11Device CreateD3DDevice()
+        private static D3D11.ID3D11Device CreateD3DDevice()
         {
             D3D11.D3D11CreateDevice(
                 null,
-                DriverType.Hardware,
-                DeviceCreationFlags.BgraSupport | DeviceCreationFlags.VideoSupport,
+                D3D11.DriverType.Hardware,
+                D3D11.DeviceCreationFlags.BgraSupport | D3D11.DeviceCreationFlags.VideoSupport,
                 null,
-                out ID3D11Device device).CheckError();
+                out D3D11.ID3D11Device device).CheckError();
             return device;
         }
 
-        private static IDirect3DDevice CreateDirect3DDevice(ID3D11Device device)
+        private static Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice CreateDirect3DDevice(D3D11.ID3D11Device device)
         {
-            var dxgi = device.QueryInterface<IDXGIDevice>();
+            var dxgi = device.QueryInterface<DXGI.IDXGIDevice>();
             CreateDirect3D11DeviceFromDXGIDevice(dxgi.NativePointer, out var unk).CheckError();
             dxgi.Dispose();
-            return WinRT.MarshalInterface<IDirect3DDevice>.FromAbi(unk);
+            return WinRT.MarshalInterface<Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice>.FromAbi(unk);
         }
 
-        private static ID3D11Texture2D GetD3DTexture2D(ID3D11Device device, IDirect3DSurface surface)
+        private static D3D11.ID3D11Texture2D GetD3DTexture2D(D3D11.ID3D11Device device, Windows.Graphics.DirectX.Direct3D11.IDirect3DSurface surface)
         {
             var access = (IDirect3DDxgiInterfaceAccess)surface;
-            var iid = typeof(ID3D11Texture2D).GUID;
+            var iid = typeof(D3D11.ID3D11Texture2D).GUID;
             var ptr = access.GetInterface(ref iid);
-            return new ID3D11Texture2D(ptr);
+            return new D3D11.ID3D11Texture2D(ptr);
         }
 
-        private static Bitmap CopyTextureToBitmap(ID3D11Device device, ID3D11Texture2D src)
+        private static Bitmap CopyTextureToBitmap(D3D11.ID3D11Device device, D3D11.ID3D11Texture2D src)
         {
             var desc = src.Description;
             var stagingDesc = desc;
             stagingDesc.BindFlags = 0;
-            stagingDesc.CPUAccessFlags = CpuAccessFlags.Read;
-            stagingDesc.Usage = ResourceUsage.Staging;
-            stagingDesc.MiscFlags = ResourceOptionFlags.None;
+            stagingDesc.CPUAccessFlags = D3D11.CpuAccessFlags.Read;
+            stagingDesc.Usage = D3D11.ResourceUsage.Staging;
+            stagingDesc.MiscFlags = D3D11.ResourceOptionFlags.None;
 
             using var staging = device.CreateTexture2D(stagingDesc);
             device.ImmediateContext.CopyResource(staging, src);
 
-            var map = device.ImmediateContext.Map(staging, 0, MapMode.Read, MapFlags.None);
+            var map = device.ImmediateContext.Map(staging, 0, D3D11.MapMode.Read, D3D11.MapFlags.None);
             try
             {
                 var bmp = new Bitmap(desc.Width, desc.Height, PixelFormat.Format32bppPArgb);
@@ -281,9 +297,9 @@ namespace GravityCapture.Services
                     ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
 
                 int rowBytes = desc.Width * 4;
-                for (int y = 0; y < desc.Height; y++)
+                unsafe
                 {
-                    unsafe
+                    for (int y = 0; y < desc.Height; y++)
                     {
                         Buffer.MemoryCopy(
                             (void*)(map.DataPointer + y * map.RowPitch),
