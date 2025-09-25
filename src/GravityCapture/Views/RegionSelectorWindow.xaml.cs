@@ -15,14 +15,12 @@ namespace GravityCapture.Views
     {
         private readonly IntPtr _preferredHwnd;
 
-        // Use the WPF point explicitly to avoid ambiguity with System.Drawing.Point
         private WpfPoint _start;
         private bool _dragging;
 
         public DrawingRectangle SelectedRect { get; private set; } = DrawingRectangle.Empty;
         public IntPtr CapturedHwnd { get; private set; } = IntPtr.Zero;
 
-        // Avoid shadowing Window.MinWidth / MinHeight
         private const int MinSelWidth = 40;
         private const int MinSelHeight = 40;
 
@@ -31,7 +29,6 @@ namespace GravityCapture.Views
             InitializeComponent();
             _preferredHwnd = preferredHwnd;
 
-            // Go borderless-fullscreen over target window or entire virtual screen.
             Loaded += (_, __) =>
             {
                 if (_preferredHwnd != IntPtr.Zero && GetWindowRect(_preferredHwnd, out var wr))
@@ -48,8 +45,8 @@ namespace GravityCapture.Views
                     Height = SystemParameters.VirtualScreenHeight;
                 }
 
-                Sel.Visibility = Visibility.Collapsed;
-                RootCanvas.Background = new SolidColorBrush(Color.FromArgb(40, 0, 0, 0));
+                Sel!.Visibility = Visibility.Collapsed;
+                RootCanvas!.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(40, 0, 0, 0));
             };
 
             KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) { DialogResult = false; Close(); } };
@@ -58,17 +55,17 @@ namespace GravityCapture.Views
         private void OnDown(object sender, WpfMouseButtonEventArgs e)
         {
             _dragging = true;
-            _start = e.GetPosition(RootCanvas);
+            _start = e.GetPosition(RootCanvas!);
 
             // Lock the window under the cursor (top-level).
             var screenPt = PointToScreen(_start);
             CapturedHwnd = GetAncestor(WindowFromPhysicalPoint((int)screenPt.X, (int)screenPt.Y), 2 /*GA_ROOT*/);
 
-            Canvas.SetLeft(Sel, _start.X);
-            Canvas.SetTop(Sel, _start.Y);
-            Sel.Width = 0;
-            Sel.Height = 0;
-            Sel.Visibility = Visibility.Visible;
+            System.Windows.Controls.Canvas.SetLeft(Sel!, _start.X);
+            System.Windows.Controls.Canvas.SetTop(Sel!, _start.Y);
+            Sel!.Width = 0;
+            Sel!.Height = 0;
+            Sel!.Visibility = Visibility.Visible;
             CaptureMouse();
         }
 
@@ -76,16 +73,16 @@ namespace GravityCapture.Views
         {
             if (!_dragging) return;
 
-            var cur = e.GetPosition(RootCanvas);
+            var cur = e.GetPosition(RootCanvas!);
             var x = Math.Min(cur.X, _start.X);
             var y = Math.Min(cur.Y, _start.Y);
             var w = Math.Abs(cur.X - _start.X);
             var h = Math.Abs(cur.Y - _start.Y);
 
-            Canvas.SetLeft(Sel, x);
-            Canvas.SetTop(Sel, y);
-            Sel.Width = w;
-            Sel.Height = h;
+            System.Windows.Controls.Canvas.SetLeft(Sel!, x);
+            System.Windows.Controls.Canvas.SetTop(Sel!, y);
+            Sel!.Width = w;
+            Sel!.Height = h;
         }
 
         private void OnUp(object sender, WpfMouseButtonEventArgs e)
@@ -94,12 +91,11 @@ namespace GravityCapture.Views
             _dragging = false;
             ReleaseMouseCapture();
 
-            var x = Canvas.GetLeft(Sel);
-            var y = Canvas.GetTop(Sel);
-            var w = Sel.Width;
-            var h = Sel.Height;
+            var x = System.Windows.Controls.Canvas.GetLeft(Sel!);
+            var y = System.Windows.Controls.Canvas.GetTop(Sel!);
+            var w = Sel!.Width;
+            var h = Sel!.Height;
 
-            // Convert to screen coords
             var tl = PointToScreen(new WpfPoint(x, y));
             var br = PointToScreen(new WpfPoint(x + w, y + h));
 
@@ -108,7 +104,6 @@ namespace GravityCapture.Views
             int iw = Math.Max(0, (int)Math.Round(br.X - tl.X));
             int ih = Math.Max(0, (int)Math.Round(br.Y - tl.Y));
 
-            // Enforce minimum usable size
             if (iw < MinSelWidth || ih < MinSelHeight)
             {
                 DialogResult = false;
