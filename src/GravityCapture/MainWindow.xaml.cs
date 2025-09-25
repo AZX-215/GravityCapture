@@ -4,21 +4,15 @@ using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Text.RegularExpressions;
 using System.Timers;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
-using System.Windows.Media.Imaging;
 
 using GravityCapture.Models;
 using GravityCapture.Services;
-using GravityCapture.Views;
-
-using WpfMessageBox = System.Windows.MessageBox;
-using WpfCursors    = System.Windows.Input.Cursors;
-using WpfMouse      = System.Windows.Input.Mouse;
+using GravityCapture.Views; // RegionSelectorWindow
 
 namespace GravityCapture
 {
@@ -36,42 +30,34 @@ namespace GravityCapture
         private ApiClient? _api;
         private IntPtr _lastCropHwnd = IntPtr.Zero;
 
-        // Helpers for env export
-        private static void SetEnvInt(string key, int val) =>
-            Environment.SetEnvironmentVariable(key, val.ToString(), EnvironmentVariableTarget.Process);
-        private static void SetEnvDouble(string key, double val) =>
-            Environment.SetEnvironmentVariable(key, val.ToString(CultureInfo.InvariantCulture), EnvironmentVariableTarget.Process);
-
         public MainWindow()
         {
             InitializeComponent();
-
             SourceInitialized += (_, __) => ApplyDarkTitleBar();
 
             _settings = AppSettings.Load();
 
+            // environment (Stage/Prod)
             EnvBox.SelectedIndex = _settings.LogEnvironment.Equals("Prod", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
             LoadEnvFieldsIntoTextBoxes();
 
-            // ChannelId is a string in stage config
-            ChannelBox.Text  = _settings.Image?.ChannelId ?? string.Empty;
+            ChannelBox.Text  = _settings.ChannelId == 0 ? "" : _settings.ChannelId.ToString();
             IntervalBox.Text = _settings.IntervalMinutes.ToString();
-            ActiveWindowCheck.IsChecked = _settings.Capture?.ActiveWindow ?? true;
+            ActiveWindowCheck.IsChecked = _settings.CaptureActiveWindow;
 
-            QualitySlider.Value = _settings.Image?.JpegQuality ?? 90;
-            QualityLabel.Text   = ((int)QualitySlider.Value).ToString();
+            QualitySlider.Value = _settings.JpegQuality;
+            QualityLabel.Text   = _settings.JpegQuality.ToString();
             QualitySlider.ValueChanged += (_, __) => QualityLabel.Text = ((int)QualitySlider.Value).ToString();
 
-            TitleHintBox.Text = _settings.Image?.TargetWindowHint ?? string.Empty;
-            ServerBox.Text    = _settings.Capture?.ServerName ?? string.Empty;
+            TitleHintBox.Text = _settings.TargetWindowHint ?? string.Empty;
+            ServerBox.Text    = _settings.ServerName ?? string.Empty;
             TribeBox.Text     = _settings.TribeName  ?? string.Empty;
 
-            AutoOcrCheck.IsChecked = _settings.AutoOcrEnabled;
-            RedOnlyCheck.IsChecked = _settings.PostOnlyCritical;
-
-            FilterTameCheck.IsChecked   = _settings.Image?.FilterTameDeath          ?? false;
-            FilterStructCheck.IsChecked = _settings.Image?.FilterStructureDestroyed ?? false;
-            FilterTribeCheck.IsChecked  = _settings.Image?.FilterTribeMateDeath     ?? false;
+            AutoOcrCheck.IsChecked   = _settings.AutoOcrEnabled;
+            RedOnlyCheck.IsChecked   = _settings.PostOnlyCritical;
+            FilterTameCheck.IsChecked   = _settings.FilterTameDeath;
+            FilterStructCheck.IsChecked = _settings.FilterStructureDestroyed;
+            FilterTribeCheck.IsChecked  = _settings.FilterTribeMateDeath;
 
             LogIngestClient.Configure(_settings);
 
@@ -80,18 +66,14 @@ namespace GravityCapture
 
             Closing += (_, __) => { try { SaveSettings(); } catch { } };
 
-            // Export active OCR parameters, set label
-            ApplyActiveProfile();
             UpdateActiveProfileLabel();
 
             ProfileManager.ProfileChanged += (_, __) =>
             {
-                ApplyActiveProfile();
                 UpdateActiveProfileLabel();
                 Status($"OCR profile → {ProfileManager.ActiveProfile}");
             };
 
-            // Autostart
             if (_settings.Autostart)
             {
                 try { StartCapture(); } catch { }
@@ -103,45 +85,30 @@ namespace GravityCapture
             try
             {
                 var hwnd = new WindowInteropHelper(this).Handle;
-                int useImmersiveDarkMode = 1;
-                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_NEW, ref useImmersiveDarkMode, sizeof(int));
-                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref useImmersiveDarkMode, sizeof(int));
+                int v = 1;
+                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_NEW, ref v, sizeof(int));
+                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref v, sizeof(int));
             }
             catch { }
         }
 
-        private void Status(string msg) => Dispatcher.Invoke(() =>
-        {
-            StatusText.Text = msg;
-        });
+        private void Status(string msg) => Dispatcher.Invoke(() => { StatusText.Text = msg; });
 
-        private void ToggleOcrProfile()
-        {
-            var next = ProfileManager.ActiveProfile == "SDR" ? "HDR" : "SDR";
-            ProfileManager.Switch(next);
-            // ProfileChanged updates env + label
-            WpfMessageBox.Show($"Switched OCR profile → {next}", "Gravity Capture",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-
-        private void ProfileToggleBtn_Click(object sender, RoutedEventArgs e) => ToggleOcrProfile();
-
-        // --- ENVIRONMENT UI ---
+        // --- ENV UI ---
         private string CurrentEnv => EnvBox.SelectedIndex == 1 ? "Prod" : "Stage";
 
         private void LoadEnvFieldsIntoTextBoxes()
         {
             _settings.LogEnvironment = CurrentEnv;
-            ApiUrlBox.Text = _settings.ApiBaseUrl?.TrimEnd('/') ?? string.Empty;
-            ApiKeyBox.Text = _settings.Auth?.ApiKey ?? string.Empty;
+            var (url, key) = _settings.GetActiveLogApi();
+            ApiUrlBox.Text = url ?? string.Empty;
+            ApiKeyBox.Text = key ?? string.Empty;
         }
 
         private void SaveTextBoxesIntoEnvFields()
         {
             _settings.LogEnvironment = CurrentEnv;
-            _settings.ApiBaseUrl = ApiUrlBox.Text?.TrimEnd('/') ?? string.Empty;
-            _settings.Auth ??= new AppSettings.AuthSettings();
-            _settings.Auth.ApiKey = ApiKeyBox.Text ?? string.Empty;
+            _settings.SetActiveLogApi(ApiUrlBox.Text?.TrimEnd('/') ?? string.Empty, ApiKeyBox.Text ?? string.Empty);
         }
 
         private void EnvBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -153,7 +120,7 @@ namespace GravityCapture
             Status($"Switched log environment → {CurrentEnv}");
         }
 
-        // --- SAVE / START / STOP ---
+        // --- BUTTONS ---
         private void SaveBtn_Click(object sender, RoutedEventArgs e)
         {
             SaveSettings();
@@ -168,27 +135,58 @@ namespace GravityCapture
 
         private void StopBtn_Click(object sender, RoutedEventArgs e) => StopCapture();
 
+        private void RefreshRecentBtn_Click(object sender, RoutedEventArgs e) => Status("Ready.");
+
+        private void SelectCropBtn_Click(object sender, RoutedEventArgs e) => SelectRegion();
+
+        private void PreviewCropBtn_Click(object sender, RoutedEventArgs e) => _ = CaptureOnceAsync();
+
+        private void OcrCropBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var hwnd = ResolveTargetWindow();
+            _ = _ingestor.ScanAndPostAsync(
+                hwnd, _settings, ServerBox.Text ?? "", TribeBox.Text ?? "",
+                async m => await Dispatcher.InvokeAsync(() => Status(m)));
+        }
+
+        private void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e) => OnTick(null, null!);
+
+        private void SendTestBtn_Click(object sender, RoutedEventArgs e) => _ = CaptureOnceAsync();
+
+        private void SendParsedBtn_Click(object sender, RoutedEventArgs e) => _ = CaptureOnceAsync();
+
+        private void ProfileToggleBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var next = ProfileManager.ActiveProfile.Equals("HDR", StringComparison.OrdinalIgnoreCase) ? "SDR" : "HDR";
+            ProfileManager.Switch(next);
+            MessageBox.Show($"Switched OCR profile → {next}", "Gravity Capture", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void CopyActiveProfileBtn_Click(object sender, RoutedEventArgs e)
+        {
+            try { System.Windows.Clipboard.SetText(ProfileManager.ActiveProfile); Status("Profile name copied."); } catch { }
+        }
+
+        // --- SAVE / START / STOP ---
         private void SaveSettings()
         {
             SaveTextBoxesIntoEnvFields();
 
-            _settings.Image ??= new AppSettings.ImageSettings();
-            _settings.Capture ??= new AppSettings.CaptureSettings();
-
-            _settings.Image.ChannelId   = ChannelBox.Text?.Trim() ?? string.Empty;
+            _settings.ChannelId = ulong.TryParse(ChannelBox.Text, out var cid) ? cid : 0UL;
             _settings.IntervalMinutes   = int.TryParse(IntervalBox.Text, out var m) ? Math.Max(1, m) : 1;
-            _settings.Capture.ActiveWindow = ActiveWindowCheck.IsChecked == true;
-            _settings.Image.JpegQuality = (int)QualitySlider.Value;
-            _settings.Image.TargetWindowHint = TitleHintBox.Text ?? string.Empty;
 
-            _settings.Capture.ServerName = ServerBox.Text?.Trim() ?? string.Empty;
-            _settings.TribeName          = TribeBox.Text?.Trim()  ?? string.Empty;
+            _settings.CaptureActiveWindow = ActiveWindowCheck.IsChecked == true;
+            _settings.JpegQuality = (int)QualitySlider.Value;
+            _settings.TargetWindowHint = TitleHintBox.Text ?? string.Empty;
+
+            _settings.ServerName = ServerBox.Text?.Trim() ?? string.Empty;
+            _settings.TribeName  = TribeBox.Text?.Trim()  ?? string.Empty;
 
             _settings.AutoOcrEnabled           = AutoOcrCheck.IsChecked == true;
             _settings.PostOnlyCritical         = RedOnlyCheck.IsChecked == true;
-            _settings.Image.FilterTameDeath          = FilterTameCheck.IsChecked   == true;
-            _settings.Image.FilterStructureDestroyed = FilterStructCheck.IsChecked == true;
-            _settings.Image.FilterTribeMateDeath     = FilterTribeCheck.IsChecked  == true;
+            _settings.FilterTameDeath          = FilterTameCheck.IsChecked   == true;
+            _settings.FilterStructureDestroyed = FilterStructCheck.IsChecked == true;
+            _settings.FilterTribeMateDeath     = FilterTribeCheck.IsChecked  == true;
 
             _settings.Save();
             LogIngestClient.Configure(_settings);
@@ -196,8 +194,7 @@ namespace GravityCapture
 
         private void StartCapture()
         {
-            // Uses ApiBaseUrl/Auth.ApiKey now
-            _api = new ApiClient(_settings.ApiBaseUrl ?? "", _settings.Auth?.ApiKey ?? "");
+            _api = new ApiClient(_settings.ApiUrl, _settings.ApiKey);
             _timer.Interval = TimeSpan.FromMinutes(_settings.IntervalMinutes).TotalMilliseconds;
             _timer.Start();
             StartBtn.IsEnabled = false;
@@ -213,8 +210,8 @@ namespace GravityCapture
             Status("Stopped.");
         }
 
-        // --- TIMER TICK ---
-        private async void OnTick(object? s, ElapsedEventArgs e)
+        // --- TICK ---
+        private async void OnTick(object? s, ElapsedEventArgs? e)
         {
             try
             {
@@ -229,12 +226,8 @@ namespace GravityCapture
                 {
                     var hwnd = ResolveTargetWindow();
                     await _ingestor.ScanAndPostAsync(
-                        hwnd,
-                        _settings,
-                        server,
-                        tribe,
-                        async msg => await Dispatcher.InvokeAsync(() => Status(msg))
-                    );
+                        hwnd, _settings, server, tribe,
+                        async msg => await Dispatcher.InvokeAsync(() => Status(msg)));
                 }
                 else
                 {
@@ -252,7 +245,7 @@ namespace GravityCapture
             if (_api == null) return;
             try
             {
-                System.Drawing.Bitmap bmp;
+                Bitmap bmp;
                 var hwnd = ResolveTargetWindow();
                 if (_settings.UseCrop)
                     bmp = ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
@@ -261,10 +254,9 @@ namespace GravityCapture
 
                 using (bmp)
                 {
-                    var bytes = ScreenCapture.ToJpegBytes(bmp, _settings.Image?.JpegQuality ?? 90);
+                    var bytes = ScreenCapture.ToJpegBytes(bmp, _settings.JpegQuality);
                     string fname = $"gravity_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
-                    // ChannelId is string now
-                    bool ok = await _api.SendScreenshotAsync(bytes, fname, _settings.Image?.ChannelId ?? "", "Gravity capture");
+                    bool ok = await _api.SendScreenshotAsync(bytes, fname, _settings.ChannelId.ToString(), "Gravity capture");
                     Status(ok ? $"Sent {fname}" : "Send failed (HTTP)");
                 }
             }
@@ -277,30 +269,27 @@ namespace GravityCapture
         private IntPtr ResolveTargetWindow()
         {
             var hint = (TitleHintBox.Text ?? string.Empty).Trim();
-            if (string.IsNullOrEmpty(hint))
-                hint = _settings.Image?.TargetWindowHint ?? "ARK";
+            if (string.IsNullOrEmpty(hint)) hint = _settings.TargetWindowHint ?? "ARK";
             return ScreenCapture.ResolveWindowByTitleHint(hint, _lastCropHwnd, out _lastCropHwnd);
         }
 
-        // --- region selection UI (unchanged) ---
-        private void SelectRegionBtn_Click(object sender, RoutedEventArgs e)
+        private void SelectRegion()
         {
             try
             {
-                Cursor = WpfCursors.Cross;
+                Cursor = Cursors.Cross;
                 var hwnd = ResolveTargetWindow();
                 var (success, rectScreen, lastHwnd) = RegionSelectorWindow.SelectRegion(hwnd);
                 _lastCropHwnd = lastHwnd;
-                Cursor = WpfCursors.Arrow;
+                Cursor = Cursors.Arrow;
 
                 if (success)
                 {
-                    var r = rectScreen;
-                    // Normalize to [0..1] relative to window/client rect
-                    if (ScreenCapture.TryNormalizeRect(lastHwnd, r, out var nx, out var ny, out var nw, out var nh))
+                    // Normalize to [0..1] relative to window
+                    if (ScreenCapture.TryNormalizeRect(lastHwnd, rectScreen, out var nx, out var ny, out var nw, out var nh))
                     {
                         _settings.UseCrop = true;
-                        _settings.CropX   = nx; _settings.CropY = ny; _settings.CropW = nw; _settings.CropH = nh;
+                        _settings.CropX = nx; _settings.CropY = ny; _settings.CropW = nw; _settings.CropH = nh;
                         _settings.Save();
                         Status($"Region set: x={nx:0.###} y={ny:0.###} w={nw:0.###} h={nh:0.###}");
                     }
@@ -312,45 +301,14 @@ namespace GravityCapture
             }
             catch (Exception ex)
             {
-                Cursor = WpfCursors.Arrow;
+                Cursor = Cursors.Arrow;
                 Status($"Region selection error: {ex.Message}");
             }
         }
 
-        private void CopyActiveProfileBtn_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                Clipboard.SetText(ProfileManager.ActiveProfile);
-                Status("Profile name copied.");
-            }
-            catch { }
-        }
-
         private void UpdateActiveProfileLabel()
         {
-            ActiveProfileText.Text = $"Active OCR Profile: {ProfileManager.ActiveProfile}";
-        }
-
-        private void ApplyActiveProfile()
-        {
-            var p = ProfileManager.GetActive();
-            SetEnvInt("OCR_BIN", (int)p.Engine);
-            SetEnvDouble("OCR_SCALE", p.Scale);
-            SetEnvDouble("OCR_BIN_THR", p.BinaryThreshold);
-            SetEnvDouble("OCR_STDDEV", p.StdDev);
-            SetEnvInt("OCR_ERODE", p.Erode);
-            SetEnvInt("OCR_DILATE", p.Dilate);
-            SetEnvInt("OCR_MIN_H", p.MinHeight);
-            SetEnvInt("OCR_MAX_H", p.MaxHeight);
-            SetEnvDouble("OCR_MIN_AR", p.MinAspectRatio);
-            SetEnvDouble("OCR_MAX_AR", p.MaxAspectRatio);
-            SetEnvDouble("OCR_MIN_SOL", p.MinSolidity);
-            SetEnvDouble("OCR_MIN_CONTRAST", p.MinContrast);
-            SetEnvDouble("OCR_MIN_DARK", p.MinDarkPct);
-            SetEnvDouble("OCR_MAX_DARK", p.MaxDarkPct);
-            SetEnvDouble("OCR_MIN_LIGHT", p.MinLightPct);
-            SetEnvDouble("OCR_MAX_LIGHT", p.MaxLightPct);
+            ActiveProfileLabel.Text = $"Active: {ProfileManager.ActiveProfile}";
         }
     }
 }
