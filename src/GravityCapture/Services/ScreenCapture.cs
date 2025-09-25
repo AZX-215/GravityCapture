@@ -8,26 +8,30 @@ using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
 
-// Use explicit aliases to avoid any enum/type name collisions.
+// Explicit aliases to avoid name collisions.
 using D3D11 = Vortice.Direct3D11;
 using DXGI = Vortice.DXGI;
 
 namespace GravityCapture.Services
 {
+    /// <summary>
+    /// Screen/window capture helpers.
+    /// Uses Windows.Graphics.Capture when available (not occluded),
+    /// and falls back to GDI CopyFromScreen when needed.
+    /// </summary>
     public static class ScreenCapture
     {
-        // ---------- Public API used by MainWindow ----------
+        // -------- Public API used by MainWindow --------
 
         /// <summary>
-        /// Shows the overlay selector. If <paramref name="targetHwndOrZero"/> is non-zero,
-        /// we try to size the overlay to that window; otherwise we span the desktop.
-        /// Returns: success, absolute screen rectangle in pixels, and the HWND we locked.
+        /// Show a translucent full-screen (or window-bounded) overlay and let the user drag a region.
+        /// Returns (ok, absolute screen rect in pixels, and the HWND we captured/locked).
         /// </summary>
         public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) SelectRegion(IntPtr targetHwndOrZero)
             => OverlaySelector.Select(targetHwndOrZero);
 
         /// <summary>
-        /// Normalize a screen-space rectangle against the client rect of the given HWND.
+        /// Normalize a screen-space rectangle against the client rect of the given HWND (0..1).
         /// </summary>
         public static bool TryNormalizeRect(IntPtr hwnd, Rectangle screenRect,
             out double nx, out double ny, out double nw, out double nh)
@@ -48,7 +52,7 @@ namespace GravityCapture.Services
             return true;
         }
 
-        /// <summary>Normalize against the primary desktop (fallback path).</summary>
+        /// <summary>Normalize against the desktop (fallback path).</summary>
         public static bool TryNormalizeRectDesktop(Rectangle screenRect,
             out double nx, out double ny, out double nw, out double nh)
         {
@@ -60,15 +64,17 @@ namespace GravityCapture.Services
             return true;
         }
 
-        /// <summary>Capture the full window. Uses WGC (occlusion-proof) if available, else GDI.</summary>
+        /// <summary>Capture full target window to a bitmap (WGC if possible, else GDI).</summary>
         public static Bitmap Capture(IntPtr hwnd)
         {
             if (hwnd == IntPtr.Zero) throw new InvalidOperationException("Capture target handle is null.");
             if (TryCaptureWgc(hwnd, out var bmp)) return bmp;
-            return CaptureGdi(hwnd); // fallback (occluded if covered)
+            return CaptureGdi(hwnd); // occluded if covered
         }
 
-        /// <summary>Capture a normalized crop (nx,ny,nw,nh are 0..1 relative to the window’s client area).</summary>
+        /// <summary>
+        /// Capture a normalized crop of the window (nx,ny,nw,nh are 0..1 of client area).
+        /// </summary>
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
         {
             using var full = Capture(hwnd);
@@ -90,6 +96,7 @@ namespace GravityCapture.Services
             return bmp;
         }
 
+        /// <summary>Encode a bitmap as JPEG bytes (quality clamped 50..100).</summary>
         public static byte[] ToJpegBytes(Bitmap bmp, int quality)
         {
             using var ms = new System.IO.MemoryStream();
@@ -100,7 +107,7 @@ namespace GravityCapture.Services
             return ms.ToArray();
         }
 
-        /// <summary>Find a window by substring in its title (fallback to reuse last handle if still valid).</summary>
+        /// <summary>Resolve a window by a substring in its title (fallback to last if still valid).</summary>
         public static IntPtr ResolveWindowByTitleHint(string hint, IntPtr last, out IntPtr resolved)
         {
             resolved = last;
@@ -132,7 +139,7 @@ namespace GravityCapture.Services
             return r.Width > 0 && r.Height > 0;
         }
 
-        // ---------- WGC (occlusion-proof) ----------
+        // -------- WGC (occlusion-proof) --------
 
         private static bool TryCaptureWgc(IntPtr hwnd, out Bitmap bmp)
         {
@@ -187,7 +194,7 @@ namespace GravityCapture.Services
             }
         }
 
-        // ---------- GDI fallback (occluded if covered) ----------
+        // -------- GDI fallback (occluded if covered) --------
 
         private static Bitmap CaptureGdi(IntPtr hwnd)
         {
@@ -203,7 +210,7 @@ namespace GravityCapture.Services
             return bmp;
         }
 
-        // ---------- Overlay region selector ----------
+        // -------- Overlay region selector --------
 
         private static class OverlaySelector
         {
@@ -222,7 +229,7 @@ namespace GravityCapture.Services
             }
         }
 
-        // ---------- Helpers ----------
+        // -------- Helpers --------
 
         private static Rectangle GetClientScreenRect(IntPtr hwnd)
         {
@@ -240,7 +247,7 @@ namespace GravityCapture.Services
             throw new InvalidOperationException("JPEG encoder not found.");
         }
 
-        // ---------- WGC plumbing ----------
+        // -------- WGC plumbing --------
 
         private static GraphicsCaptureItem? CreateItemForWindow(IntPtr hwnd)
         {
@@ -317,7 +324,7 @@ namespace GravityCapture.Services
             }
         }
 
-        // ---------- Win32 / WinRT interop ----------
+        // -------- Win32 / WinRT interop --------
 
         [ComImport, Guid("3628E81B-3CAC-4A9E-8545-75C971C37E80"),
          InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
