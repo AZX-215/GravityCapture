@@ -1,11 +1,8 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
-// aliases
-using WpfPoint = System.Windows.Point;
-using WpfMouseEventArgs = System.Windows.Input.MouseEventArgs;
-using WpfMouseButtonEventArgs = System.Windows.Input.MouseButtonEventArgs;
 using DrawingRectangle = System.Drawing.Rectangle;
 
 namespace GravityCapture.Views
@@ -13,7 +10,7 @@ namespace GravityCapture.Views
     public partial class RegionSelectorWindow : Window
     {
         private readonly IntPtr _preferredHwnd;
-        private WpfPoint _start;
+        private Point _start;
         private bool _dragging;
 
         public DrawingRectangle SelectedRect { get; private set; } = DrawingRectangle.Empty;
@@ -22,9 +19,7 @@ namespace GravityCapture.Views
         private const int MinSelWidth = 40;
         private const int MinSelHeight = 40;
 
-        // Required for XAML loader
         public RegionSelectorWindow() : this(IntPtr.Zero) { }
-
         public RegionSelectorWindow(IntPtr preferredHwnd)
         {
             InitializeComponent();
@@ -46,62 +41,71 @@ namespace GravityCapture.Views
                     Height = SystemParameters.VirtualScreenHeight;
                 }
 
-                RootCanvas!.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(32, 0, 0, 0));
-                Sel!.Visibility = Visibility.Collapsed;
-                Cursor = System.Windows.Input.Cursors.Cross;
-            };
+                RootCanvas.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(32, 0, 0, 0));
+                Sel.Visibility = Visibility.Collapsed;
 
-            KeyDown += (_, e) =>
-            {
-                if (e.Key == System.Windows.Input.Key.Escape) { DialogResult = false; Close(); }
+                Activate();
+                RootCanvas.Focus();
             };
         }
 
-        private void OnDown(object sender, WpfMouseButtonEventArgs e)
+        private void OnKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape) { DialogResult = false; Close(); }
+        }
+
+        private void OnCancel(object? sender, MouseButtonEventArgs e)
+        {
+            DialogResult = false;
+            Close();
+        }
+
+        private void OnDown(object? sender, MouseButtonEventArgs e)
         {
             _dragging = true;
-            _start = e.GetPosition(RootCanvas!);
+            _start = e.GetPosition(RootCanvas);
 
             var screen = PointToScreen(_start);
             var pt = new POINT { x = (int)Math.Round(screen.X), y = (int)Math.Round(screen.Y) };
             CapturedHwnd = FindForeignRootAt(pt, _preferredHwnd);
 
-            System.Windows.Controls.Canvas.SetLeft(Sel!, _start.X);
-            System.Windows.Controls.Canvas.SetTop(Sel!, _start.Y);
-            Sel!.Width = 0; Sel!.Height = 0;
-            Sel!.Visibility = Visibility.Visible;
-            CaptureMouse();
+            System.Windows.Controls.Canvas.SetLeft(Sel, _start.X);
+            System.Windows.Controls.Canvas.SetTop(Sel, _start.Y);
+            Sel.Width = 0; Sel.Height = 0;
+            Sel.Visibility = Visibility.Visible;
+
+            RootCanvas.CaptureMouse();
         }
 
-        private void OnMove(object sender, WpfMouseEventArgs e)
+        private void OnMove(object? sender, MouseEventArgs e)
         {
             if (!_dragging) return;
 
-            var cur = e.GetPosition(RootCanvas!);
+            var cur = e.GetPosition(RootCanvas);
             var x = Math.Min(cur.X, _start.X);
             var y = Math.Min(cur.Y, _start.Y);
             var w = Math.Abs(cur.X - _start.X);
             var h = Math.Abs(cur.Y - _start.Y);
 
-            System.Windows.Controls.Canvas.SetLeft(Sel!, x);
-            System.Windows.Controls.Canvas.SetTop(Sel!, y);
-            Sel!.Width = w;
-            Sel!.Height = h;
+            System.Windows.Controls.Canvas.SetLeft(Sel, x);
+            System.Windows.Controls.Canvas.SetTop(Sel, y);
+            Sel.Width = w;
+            Sel.Height = h;
         }
 
-        private void OnUp(object sender, WpfMouseButtonEventArgs e)
+        private void OnUp(object? sender, MouseButtonEventArgs e)
         {
             if (!_dragging) return;
             _dragging = false;
-            ReleaseMouseCapture();
+            RootCanvas.ReleaseMouseCapture();
 
-            var x = System.Windows.Controls.Canvas.GetLeft(Sel!);
-            var y = System.Windows.Controls.Canvas.GetTop(Sel!);
-            var w = Sel!.Width;
-            var h = Sel!.Height;
+            var x = System.Windows.Controls.Canvas.GetLeft(Sel);
+            var y = System.Windows.Controls.Canvas.GetTop(Sel);
+            var w = Sel.Width;
+            var h = Sel.Height;
 
-            var tl = PointToScreen(new WpfPoint(x, y));
-            var br = PointToScreen(new WpfPoint(x + w, y + h));
+            var tl = PointToScreen(new Point(x, y));
+            var br = PointToScreen(new Point(x + w, y + h));
 
             int ix = (int)Math.Round(tl.X);
             int iy = (int)Math.Round(tl.Y);
@@ -115,7 +119,6 @@ namespace GravityCapture.Views
             Close();
         }
 
-        // ----- Find real window under point, skipping this process -----
         private static IntPtr FindForeignRootAt(POINT pt, IntPtr fallback)
         {
             uint curPid = GetCurrentProcessId();
@@ -135,7 +138,6 @@ namespace GravityCapture.Views
             return fallback;
         }
 
-        // Win32
         private const int GA_ROOT = 2;
         private const uint GW_HWNDPREV = 3;
 
@@ -146,7 +148,7 @@ namespace GravityCapture.Views
         [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
         [DllImport("kernel32.dll")] private static extern uint GetCurrentProcessId();
 
-        [StructLayout(LayoutKind.Sequential)] private struct POINT { public int x; public int y; }
+        [StructLayout(LayoutKind.Sequential)] private struct POINT { public int x, y; }
         [StructLayout(LayoutKind.Sequential)] private struct RECT { public int left, top, right, bottom; }
     }
 }
