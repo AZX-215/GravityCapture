@@ -1,9 +1,12 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+// Explicit WPF aliases to avoid clashes with Windows Forms / System.Drawing.
+using WpfPoint = System.Windows.Point;
+using WpfMouseEventArgs = System.Windows.Input.MouseEventArgs;
+using WpfMouseButtonEventArgs = System.Windows.Input.MouseButtonEventArgs;
 using DrawingRectangle = System.Drawing.Rectangle;
 
 namespace GravityCapture.Views
@@ -11,15 +14,17 @@ namespace GravityCapture.Views
     public partial class RegionSelectorWindow : Window
     {
         private readonly IntPtr _preferredHwnd;
-        private Point _start;
+
+        // Use the WPF point explicitly to avoid ambiguity with System.Drawing.Point
+        private WpfPoint _start;
         private bool _dragging;
 
         public DrawingRectangle SelectedRect { get; private set; } = DrawingRectangle.Empty;
         public IntPtr CapturedHwnd { get; private set; } = IntPtr.Zero;
 
-        // Minimum crop size (in device pixels)
-        private const int MinWidth = 40;
-        private const int MinHeight = 40;
+        // Avoid shadowing Window.MinWidth / MinHeight
+        private const int MinSelWidth = 40;
+        private const int MinSelHeight = 40;
 
         public RegionSelectorWindow(IntPtr preferredHwnd)
         {
@@ -47,10 +52,10 @@ namespace GravityCapture.Views
                 RootCanvas.Background = new SolidColorBrush(Color.FromArgb(40, 0, 0, 0));
             };
 
-            KeyDown += (_, e) => { if (e.Key == Key.Escape) { DialogResult = false; Close(); } };
+            KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) { DialogResult = false; Close(); } };
         }
 
-        private void OnDown(object sender, MouseButtonEventArgs e)
+        private void OnDown(object sender, WpfMouseButtonEventArgs e)
         {
             _dragging = true;
             _start = e.GetPosition(RootCanvas);
@@ -67,7 +72,7 @@ namespace GravityCapture.Views
             CaptureMouse();
         }
 
-        private void OnMove(object sender, MouseEventArgs e)
+        private void OnMove(object sender, WpfMouseEventArgs e)
         {
             if (!_dragging) return;
 
@@ -83,7 +88,7 @@ namespace GravityCapture.Views
             Sel.Height = h;
         }
 
-        private void OnUp(object sender, MouseButtonEventArgs e)
+        private void OnUp(object sender, WpfMouseButtonEventArgs e)
         {
             if (!_dragging) return;
             _dragging = false;
@@ -95,8 +100,8 @@ namespace GravityCapture.Views
             var h = Sel.Height;
 
             // Convert to screen coords
-            var tl = PointToScreen(new Point(x, y));
-            var br = PointToScreen(new Point(x + w, y + h));
+            var tl = PointToScreen(new WpfPoint(x, y));
+            var br = PointToScreen(new WpfPoint(x + w, y + h));
 
             int ix = (int)Math.Round(tl.X);
             int iy = (int)Math.Round(tl.Y);
@@ -104,7 +109,7 @@ namespace GravityCapture.Views
             int ih = Math.Max(0, (int)Math.Round(br.Y - tl.Y));
 
             // Enforce minimum usable size
-            if (iw < MinWidth || ih < MinHeight)
+            if (iw < MinSelWidth || ih < MinSelHeight)
             {
                 DialogResult = false;
                 Close();
