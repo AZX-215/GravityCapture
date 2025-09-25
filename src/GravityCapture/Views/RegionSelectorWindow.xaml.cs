@@ -36,6 +36,7 @@ namespace GravityCapture.Views
                     Left = wr.left; Top = wr.top;
                     Width = Math.Max(1, wr.right - wr.left);
                     Height = Math.Max(1, wr.bottom - wr.top);
+                    CapturedHwnd = _preferredHwnd; // lock to Ark if provided
                 }
                 else
                 {
@@ -68,9 +69,13 @@ namespace GravityCapture.Views
             _dragging = true;
             _start = e.GetPosition(RootCanvas);
 
-            var screen = PointToScreen(_start);
-            var pt = new POINT { x = (int)Math.Round(screen.X), y = (int)Math.Round(screen.Y) };
-            CapturedHwnd = FindTopmostForeignWindowAt(pt, _preferredHwnd);
+            // If a preferred window was supplied, stick to it; else pick the topmost foreign window.
+            if (CapturedHwnd == IntPtr.Zero)
+            {
+                var screen = PointToScreen(_start);
+                var pt = new POINT { x = (int)Math.Round(screen.X), y = (int)Math.Round(screen.Y) };
+                CapturedHwnd = FindTopmostForeignWindowAt(pt);
+            }
 
             System.Windows.Controls.Canvas.SetLeft(Sel, _start.X);
             System.Windows.Controls.Canvas.SetTop(Sel, _start.Y);
@@ -122,8 +127,8 @@ namespace GravityCapture.Views
             Close();
         }
 
-        // Find the topmost *foreign* root window at point, guaranteeing the point lies within the window rect
-        private static IntPtr FindTopmostForeignWindowAt(POINT pt, IntPtr fallback)
+        // Topmost visible foreign root at point
+        private static IntPtr FindTopmostForeignWindowAt(POINT pt)
         {
             uint curPid = GetCurrentProcessId();
             IntPtr h = WindowFromPoint(pt);
@@ -134,21 +139,16 @@ namespace GravityCapture.Views
                 if (root == IntPtr.Zero) break;
 
                 if (GetWindowRect(root, out var r)
-                    && PtInRect(r, pt)
-                    && IsWindowVisible(root))
+                    && IsWindowVisible(root)
+                    && pt.x >= r.left && pt.x < r.right && pt.y >= r.top && pt.y < r.bottom)
                 {
                     GetWindowThreadProcessId(root, out uint pid);
                     if (pid != curPid) return root;
                 }
-
-                h = GetWindow(root, GW_HWNDPREV); // step back in z-order and re-check point containment
+                h = GetWindow(root, GW_HWNDPREV);
             }
-
-            return fallback; // may be 0 => desktop
+            return IntPtr.Zero;
         }
-
-        private static bool PtInRect(RECT r, POINT p) =>
-            p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
 
         // Win32
         private const int GA_ROOT = 2;
