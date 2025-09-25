@@ -1,15 +1,16 @@
 using System;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 
 namespace GravityCapture.Views
 {
     public partial class RegionSelectorWindow : Window
     {
-        private Point _start;
+        private System.Windows.Point _start;
         private bool _dragging;
 
-        public Rect SelectedRect { get; private set; } = Rect.Empty;
+        public System.Windows.Rect SelectedRect { get; private set; } = System.Windows.Rect.Empty;
 
         // Default ctor: caller may set WindowState=Maximized for full-screen selection.
         public RegionSelectorWindow()
@@ -22,15 +23,15 @@ namespace GravityCapture.Views
         }
 
         // Bounded overlay ctor: restrict selection to given screen rectangle.
-        public RegionSelectorWindow(Rect screenBounds) : this()
+        public RegionSelectorWindow(System.Windows.Rect screenBounds) : this()
         {
-            Left = screenBounds.Left;
-            Top  = screenBounds.Top;
+            Left   = screenBounds.Left;
+            Top    = screenBounds.Top;
             Width  = screenBounds.Width;
             Height = screenBounds.Height;
         }
 
-        private void OnDown(object sender, MouseButtonEventArgs e)
+        private void OnDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             _dragging = true;
             _start = e.GetPosition(this);
@@ -41,7 +42,7 @@ namespace GravityCapture.Views
             CaptureMouse();
         }
 
-        private void OnMove(object sender, MouseEventArgs e)
+        private void OnMove(object sender, System.Windows.Input.MouseEventArgs e)
         {
             if (!_dragging) return;
             var p = e.GetPosition(this);
@@ -57,7 +58,7 @@ namespace GravityCapture.Views
             Sel.Height = h;
         }
 
-        private void OnUp(object sender, MouseButtonEventArgs e)
+        private void OnUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             if (!_dragging) return;
             _dragging = false;
@@ -70,9 +71,9 @@ namespace GravityCapture.Views
 
             if (w < 2 || h < 2) { DialogResult = false; Close(); return; }
 
-            // Convert to absolute screen coordinates
-            var p0 = PointToScreen(new Point(x, y));
-            SelectedRect = new Rect(p0.X, p0.Y, w, h);
+            // Convert to absolute screen coordinates (WPF points)
+            System.Windows.Point p0 = PointToScreen(new System.Windows.Point(x, y));
+            SelectedRect = new System.Windows.Rect(p0.X, p0.Y, w, h);
 
             DialogResult = true;
             Close();
