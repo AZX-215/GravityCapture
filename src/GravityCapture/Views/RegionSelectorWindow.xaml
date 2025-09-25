@@ -11,10 +11,8 @@
         Cursor="Cross"
         SnapsToDevicePixels="True"
         UseLayoutRounding="True"
-        Width="800" Height="600">
-  <!-- NOTE: When we want full-screen we set WindowState=Maximized programmatically.
-             When we want to limit to the ARK window, we position and size this window
-             to that window’s bounds via the Rect constructor overload. -->
+        Width="800" Height="600"
+        Loaded="OnLoaded">
   <Canvas x:Name="RootCanvas"
           Background="Transparent"
           MouseLeftButtonDown="OnDown"
