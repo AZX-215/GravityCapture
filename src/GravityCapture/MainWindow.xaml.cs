@@ -172,7 +172,7 @@ namespace GravityCapture
             ChannelBox.Text = _settings.Image?.ChannelId ?? "";
             ApiUrlBox.Text   = _settings.ApiBaseUrl ?? "";
             ApiKeyBox.Text   = _settings.Auth?.ApiKey ?? "";
-            IntervalBox.Text = Math.max(1, _settings.IntervalMinutes).ToString(); // if Math.max not exists: replace with Math.Max
+            IntervalBox.Text = Math.Max(1, _settings.IntervalMinutes).ToString(); // if Math.max not exists: replace with Math.Max
 
             ActiveWindowCheck.IsChecked = _settings.Capture?.ActiveWindow ?? false; // default false to allow occluded
             ServerBox.Text = _settings.Capture?.ServerName ?? "";
