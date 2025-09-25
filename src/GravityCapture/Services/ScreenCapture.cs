@@ -8,9 +8,11 @@ using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
 
-// Explicit aliases to avoid name collisions.
-using D3D11 = Vortice.Direct3D11;
+// Vortice
+using Vortice.Direct3D;                // DriverType
+using Vortice.Direct3D11;              // ID3D11* types, enums
 using DXGI = Vortice.DXGI;
+using D3D11Api = Vortice.Direct3D11.D3D11;
 
 namespace GravityCapture.Services
 {
@@ -173,7 +175,7 @@ namespace GravityCapture.Services
 
                 pool.FrameArrived += onFrame;
                 session.StartCapture();
-                got.Wait(250); // wait one frame
+                got.Wait(250);
                 pool.FrameArrived -= onFrame;
                 session.Dispose();
 
@@ -201,12 +203,12 @@ namespace GravityCapture.Services
             if (!TryGetWindowRect(hwnd, out var wr))
                 throw new InvalidOperationException("Window rect not found.");
 
-            var w = Math.Max(1, wr.Width);
-            var h = Math.Max(1, wr.Height);
+            int w = Math.Max(1, wr.Width);
+            int h = Math.Max(1, wr.Height);
 
             var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
             using var g = Graphics.FromImage(bmp);
-            g.CopyFromScreen(wr.Left, wr.Top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
+            g.CopyFromScreen(wr.left, wr.top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
             return bmp;
         }
 
@@ -257,46 +259,48 @@ namespace GravityCapture.Services
             return hr == 0 ? item : null;
         }
 
-        private static D3D11.ID3D11Device CreateD3DDevice()
+        private static ID3D11Device CreateD3DDevice()
         {
-            D3D11.D3D11CreateDevice(
+            var result = D3D11Api.D3D11CreateDevice(
                 null,
-                D3D11.DriverType.Hardware,
-                D3D11.DeviceCreationFlags.BgraSupport | D3D11.DeviceCreationFlags.VideoSupport,
+                DriverType.Hardware,
+                DeviceCreationFlags.BgraSupport | DeviceCreationFlags.VideoSupport,
                 null,
-                out D3D11.ID3D11Device device).CheckError();
+                out ID3D11Device device);
+            Check(result);
             return device;
         }
 
-        private static Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice CreateDirect3DDevice(D3D11.ID3D11Device device)
+        private static Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice CreateDirect3DDevice(ID3D11Device device)
         {
             var dxgi = device.QueryInterface<DXGI.IDXGIDevice>();
-            CreateDirect3D11DeviceFromDXGIDevice(dxgi.NativePointer, out var unk).CheckError();
+            int hr = CreateDirect3D11DeviceFromDXGIDevice(dxgi.NativePointer, out var unk);
             dxgi.Dispose();
+            Check(hr);
             return WinRT.MarshalInterface<Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice>.FromAbi(unk);
         }
 
-        private static D3D11.ID3D11Texture2D GetD3DTexture2D(D3D11.ID3D11Device device, Windows.Graphics.DirectX.Direct3D11.IDirect3DSurface surface)
+        private static ID3D11Texture2D GetD3DTexture2D(ID3D11Device device, Windows.Graphics.DirectX.Direct3D11.IDirect3DSurface surface)
         {
             var access = (IDirect3DDxgiInterfaceAccess)surface;
-            var iid = typeof(D3D11.ID3D11Texture2D).GUID;
+            var iid = typeof(ID3D11Texture2D).GUID;
             var ptr = access.GetInterface(ref iid);
-            return new D3D11.ID3D11Texture2D(ptr);
+            return new ID3D11Texture2D(ptr);
         }
 
-        private static Bitmap CopyTextureToBitmap(D3D11.ID3D11Device device, D3D11.ID3D11Texture2D src)
+        private static Bitmap CopyTextureToBitmap(ID3D11Device device, ID3D11Texture2D src)
         {
             var desc = src.Description;
             var stagingDesc = desc;
             stagingDesc.BindFlags = 0;
-            stagingDesc.CPUAccessFlags = D3D11.CpuAccessFlags.Read;
-            stagingDesc.Usage = D3D11.ResourceUsage.Staging;
-            stagingDesc.MiscFlags = D3D11.ResourceOptionFlags.None;
+            stagingDesc.CPUAccessFlags = CpuAccessFlags.Read;
+            stagingDesc.Usage = ResourceUsage.Staging;
+            stagingDesc.MiscFlags = ResourceOptionFlags.None;
 
             using var staging = device.CreateTexture2D(stagingDesc);
             device.ImmediateContext.CopyResource(staging, src);
 
-            var map = device.ImmediateContext.Map(staging, 0, D3D11.MapMode.Read, D3D11.MapFlags.None);
+            var map = device.ImmediateContext.Map(staging, 0, MapMode.Read, MapFlags.None);
             try
             {
                 var bmp = new Bitmap(desc.Width, desc.Height, PixelFormat.Format32bppPArgb);
@@ -309,8 +313,8 @@ namespace GravityCapture.Services
                     for (int y = 0; y < desc.Height; y++)
                     {
                         Buffer.MemoryCopy(
-                            (void*)(map.DataPointer + y * map.RowPitch),
-                            (void*)(data.Scan0 + y * data.Stride),
+                            (void*)IntPtr.Add(map.DataPointer, y * map.RowPitch),
+                            (void*)IntPtr.Add(data.Scan0, y * data.Stride),
                             rowBytes, rowBytes);
                     }
                 }
@@ -344,18 +348,13 @@ namespace GravityCapture.Services
         [DllImport("d3d11.dll")]
         private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
 
-        private static HRESULT CheckError(this int hr) => new HRESULT(hr).ThrowIfFailed();
-
-        private readonly struct HRESULT
+        private static void Check(int hr)
         {
-            private readonly int _hr;
-            public HRESULT(int hr) { _hr = hr; }
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public HRESULT ThrowIfFailed()
-            {
-                if (_hr < 0) Marshal.ThrowExceptionForHR(_hr);
-                return this;
-            }
+            if (hr < 0) Marshal.ThrowExceptionForHR(hr);
+        }
+        private static void Check(Vortice.Result hr)
+        {
+            if (hr.Failure) Marshal.ThrowExceptionForHR(hr.Code);
         }
 
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
