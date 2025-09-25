@@ -1,4 +1,3 @@
-// src/GravityCapture/MainWindow.xaml.cs
 using System;
 using System.Drawing;
 using System.Globalization;
@@ -229,7 +228,12 @@ namespace GravityCapture
                 {
                     var bytes = ScreenCapture.ToJpegBytes(bmp, _settings.Image?.JpegQuality ?? 90);
                     string fname = $"gravity_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
-                    bool ok = await _api.SendScreenshotAsync(bytes, fname, _settings.Image?.ChannelId ?? "", "Gravity capture");
+
+                    // channel must be ulong
+                    ulong channelId = 0;
+                    _ = ulong.TryParse(_settings.Image?.ChannelId, out channelId);
+
+                    bool ok = await _api.SendScreenshotAsync(bytes, fname, channelId, "Gravity capture");
                     Status(ok ? $"Sent {fname}" : "Send failed (HTTP)");
                 }
             }
@@ -257,7 +261,7 @@ namespace GravityCapture
             SetEnvDouble("OCR_SCALE", 1.0);
         }
 
-        // XAML-wired handlers kept for back-compat
+        // XAML-wired handlers
 
         private void ProfileToggleBtn_Click(object sender, RoutedEventArgs e)
         {
