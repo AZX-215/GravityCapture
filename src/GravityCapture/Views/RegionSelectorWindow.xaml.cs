@@ -1,17 +1,16 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Input;
 using System.Windows.Media;
 
 namespace GravityCapture.Views
 {
     public partial class RegionSelectorWindow : Window
     {
-        private Point _startCanvas;
+        private System.Windows.Point _startCanvas;
         private bool _dragging;
 
-        /// <summary>Screen-space rectangle in **physical pixels**.</summary>
+        /// <summary>Screen-space rectangle in <b>physical pixels</b>.</summary>
         public System.Drawing.Rectangle SelectedRect { get; private set; } = System.Drawing.Rectangle.Empty;
 
         /// <summary>Top-level HWND that we locked at mouse down.</summary>
@@ -33,7 +32,7 @@ namespace GravityCapture.Views
 
             KeyDown += (_, e) =>
             {
-                if (e.Key == Key.Escape)
+                if (e.Key == System.Windows.Input.Key.Escape)
                 {
                     DialogResult = false;
                     Close();
@@ -64,7 +63,7 @@ namespace GravityCapture.Views
             RootCanvas.Focus();
         }
 
-        private void OnDown(object? sender, MouseButtonEventArgs e)
+        private void OnDown(object? sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             _dragging = true;
             _startCanvas = e.GetPosition(RootCanvas);
@@ -80,8 +79,8 @@ namespace GravityCapture.Views
             var child = WindowFromPoint(pt);
             CapturedHwnd = GetAncestor(child, GA_ROOT); // top-level
 
-            Canvas.SetLeft(Sel, _startCanvas.X);
-            Canvas.SetTop(Sel, _startCanvas.Y);
+            System.Windows.Controls.Canvas.SetLeft(Sel, _startCanvas.X);
+            System.Windows.Controls.Canvas.SetTop(Sel, _startCanvas.Y);
             Sel.Width = Sel.Height = 0;
             Sel.Visibility = Visibility.Visible;
 
@@ -89,7 +88,7 @@ namespace GravityCapture.Views
             e.Handled = true;
         }
 
-        private void OnMove(object? sender, MouseEventArgs e)
+        private void OnMove(object? sender, System.Windows.Input.MouseEventArgs e)
         {
             if (!_dragging) return;
 
@@ -106,29 +105,29 @@ namespace GravityCapture.Views
             w = Math.Max(0, Math.Min(w, RootCanvas.ActualWidth - x));
             h = Math.Max(0, Math.Min(h, RootCanvas.ActualHeight - y));
 
-            Canvas.SetLeft(Sel, x);
-            Canvas.SetTop(Sel, y);
+            System.Windows.Controls.Canvas.SetLeft(Sel, x);
+            System.Windows.Controls.Canvas.SetTop(Sel, y);
             Sel.Width = w;
             Sel.Height = h;
 
             e.Handled = true;
         }
 
-        private void OnUp(object? sender, MouseButtonEventArgs e)
+        private void OnUp(object? sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             if (!_dragging) return;
             _dragging = false;
             ReleaseMouseCapture();
 
-            var x = Canvas.GetLeft(Sel);
-            var y = Canvas.GetTop(Sel);
+            var x = System.Windows.Controls.Canvas.GetLeft(Sel);
+            var y = System.Windows.Controls.Canvas.GetTop(Sel);
             var w = Sel.Width;
             var h = Sel.Height;
 
             if (w < 2 || h < 2) { DialogResult = false; Close(); return; }
 
             // Convert the canvas rectangle to PHYSICAL screen pixels.
-            var p0Dip = RootCanvas.PointToScreen(new Point(x, y));
+            var p0Dip = RootCanvas.PointToScreen(new System.Windows.Point(x, y));
             var dpi = VisualTreeHelper.GetDpi(this);
 
             int sx = (int)Math.Round(p0Dip.X * dpi.DpiScaleX);
