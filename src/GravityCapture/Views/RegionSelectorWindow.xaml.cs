@@ -2,7 +2,6 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
-using System.Windows.Shapes;
 // Explicit WPF aliases to avoid clashes with Windows Forms / System.Drawing.
 using WpfPoint = System.Windows.Point;
 using WpfMouseEventArgs = System.Windows.Input.MouseEventArgs;
@@ -46,10 +45,13 @@ namespace GravityCapture.Views
                 }
 
                 Sel!.Visibility = Visibility.Collapsed;
-                RootCanvas!.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(40, 0, 0, 0));
+                RootCanvas!.Background = new SolidColorBrush(Color.FromArgb(40, 0, 0, 0));
             };
 
-            KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) { DialogResult = false; Close(); } };
+            KeyDown += (_, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.Escape) { DialogResult = false; Close(); }
+            };
         }
 
         private void OnDown(object sender, WpfMouseButtonEventArgs e)
