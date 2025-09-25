@@ -1,88 +1,68 @@
 using System;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Shapes;
 
 namespace GravityCapture.Views
 {
     public partial class RegionSelectorWindow : Window
     {
-        // Use WPF types explicitly to avoid ambiguity with System.Drawing / WinForms
-        private System.Windows.Point _start;
-        private bool _drag;
+        private Point _start;
+        private bool _dragging;
 
-        public System.Windows.Rect SelectedRect { get; private set; }
+        public Rect SelectedRect { get; private set; } = Rect.Empty;
 
         public RegionSelectorWindow()
         {
             InitializeComponent();
-
-            // ESC cancels
-            KeyDown += (s, e) =>
-            {
-                if (e.Key == Key.Escape)
-                {
-                    DialogResult = false;
-                    Close();
-                }
-            };
-
-            // Fullscreen overlay on primary display
-            Loaded += (s, e) =>
-            {
-                Left = 0;
-                Top = 0;
-                Width = SystemParameters.PrimaryScreenWidth;
-                Height = SystemParameters.PrimaryScreenHeight;
-            };
+            KeyDown += (_, e) => { if (e.Key == Key.Escape) { DialogResult = false; Close(); } };
         }
 
-        // Mouse handlers — fully-qualified WPF event args
-        private void OnDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        private void OnDown(object sender, MouseButtonEventArgs e)
         {
-            _drag = true;
-            _start = e.GetPosition(RootCanvas);
+            _dragging = true;
+            _start = e.GetPosition(this);
+            Canvas.SetLeft(Sel, _start.X);
+            Canvas.SetTop(Sel,  _start.Y);
+            Sel.Width = Sel.Height = 0;
             Sel.Visibility = Visibility.Visible;
-
-            System.Windows.Controls.Canvas.SetLeft(Sel, _start.X);
-            System.Windows.Controls.Canvas.SetTop(Sel, _start.Y);
-            Sel.Width = 0;
-            Sel.Height = 0;
+            CaptureMouse();
         }
 
-        private void OnMove(object sender, System.Windows.Input.MouseEventArgs e)
+        private void OnMove(object sender, MouseEventArgs e)
         {
-            if (!_drag) return;
+            if (!_dragging) return;
+            var p = e.GetPosition(this);
 
-            var p = e.GetPosition(RootCanvas);
-            var x = Math.Min(p.X, _start.X);
-            var y = Math.Min(p.Y, _start.Y);
+            var x = Math.Min(_start.X, p.X);
+            var y = Math.Min(_start.Y, p.Y);
             var w = Math.Abs(p.X - _start.X);
             var h = Math.Abs(p.Y - _start.Y);
 
-            System.Windows.Controls.Canvas.SetLeft(Sel, x);
-            System.Windows.Controls.Canvas.SetTop(Sel, y);
+            Canvas.SetLeft(Sel, x);
+            Canvas.SetTop(Sel,  y);
             Sel.Width = w;
             Sel.Height = h;
         }
 
-        private void OnUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        private void OnUp(object sender, MouseButtonEventArgs e)
         {
-            if (!_drag) return;
-            _drag = false;
+            if (!_dragging) return;
+            _dragging = false;
+            ReleaseMouseCapture();
 
-            var x = System.Windows.Controls.Canvas.GetLeft(Sel);
-            var y = System.Windows.Controls.Canvas.GetTop(Sel);
+            var x = Canvas.GetLeft(Sel);
+            var y = Canvas.GetTop(Sel);
             var w = Sel.Width;
             var h = Sel.Height;
 
-            if (w < 5 || h < 5)
-            {
-                DialogResult = false;
-                Close();
-                return;
-            }
+            if (w < 2 || h < 2) { DialogResult = false; Close(); return; }
 
-            SelectedRect = new System.Windows.Rect(x, y, w, h);
+            // Convert to screen coordinates
+            var p0 = PointToScreen(new Point(x, y));
+            SelectedRect = new Rect(p0.X, p0.Y, w, h);
+
             DialogResult = true;
             Close();
         }
