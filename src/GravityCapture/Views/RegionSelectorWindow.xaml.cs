@@ -47,7 +47,6 @@ namespace GravityCapture.Views
 
                 RootCanvas.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(32, 0, 0, 0));
                 Sel.Visibility = Visibility.Collapsed;
-
                 Activate();
                 RootCanvas.Focus();
             };
@@ -71,7 +70,7 @@ namespace GravityCapture.Views
 
             var screen = PointToScreen(_start);
             var pt = new POINT { x = (int)Math.Round(screen.X), y = (int)Math.Round(screen.Y) };
-            CapturedHwnd = FindForeignRootAt(pt, _preferredHwnd);
+            CapturedHwnd = FindTopmostForeignWindowAt(pt, _preferredHwnd);
 
             System.Windows.Controls.Canvas.SetLeft(Sel, _start.X);
             System.Windows.Controls.Canvas.SetTop(Sel, _start.Y);
@@ -123,25 +122,35 @@ namespace GravityCapture.Views
             Close();
         }
 
-        private static IntPtr FindForeignRootAt(POINT pt, IntPtr fallback)
+        // Find the topmost *foreign* root window at point, guaranteeing the point lies within the window rect
+        private static IntPtr FindTopmostForeignWindowAt(POINT pt, IntPtr fallback)
         {
             uint curPid = GetCurrentProcessId();
             IntPtr h = WindowFromPoint(pt);
 
-            for (int i = 0; i < 32 && h != IntPtr.Zero; i++)
+            for (int i = 0; i < 64 && h != IntPtr.Zero; i++)
             {
                 IntPtr root = GetAncestor(h, GA_ROOT);
                 if (root == IntPtr.Zero) break;
 
-                GetWindowThreadProcessId(root, out uint pid);
-                if (pid != curPid) return root;
+                if (GetWindowRect(root, out var r)
+                    && PtInRect(r, pt)
+                    && IsWindowVisible(root))
+                {
+                    GetWindowThreadProcessId(root, out uint pid);
+                    if (pid != curPid) return root;
+                }
 
-                root = GetWindow(root, GW_HWNDPREV);
-                h = root;
+                h = GetWindow(root, GW_HWNDPREV); // step back in z-order and re-check point containment
             }
-            return fallback;
+
+            return fallback; // may be 0 => desktop
         }
 
+        private static bool PtInRect(RECT r, POINT p) =>
+            p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
+
+        // Win32
         private const int GA_ROOT = 2;
         private const uint GW_HWNDPREV = 3;
 
@@ -149,6 +158,7 @@ namespace GravityCapture.Views
         [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr hWnd, int gaFlags);
         [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
         [DllImport("kernel32.dll")] private static extern uint GetCurrentProcessId();
 
