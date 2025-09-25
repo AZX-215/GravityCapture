@@ -7,7 +7,7 @@ namespace GravityCapture.Services
     public sealed partial class OcrIngestor
     {
         /// <summary>
-        /// Map API response to legacy <see cref="OcrLine"/> list.
+        /// Map API response to legacy OcrLine list.
         /// </summary>
         public static IReadOnlyList<OcrLine> FromExtractResponse(ExtractResponse resp)
         {
@@ -23,7 +23,12 @@ namespace GravityCapture.Services
                     box = new Rectangle(x1, y1, x2 - x1, y2 - y1);
                 }
 
-                result.Add(new OcrLine(l.Text ?? string.Empty, (float)l.Conf, box));
+                // OcrLine now expects bbox as IReadOnlyList<int>
+                result.Add(new OcrLine(
+                    l.Text ?? string.Empty,
+                    (float)l.Conf,
+                    new[] { box.Left, box.Top, box.Right, box.Bottom }
+                ));
             }
 
             return result;
