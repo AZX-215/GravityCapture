@@ -22,6 +22,9 @@ namespace GravityCapture.Views
         private const int MinSelWidth = 40;
         private const int MinSelHeight = 40;
 
+        // Required for XAML loader
+        public RegionSelectorWindow() : this(IntPtr.Zero) { }
+
         public RegionSelectorWindow(IntPtr preferredHwnd)
         {
             InitializeComponent();
@@ -43,7 +46,6 @@ namespace GravityCapture.Views
                     Height = SystemParameters.VirtualScreenHeight;
                 }
 
-                // Qualify Color to WPF to avoid ambiguity with System.Drawing.Color
                 RootCanvas!.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(32, 0, 0, 0));
                 Sel!.Visibility = Visibility.Collapsed;
                 Cursor = System.Windows.Input.Cursors.Cross;
@@ -60,7 +62,6 @@ namespace GravityCapture.Views
             _dragging = true;
             _start = e.GetPosition(RootCanvas!);
 
-            // Pick the real window under the cursor, skipping our own topmost overlay and any window in this process.
             var screen = PointToScreen(_start);
             var pt = new POINT { x = (int)Math.Round(screen.X), y = (int)Math.Round(screen.Y) };
             CapturedHwnd = FindForeignRootAt(pt, _preferredHwnd);
@@ -128,11 +129,10 @@ namespace GravityCapture.Views
                 GetWindowThreadProcessId(root, out uint pid);
                 if (pid != curPid) return root;
 
-                // step down the z-order and try again
                 root = GetWindow(root, GW_HWNDPREV);
                 h = root;
             }
-            return fallback; // may be 0 -> desktop capture
+            return fallback;
         }
 
         // Win32
