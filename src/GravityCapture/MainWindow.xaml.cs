@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Interop;
 // aliases
 using WpfPoint = System.Windows.Point;
 using WpfMouseEventArgs = System.Windows.Input.MouseEventArgs;
@@ -44,6 +45,7 @@ namespace GravityCapture.Views
                 }
                 RootCanvas!.Background = new SolidColorBrush(Color.FromArgb(32, 0, 0, 0));
                 Sel!.Visibility = Visibility.Collapsed;
+                Cursor = System.Windows.Input.Cursors.Cross;
             };
 
             KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) { DialogResult = false; Close(); } };
@@ -54,26 +56,14 @@ namespace GravityCapture.Views
             _dragging = true;
             _start = e.GetPosition(RootCanvas!);
 
-            // Find real window under cursor, skipping our own overlay
+            // Choose the real top-level window under the cursor, skipping our own windows
             var screen = PointToScreen(_start);
             var pt = new POINT { x = (int)Math.Round(screen.X), y = (int)Math.Round(screen.Y) };
-            var self = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-
-            IntPtr h = WindowFromPoint(pt);
-            IntPtr root = GetAncestor(h, GA_ROOT);
-            if (root == self)
-            {
-                // Get the previous window in Z-order (the one under our topmost overlay)
-                const uint GW_HWNDPREV = 3;
-                root = GetWindow(self, GW_HWNDPREV);
-                if (root == IntPtr.Zero) root = self; // fallback
-            }
-            CapturedHwnd = root;
+            CapturedHwnd = FindForeignRootAt(pt, _preferredHwnd);
 
             System.Windows.Controls.Canvas.SetLeft(Sel!, _start.X);
             System.Windows.Controls.Canvas.SetTop(Sel!, _start.Y);
-            Sel!.Width = 0;
-            Sel!.Height = 0;
+            Sel!.Width = 0; Sel!.Height = 0;
             Sel!.Visibility = Visibility.Visible;
             CaptureMouse();
         }
@@ -113,25 +103,56 @@ namespace GravityCapture.Views
             int iw = Math.Max(0, (int)Math.Round(br.X - tl.X));
             int ih = Math.Max(0, (int)Math.Round(br.Y - tl.Y));
 
-            if (iw < MinSelWidth || ih < MinSelHeight)
-            {
-                DialogResult = false;
-                Close();
-                return;
-            }
+            if (iw < MinSelWidth || ih < MinSelHeight) { DialogResult = false; Close(); return; }
 
             SelectedRect = new DrawingRectangle(ix, iy, iw, ih);
             DialogResult = true;
             Close();
         }
 
+        // ----- Find real window under point, skipping this process -----
+        private static IntPtr FindForeignRootAt(POINT pt, IntPtr fallback)
+        {
+            IntPtr self = ProcessMainWindow();
+            uint curPid = GetCurrentProcessId();
+
+            IntPtr h = WindowFromPoint(pt);
+            for (int i = 0; i < 32 && h != IntPtr.Zero; i++)
+            {
+                IntPtr root = GetAncestor(h, GA_ROOT);
+                if (root == IntPtr.Zero) break;
+
+                GetWindowThreadProcessId(root, out uint pid);
+                if (pid != curPid && root != self) return root;
+
+                // step down the z-order and try again
+                root = GetWindow(root, GW_HWNDPREV);
+                h = root;
+            }
+            return fallback; // may be 0 -> desktop capture
+        }
+
+        private static IntPtr ProcessMainWindow()
+        {
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName(
+                         System.Diagnostics.Process.GetCurrentProcess().ProcessName))
+            {
+                if (p.Id == System.Diagnostics.Process.GetCurrentProcess().Id)
+                    return p.MainWindowHandle;
+            }
+            return IntPtr.Zero;
+        }
+
         // Win32
         private const int GA_ROOT = 2;
+        private const uint GW_HWNDPREV = 3;
 
         [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(POINT pt);
         [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr hWnd, int gaFlags);
         [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+        [DllImport("kernel32.dll")] private static extern uint GetCurrentProcessId();
 
         [StructLayout(LayoutKind.Sequential)] private struct POINT { public int x; public int y; }
         [StructLayout(LayoutKind.Sequential)] private struct RECT { public int left, top, right, bottom; }
