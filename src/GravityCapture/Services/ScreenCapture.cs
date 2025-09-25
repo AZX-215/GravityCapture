@@ -1,7 +1,6 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Windows.Graphics.Capture;
@@ -25,16 +24,9 @@ namespace GravityCapture.Services
     {
         // -------- Public API used by MainWindow --------
 
-        /// <summary>
-        /// Show a translucent full-screen (or window-bounded) overlay and let the user drag a region.
-        /// Returns (ok, absolute screen rect in pixels, and the HWND we captured/locked).
-        /// </summary>
         public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) SelectRegion(IntPtr targetHwndOrZero)
             => OverlaySelector.Select(targetHwndOrZero);
 
-        /// <summary>
-        /// Normalize a screen-space rectangle against the client rect of the given HWND (0..1).
-        /// </summary>
         public static bool TryNormalizeRect(IntPtr hwnd, Rectangle screenRect,
             out double nx, out double ny, out double nw, out double nh)
         {
@@ -54,7 +46,6 @@ namespace GravityCapture.Services
             return true;
         }
 
-        /// <summary>Normalize against the desktop (fallback path).</summary>
         public static bool TryNormalizeRectDesktop(Rectangle screenRect,
             out double nx, out double ny, out double nw, out double nh)
         {
@@ -66,7 +57,6 @@ namespace GravityCapture.Services
             return true;
         }
 
-        /// <summary>Capture full target window to a bitmap (WGC if possible, else GDI).</summary>
         public static Bitmap Capture(IntPtr hwnd)
         {
             if (hwnd == IntPtr.Zero) throw new InvalidOperationException("Capture target handle is null.");
@@ -74,9 +64,6 @@ namespace GravityCapture.Services
             return CaptureGdi(hwnd); // occluded if covered
         }
 
-        /// <summary>
-        /// Capture a normalized crop of the window (nx,ny,nw,nh are 0..1 of client area).
-        /// </summary>
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
         {
             using var full = Capture(hwnd);
@@ -98,7 +85,6 @@ namespace GravityCapture.Services
             return bmp;
         }
 
-        /// <summary>Encode a bitmap as JPEG bytes (quality clamped 50..100).</summary>
         public static byte[] ToJpegBytes(Bitmap bmp, int quality)
         {
             using var ms = new System.IO.MemoryStream();
@@ -109,7 +95,6 @@ namespace GravityCapture.Services
             return ms.ToArray();
         }
 
-        /// <summary>Resolve a window by a substring in its title (fallback to last if still valid).</summary>
         public static IntPtr ResolveWindowByTitleHint(string hint, IntPtr last, out IntPtr resolved)
         {
             resolved = last;
@@ -261,13 +246,14 @@ namespace GravityCapture.Services
 
         private static ID3D11Device CreateD3DDevice()
         {
-            var result = D3D11Api.D3D11CreateDevice(
+            _ = D3D11Api.D3D11CreateDevice(
                 null,
                 DriverType.Hardware,
                 DeviceCreationFlags.BgraSupport | DeviceCreationFlags.VideoSupport,
                 null,
                 out ID3D11Device device);
-            Check(result);
+
+            if (device == null) throw new InvalidOperationException("D3D11CreateDevice failed.");
             return device;
         }
 
@@ -276,7 +262,7 @@ namespace GravityCapture.Services
             var dxgi = device.QueryInterface<DXGI.IDXGIDevice>();
             int hr = CreateDirect3D11DeviceFromDXGIDevice(dxgi.NativePointer, out var unk);
             dxgi.Dispose();
-            Check(hr);
+            if (hr < 0) Marshal.ThrowExceptionForHR(hr);
             return WinRT.MarshalInterface<Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice>.FromAbi(unk);
         }
 
@@ -347,15 +333,6 @@ namespace GravityCapture.Services
 
         [DllImport("d3d11.dll")]
         private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
-
-        private static void Check(int hr)
-        {
-            if (hr < 0) Marshal.ThrowExceptionForHR(hr);
-        }
-        private static void Check(Vortice.Result hr)
-        {
-            if (hr.Failure) Marshal.ThrowExceptionForHR(hr.Code);
-        }
 
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
