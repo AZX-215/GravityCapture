@@ -67,11 +67,13 @@ namespace GravityCapture.Services
 
         public static IntPtr ResolveWindowByTitleHint(string hint, IntPtr fallback, out IntPtr chosen)
         {
-            chosen = IntPtr.Zero;
+            IntPtr found = IntPtr.Zero;
+
             if (string.IsNullOrWhiteSpace(hint))
             {
-                chosen = fallback != IntPtr.Zero ? fallback : GetForegroundWindow();
-                return chosen;
+                found = fallback != IntPtr.Zero ? fallback : GetForegroundWindow();
+                chosen = found;
+                return found;
             }
 
             EnumWindows((h, _) =>
@@ -79,12 +81,15 @@ namespace GravityCapture.Services
                 if (!IsWindowVisible(h)) return true;
                 var sb = new System.Text.StringBuilder(512);
                 GetWindowText(h, sb, sb.Capacity);
-                if (sb.ToString().IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0) { chosen = h; return false; }
+                if (sb.ToString().IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0) { found = h; return false; }
                 return true;
             }, IntPtr.Zero);
 
-            if (chosen == IntPtr.Zero) chosen = fallback != IntPtr.Zero ? fallback : GetForegroundWindow();
-            return chosen;
+            if (found == IntPtr.Zero)
+                found = fallback != IntPtr.Zero ? fallback : GetForegroundWindow();
+
+            chosen = found;
+            return found;
         }
 
         private static Bitmap CaptureScreenRect(int x, int y, int w, int h)
