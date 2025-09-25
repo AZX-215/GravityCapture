@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
@@ -6,7 +7,6 @@ using System.Threading;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
-using WinForms = System.Windows.Forms;
 
 // Vortice
 using Vortice.Direct3D;
@@ -18,8 +18,33 @@ namespace GravityCapture.Services
 {
     public static class ScreenCapture
     {
-        public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) SelectRegion(IntPtr targetHwndOrZero)
-            => OverlaySelector.Select(targetHwndOrZero);
+        // -------- External API --------
+        public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) SelectRegion(IntPtr preferredHwnd)
+            => OverlaySelector.Select(preferredHwnd);
+
+        public static IntPtr ResolveArkWindow()
+        {
+            // Prefer process name match
+            foreach (var p in Process.GetProcessesByName("ArkAscended"))
+            {
+                if (p.MainWindowHandle != IntPtr.Zero) return p.MainWindowHandle;
+            }
+
+            // Fallback: scan visible top-levels
+            IntPtr found = IntPtr.Zero;
+            EnumWindows((h, _) =>
+            {
+                if (!IsWindowVisible(h)) return true;
+                var title = GetWindowText(h);
+                if (!string.IsNullOrEmpty(title) &&
+                    title.IndexOf("ARK:", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    found = h; return false;
+                }
+                return true;
+            }, IntPtr.Zero);
+            return found;
+        }
 
         public static bool TryNormalizeRect(IntPtr hwnd, Rectangle screenRect,
             out double nx, out double ny, out double nw, out double nh)
@@ -43,7 +68,7 @@ namespace GravityCapture.Services
         public static bool TryNormalizeRectDesktop(Rectangle screenRect,
             out double nx, out double ny, out double nw, out double nh)
         {
-            var b = WinForms.Screen.PrimaryScreen.Bounds;
+            var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
             nx = (screenRect.X - b.X) / (double)b.Width;
             ny = (screenRect.Y - b.Y) / (double)b.Height;
             nw = screenRect.Width / (double)b.Width;
@@ -51,18 +76,19 @@ namespace GravityCapture.Services
             return true;
         }
 
+        // Always WGC for a window. GDI only for full desktop.
         public static Bitmap Capture(IntPtr hwnd)
         {
-            if (hwnd == IntPtr.Zero) return CaptureDesktopFull();
+            if (hwnd == IntPtr.Zero) return CaptureDesktopFull(); // test mode
             if (TryCaptureWgc(hwnd, out var bmp)) return bmp;
-            return CaptureGdi(hwnd);
+            throw new InvalidOperationException("WGC failed for window capture.");
         }
 
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
         {
             if (hwnd == IntPtr.Zero)
             {
-                var b = WinForms.Screen.PrimaryScreen.Bounds;
+                var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
                 int rx = b.X + (int)Math.Round(nx * b.Width);
                 int ry = b.Y + (int)Math.Round(ny * b.Height);
                 int rw = Math.Max(1, (int)Math.Round(nw * b.Width));
@@ -78,8 +104,8 @@ namespace GravityCapture.Services
 
             var rx2 = (int)Math.Round(nx * full.Width);
             var ry2 = (int)Math.Round(ny * full.Height);
-            var rw2 = (int)Math.Round(nw * full.Width);
-            var rh2 = (int)Math.Round(nh * full.Height);
+            var rw2 = Math.Clamp((int)Math.Round(nw * full.Width), 1, full.Width);
+            var rh2 = Math.Clamp((int)Math.Round(nh * full.Height), 1, full.Height);
 
             rx2 = Math.Clamp(rx2, 0, full.Width - 1);
             ry2 = Math.Clamp(ry2, 0, full.Height - 1);
@@ -103,28 +129,6 @@ namespace GravityCapture.Services
             return ms.ToArray();
         }
 
-        public static IntPtr ResolveWindowByTitleHint(string hint, IntPtr last, out IntPtr resolved)
-        {
-            resolved = last;
-            if (last != IntPtr.Zero && TryGetWindowRect(last, out _)) return last;
-
-            IntPtr found = IntPtr.Zero;
-            EnumWindows((h, p) =>
-            {
-                if (!IsWindowVisible(h)) return true;
-                var title = GetWindowText(h);
-                if (!string.IsNullOrEmpty(title) &&
-                    title.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    found = h; return false;
-                }
-                return true;
-            }, IntPtr.Zero);
-
-            resolved = found;
-            return found;
-        }
-
         public static bool TryGetWindowRect(IntPtr hwnd, out Rectangle r)
         {
             r = Rectangle.Empty;
@@ -134,7 +138,7 @@ namespace GravityCapture.Services
             return r.Width > 0 && r.Height > 0;
         }
 
-        // -------- Windows.Graphics.Capture path (no occlusion) --------
+        // -------- WGC (ignores occlusion) --------
         private static bool TryCaptureWgc(IntPtr hwnd, out Bitmap bmp)
         {
             bmp = null!;
@@ -181,39 +185,25 @@ namespace GravityCapture.Services
             catch { bmp = null!; return false; }
         }
 
-        // -------- GDI helpers --------
-        private static Bitmap CaptureGdi(IntPtr hwnd)
-        {
-            if (!TryGetWindowRect(hwnd, out var rect))
-                throw new InvalidOperationException("Window rect not found.");
-
-            int w = Math.Max(1, rect.Width);
-            int h = Math.Max(1, rect.Height);
-
-            var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
-            using var g = Graphics.FromImage(bmp);
-            g.CopyFromScreen(rect.Left, rect.Top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
-            return bmp;
-        }
-
         private static Bitmap CaptureDesktopFull()
         {
-            var b = WinForms.Screen.PrimaryScreen.Bounds;
+            var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
             var bmp = new Bitmap(b.Width, b.Height, PixelFormat.Format32bppPArgb);
             using var g = Graphics.FromImage(bmp);
             g.CopyFromScreen(b.X, b.Y, 0, 0, b.Size, CopyPixelOperation.SourceCopy);
             return bmp;
         }
 
+        // -------- Overlay host --------
         private static class OverlaySelector
         {
             public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) Select(IntPtr preferredHwnd)
             {
-                var win = new Views.RegionSelectorWindow(preferredHwnd);
+                var win = new GravityCapture.Views.RegionSelectorWindow(preferredHwnd);
                 try
                 {
                     var ok = win.ShowDialog() == true;
-                    return (ok, win.SelectedRect, win.CapturedHwnd);
+                    return (ok, win.SelectedRect, win.CapturedHwnd != IntPtr.Zero ? win.CapturedHwnd : preferredHwnd);
                 }
                 finally
                 {
@@ -222,6 +212,7 @@ namespace GravityCapture.Services
             }
         }
 
+        // -------- Helpers --------
         private static Rectangle GetClientScreenRect(IntPtr hwnd)
         {
             GetClientRect(hwnd, out var rc);
@@ -250,12 +241,9 @@ namespace GravityCapture.Services
         private static ID3D11Device CreateD3DDevice()
         {
             _ = D3D11Api.D3D11CreateDevice(
-                null,
-                DriverType.Hardware,
+                null, DriverType.Hardware,
                 DeviceCreationFlags.BgraSupport | DeviceCreationFlags.VideoSupport,
-                null,
-                out ID3D11Device device);
-
+                null, out ID3D11Device device);
             if (device == null) throw new InvalidOperationException("D3D11CreateDevice failed.");
             return device;
         }
@@ -322,23 +310,20 @@ namespace GravityCapture.Services
         }
 
         // interop
-        [ComImport, Guid("3628E81B-3CAC-4A9E-8545-75C971C37E80"),
-         InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [ComImport, Guid("3628E81B-3CAC-4A9E-8545-75C971C37E80"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IGraphicsCaptureItemInterop
         {
             int CreateForWindow(IntPtr hwnd, ref Guid iid, out GraphicsCaptureItem result);
             int CreateForMonitor(IntPtr hmon, ref Guid iid, out GraphicsCaptureItem result);
         }
 
-        [ComImport, Guid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1"),
-         InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [ComImport, Guid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IDirect3DDxgiInterfaceAccess
         {
             IntPtr GetInterface(ref Guid iid);
         }
 
-        [DllImport("d3d11.dll")]
-        private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
+        [DllImport("d3d11.dll")] private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
 
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
@@ -348,6 +333,8 @@ namespace GravityCapture.Services
         [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
         [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
 
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
         private static string GetWindowText(IntPtr hWnd)
         {
             int length = GetWindowTextLength(hWnd);
@@ -355,8 +342,6 @@ namespace GravityCapture.Services
             _ = GetWindowText(hWnd, sb, sb.Capacity);
             return sb.ToString();
         }
-
-        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
         private struct RECT { public int left, top, right, bottom; }
         private struct POINT { public int x, y; }
