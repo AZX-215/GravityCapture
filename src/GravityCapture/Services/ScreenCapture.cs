@@ -198,7 +198,7 @@ namespace GravityCapture.Services
                 throw new InvalidOperationException("Window rect not found.");
 
             int w = Math.Max(1, wr.Width);
-            int h = Math.max(1, wr.Height);
+            int h = Math.Max(1, wr.Height);
 
             var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
             using var g = Graphics.FromImage(bmp);
@@ -250,7 +250,7 @@ namespace GravityCapture.Services
 
         private static GraphicsCaptureItem? CreateItemForWindow(IntPtr hwnd)
         {
-            var interop = (IGraphicsCaptureItemInterop)Activator.CreateInstance(typeof(GraphicsCaptureItem));
+            var interop = (IGraphicsCaptureItemInterop)Activator.CreateInstance(typeof(GraphicsCaptureItem))!;
             Guid iid = typeof(GraphicsCaptureItem).GUID;
             int hr = interop.CreateForWindow(hwnd, ref iid, out GraphicsCaptureItem item);
             return hr == 0 ? item : null;
