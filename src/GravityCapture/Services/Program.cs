@@ -1,3 +1,4 @@
+#if SMOKE
 using System;
 using System.IO;
 using System.Threading;
@@ -8,7 +9,6 @@ namespace GravityCapture.Services
 {
     internal static class Program
     {
-        // Default local test image path (adjust if needed)
         private const string DefaultImagePath =
             @"D:\stage-repositories\GravityCapture\test\frame-0000-a_up.png";
 
@@ -20,18 +20,10 @@ namespace GravityCapture.Services
             var settings = AppSettings.Load();
             var remote = new RemoteOcrService(settings);
 
-            // Usage:
-            //   --file  <path>   -> send one image
-            //   --watch <dir>    -> watch a folder for new images
             if (args.Length >= 2 && args[0].Equals("--file", StringComparison.OrdinalIgnoreCase))
             {
                 var path = args[1];
-                if (!File.Exists(path))
-                {
-                    Console.WriteLine($"File not found: {path}");
-                    return 2;
-                }
-
+                if (!File.Exists(path)) { Console.WriteLine($"File not found: {path}"); return 2; }
                 await using var fs = File.OpenRead(path);
                 var res = await remote.ExtractAsync(fs, cts.Token);
                 Print(res);
@@ -41,19 +33,11 @@ namespace GravityCapture.Services
             if (args.Length >= 2 && args[0].Equals("--watch", StringComparison.OrdinalIgnoreCase))
             {
                 var dir = args[1];
-                if (!Directory.Exists(dir))
-                {
-                    Console.WriteLine($"Directory not found: {dir}");
-                    return 2;
-                }
+                if (!Directory.Exists(dir)) { Console.WriteLine($"Directory not found: {dir}"); return 2; }
 
                 Console.WriteLine($"Watching {dir} for *.png, *.jpg, *.jpeg");
                 using var watcher = new FileSystemWatcher(dir)
-                {
-                    IncludeSubdirectories = false,
-                    EnableRaisingEvents = true,
-                    Filter = "*.*"
-                };
+                { IncludeSubdirectories = false, EnableRaisingEvents = true, Filter = "*.*" };
 
                 var tcs = new TaskCompletionSource<object?>();
                 watcher.Created += async (_, e) =>
@@ -79,19 +63,12 @@ namespace GravityCapture.Services
                 return 0;
             }
 
-            // Default behavior: send the default image
-            if (!File.Exists(DefaultImagePath))
-            {
-                Console.WriteLine($"Default image not found: {DefaultImagePath}");
-                return 2;
-            }
-
+            if (!File.Exists(DefaultImagePath)) { Console.WriteLine($"Default image not found: {DefaultImagePath}"); return 2; }
             await using (var fs = File.OpenRead(DefaultImagePath))
             {
                 var res = await remote.ExtractAsync(fs, cts.Token);
                 Print(res);
             }
-
             return 0;
         }
 
@@ -99,16 +76,9 @@ namespace GravityCapture.Services
         {
             for (int i = 0; i < attempts; i++)
             {
-                try
-                {
-                    return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-                }
-                catch (IOException)
-                {
-                    Thread.Sleep(delayMs);
-                }
+                try { return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read); }
+                catch (IOException) { Thread.Sleep(delayMs); }
             }
-            // Final attempt (will throw if still locked)
             return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         }
 
@@ -123,3 +93,4 @@ namespace GravityCapture.Services
         }
     }
 }
+#endif
