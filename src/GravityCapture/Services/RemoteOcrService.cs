@@ -1,56 +1,45 @@
-using System;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+
 using GravityCapture.Models;
 
 namespace GravityCapture.Services
 {
-    public sealed class RemoteOcrService : IDisposable
+    public sealed class RemoteOcrService
     {
-        private readonly HttpClient _http;
-        private static readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
+        private readonly string _base;
+        private readonly string _apiKey;
 
         public RemoteOcrService(AppSettings settings)
         {
-            if (settings is null) throw new ArgumentNullException(nameof(settings));
-
-            var baseUrl = (settings.ApiBaseUrl ?? settings.RemoteOcrBaseUrl ?? "").TrimEnd('/');
-            if (string.IsNullOrWhiteSpace(baseUrl))
-                throw new InvalidOperationException("ApiBaseUrl is empty.");
-
-            _http = new HttpClient { BaseAddress = new Uri(baseUrl) };
-
-            var apiKey = settings.Auth?.ApiKey ?? settings.RemoteOcrApiKey ?? "";
-            if (!string.IsNullOrEmpty(apiKey))
-                _http.DefaultRequestHeaders.Add("ApiKey", apiKey);
+            _base   = (settings.ApiBaseUrl ?? "").TrimEnd('/');
+            _apiKey = settings.Auth?.ApiKey ?? "";
         }
 
-        public async Task<ExtractResponse> ExtractAsync(Stream image, CancellationToken ct = default)
+        public async Task<ExtractResponse> ExtractAsync(Stream imageStream, CancellationToken ct)
         {
+            using var http = new HttpClient();
+            if (!string.IsNullOrEmpty(_apiKey))
+                http.DefaultRequestHeaders.Add("ApiKey", _apiKey);
+
             using var form = new MultipartFormDataContent();
-            var sc = new StreamContent(image);
+            var sc = new StreamContent(imageStream);
             sc.Headers.ContentType = new MediaTypeHeaderValue("image/png");
             form.Add(sc, "file", "capture.png");
 
-            using var res = await _http.PostAsync("/api/ocr/extract", form, ct).ConfigureAwait(false);
-            res.EnsureSuccessStatusCode();
+            var resp = await http.PostAsync($"{_base}/api/ocr/extract", form, ct);
+            resp.EnsureSuccessStatusCode();
 
-            await using var s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            var payload = await JsonSerializer.DeserializeAsync<ExtractResponse>(s, _json, ct).ConfigureAwait(false);
-            if (payload is null) throw new InvalidOperationException("Empty OCR response.");
-            return payload;
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            var obj = JsonSerializer.Deserialize<ExtractResponse>(
+                json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new ExtractResponse();
+
+            obj.Lines ??= new();
+            return obj;
         }
-
-        public async Task<ExtractResponse> ExtractAsync(string path, CancellationToken ct = default)
-        {
-            await using var fs = File.OpenRead(path);
-            return await ExtractAsync(fs, ct).ConfigureAwait(false);
-        }
-
-        public void Dispose() => _http.Dispose();
     }
 }
