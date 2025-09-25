@@ -2,97 +2,124 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using GravityCapture.Models;
 
-namespace GravityCapture.Services;
-
-internal static class Program
+namespace GravityCapture.Services
 {
-    // Defaults for stage
-    private const string DefaultBaseUrl =
-        "https://screenshots-api-stage-production.up.railway.app";
-
-    private const string DefaultImagePath =
-        @"D:\stage-repositories\GravityCapture\test\frame-0000-a_up.png";
-
-    private static string BaseUrl =>
-        Environment.GetEnvironmentVariable("OCR_BASE_URL")?.TrimEnd('/')
-        ?? DefaultBaseUrl;
-
-    public static async Task Main(string[] args)
+    internal static class Program
     {
-        if (args.Length >= 1 && args[0].Equals("--watch", StringComparison.OrdinalIgnoreCase))
+        // Default local test image path (adjust if needed)
+        private const string DefaultImagePath =
+            @"D:\stage-repositories\GravityCapture\test\frame-0000-a_up.png";
+
+        public static async Task<int> Main(string[] args)
         {
-            var dir = args.Length >= 2
-                ? args[1]
-                : Path.GetDirectoryName(DefaultImagePath) ?? ".";
+            using var cts = new CancellationTokenSource();
+            Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
-            await WatchDirAsync(dir);
-            return;
-        }
+            var settings = AppSettings.Load();
+            var remote = new RemoteOcrService(settings);
 
-        var file = args.Length >= 2 && args[0].Equals("--file", StringComparison.OrdinalIgnoreCase)
-            ? args[1]
-            : DefaultImagePath;
-
-        await SendOnceAsync(file);
-    }
-
-    private static async Task SendOnceAsync(string path)
-    {
-        if (!File.Exists(path))
-        {
-            Console.WriteLine($"File not found: {path}");
-            return;
-        }
-
-        Console.WriteLine($"Sending image: {path}");
-        using var client = new OcrClient(BaseUrl);
-
-        var result = await client.ExtractAsync(path, CancellationToken.None);
-
-        Console.WriteLine($"engine: {result.Engine} | conf: {result.Conf:0.###}");
-        foreach (var line in result.Lines)
-            Console.WriteLine($"{line.Text}  (conf {line.Conf:0.00})");
-    }
-
-    private static async Task WatchDirAsync(string dir)
-    {
-        Console.WriteLine($"Watching: {dir}");
-        using var client = new OcrClient(BaseUrl);
-
-        using var watcher = new FileSystemWatcher(dir)
-        {
-            IncludeSubdirectories = false,
-            Filter = "*.*",
-            EnableRaisingEvents = true
-        };
-
-        TaskCompletionSource tcs = new();
-
-        watcher.Created += async (_, e) =>
-        {
-            var ext = Path.GetExtension(e.FullPath).ToLowerInvariant();
-            if (ext is ".png" or ".jpg" or ".jpeg" or ".webp")
+            // Usage:
+            //   --file  <path>   -> send one image
+            //   --watch <dir>    -> watch a folder for new images
+            if (args.Length >= 2 && args[0].Equals("--file", StringComparison.OrdinalIgnoreCase))
             {
-                // wait a moment so the file is fully written
-                await Task.Delay(250);
+                var path = args[1];
+                if (!File.Exists(path))
+                {
+                    Console.WriteLine($"File not found: {path}");
+                    return 2;
+                }
+
+                await using var fs = File.OpenRead(path);
+                var res = await remote.ExtractAsync(fs, cts.Token);
+                Print(res);
+                return 0;
+            }
+
+            if (args.Length >= 2 && args[0].Equals("--watch", StringComparison.OrdinalIgnoreCase))
+            {
+                var dir = args[1];
+                if (!Directory.Exists(dir))
+                {
+                    Console.WriteLine($"Directory not found: {dir}");
+                    return 2;
+                }
+
+                Console.WriteLine($"Watching {dir} for *.png, *.jpg, *.jpeg");
+                using var watcher = new FileSystemWatcher(dir)
+                {
+                    IncludeSubdirectories = false,
+                    EnableRaisingEvents = true,
+                    Filter = "*.*"
+                };
+
+                var tcs = new TaskCompletionSource<object?>();
+                watcher.Created += async (_, e) =>
+                {
+                    var ext = Path.GetExtension(e.FullPath).ToLowerInvariant();
+                    if (ext is not ".png" and not ".jpg" and not ".jpeg") return;
+
+                    try
+                    {
+                        await using var fs = OpenWhenReady(e.FullPath, attempts: 10, delayMs: 100);
+                        var res = await remote.ExtractAsync(fs, cts.Token);
+                        Console.WriteLine($"\n== {Path.GetFileName(e.FullPath)} ==");
+                        Print(res);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error processing {e.FullPath}: {ex.Message}");
+                    }
+                };
+
+                cts.Token.Register(() => tcs.TrySetResult(null));
+                await tcs.Task;
+                return 0;
+            }
+
+            // Default behavior: send the default image
+            if (!File.Exists(DefaultImagePath))
+            {
+                Console.WriteLine($"Default image not found: {DefaultImagePath}");
+                return 2;
+            }
+
+            await using (var fs = File.OpenRead(DefaultImagePath))
+            {
+                var res = await remote.ExtractAsync(fs, cts.Token);
+                Print(res);
+            }
+
+            return 0;
+        }
+
+        private static FileStream OpenWhenReady(string path, int attempts, int delayMs)
+        {
+            for (int i = 0; i < attempts; i++)
+            {
                 try
                 {
-                    Console.WriteLine($"Detected: {e.FullPath}");
-                    var res = await client.ExtractAsync(e.FullPath, CancellationToken.None);
-                    Console.WriteLine($"engine: {res.Engine} | conf: {res.Conf:0.###}");
-                    foreach (var line in res.Lines)
-                        Console.WriteLine($"{line.Text}  (conf {line.Conf:0.00})");
+                    return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
                 }
-                catch (Exception ex)
+                catch (IOException)
                 {
-                    Console.WriteLine($"Error processing {e.FullPath}: {ex.Message}");
+                    Thread.Sleep(delayMs);
                 }
             }
-        };
+            // Final attempt (will throw if still locked)
+            return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        }
 
-        Console.CancelKeyPress += (_, __) => tcs.TrySetResult();
-
-        await tcs.Task;
+        private static void Print(ExtractResponse res)
+        {
+            Console.WriteLine($"engine={res.Engine} conf={res.Conf:0.###}");
+            foreach (var line in res.Lines)
+            {
+                var bbox = line.Bbox is { Length: > 0 } ? $" [{string.Join(",", line.Bbox)}]" : "";
+                Console.WriteLine($"{line.Text} (conf {line.Conf:0.00}){bbox}");
+            }
+        }
     }
 }
