@@ -58,12 +58,7 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Orientation="Horizontal" Grid.Row="0">
-                        <TextBlock Text="Log Env:" Margin="2,2,8,2"/>
-                        <ComboBox x:Name="EnvBox" Width="140">
-                            <ComboBoxItem Content="Stage"/>
-                            <ComboBoxItem Content="Prod"/>
-                        </ComboBox>
-                        <TextBlock Text="Channel ID:" Margin="16,2,8,2"/>
+                        <TextBlock Text="Channel ID:" Margin="2,2,8,2"/>
                         <TextBox x:Name="ChannelBox" Width="220"/>
                     </StackPanel>
 
@@ -115,20 +110,13 @@
                         <Button x:Name="SaveBtn" Click="SaveBtn_Click" Content="Save" />
                         <Button x:Name="StartBtn" Click="StartBtn_Click" Content="Start" />
                         <Button x:Name="StopBtn" Click="StopBtn_Click" Content="Stop" />
-                        <Button x:Name="RefreshBtn" Click="RefreshRecentBtn_Click" Content="Refresh Recent" />
                         <Button x:Name="SelectAreaBtn" Click="SelectCropBtn_Click" Content="Select Log Area…" />
-                        <!-- Preview button removed; live preview is always visible -->
                     </WrapPanel>
 
                     <WrapPanel Grid.Row="3" Margin="0,6,0,0" VerticalAlignment="Center">
                         <Button x:Name="OcrCropBtn" Click="OcrCropBtn_Click" Content="OCR Crop → Paste" />
                         <Button x:Name="OcrAndPostNowBtn" Click="OcrAndPostNowBtn_Click" Content="OCR &amp; Post Visible Now" />
-                        <!-- SendTestBtn removed per request -->
                         <Button x:Name="SendParsedBtn" Click="SendParsedBtn_Click" Content="Send Pasted Log Line" />
-                        <Button x:Name="ProfileToggleBtn" Click="ProfileToggleBtn_Click"
-                                Content="Toggle HDR/SDR Profile" ToolTip="Switch active OCR profile (Ctrl+F6)"/>
-                        <TextBlock x:Name="ActiveProfileLabel" Margin="16,0,0,0" Foreground="#9ECFFF"
-                                   Text="Active: HDR"/>
                     </WrapPanel>
                 </Grid>
             </Grid>
