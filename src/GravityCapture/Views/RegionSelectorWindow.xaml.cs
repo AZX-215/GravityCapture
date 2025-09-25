@@ -1,7 +1,7 @@
+// src/GravityCapture/Views/RegionSelectorWindow.xaml.cs
 using System;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
 using System.Windows.Media;
 
 namespace GravityCapture.Views
@@ -16,13 +16,20 @@ namespace GravityCapture.Views
         public RegionSelectorWindow()
         {
             InitializeComponent();
-            KeyDown += (_, e) => { if (e.Key == Key.Escape) { DialogResult = false; Close(); } };
+            // Use fully-qualified Key to avoid any namespace ambiguity.
+            KeyDown += (_, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.Escape)
+                {
+                    DialogResult = false;
+                    Close();
+                }
+            };
         }
 
-        // NEW: constructor that accepts screen bounds in *pixels* and converts to DIPs
+        // Accept window bounds in *pixels*; convert to DIPs for WPF
         public RegionSelectorWindow(System.Drawing.Rectangle screenPxRect) : this()
         {
-            // Ensure we have a valid DPI context
             var dpi = VisualTreeHelper.GetDpi(this);
             double sx = dpi.DpiScaleX, sy = dpi.DpiScaleY;
 
@@ -31,21 +38,17 @@ namespace GravityCapture.Views
             Width  = screenPxRect.Width  / sx;
             Height = screenPxRect.Height / sy;
 
-            // If bounds look invalid, fall back to full screen
             if (Width < 50 || Height < 50)
-            {
                 WindowState = WindowState.Maximized;
-            }
         }
 
-        private void OnLoaded(object sender, RoutedEventArgs e)
+        private void OnLoaded(object? sender, RoutedEventArgs e)
         {
-            // Make sure we receive mouse immediately
             Activate();
             Focus();
         }
 
-        private void OnDown(object sender, MouseButtonEventArgs e)
+        private void OnDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             _dragging = true;
             _start = e.GetPosition(this);
@@ -56,7 +59,7 @@ namespace GravityCapture.Views
             CaptureMouse();
         }
 
-        private void OnMove(object sender, MouseEventArgs e)
+        private void OnMove(object sender, System.Windows.Input.MouseEventArgs e)
         {
             if (!_dragging) return;
             var p = e.GetPosition(this);
@@ -72,7 +75,7 @@ namespace GravityCapture.Views
             Sel.Height = h;
         }
 
-        private void OnUp(object sender, MouseButtonEventArgs e)
+        private void OnUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             if (!_dragging) return;
             _dragging = false;
@@ -85,7 +88,7 @@ namespace GravityCapture.Views
 
             if (w < 2 || h < 2) { DialogResult = false; Close(); return; }
 
-            // Convert drawn rect to *screen* coords (DIPs → px handled by Win32 later)
+            // Convert drawn rect to *screen* coordinates (DIPs → px handled outside)
             System.Windows.Point p0 = PointToScreen(new System.Windows.Point(x, y));
             SelectedRect = new System.Windows.Rect(p0.X, p0.Y, w, h);
 
