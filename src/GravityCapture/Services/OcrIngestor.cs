@@ -1,70 +1,45 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 
 namespace GravityCapture.Services
 {
-    /// <summary>
-    /// Legacy holder for OCR ingestion helpers. The real OCR work now happens
-    /// in IOcrService implementations; this remains for compatibility.
-    /// </summary>
-    public sealed partial class OcrIngestor
+    // Core utilities only. All ScanAndPostAsync overloads live in OcrIngestor.LegacyCompat.cs
+    public partial class OcrIngestor
     {
-        /// <summary>A single OCR line (text + confidence + bounding box).</summary>
-        public readonly record struct OcrLine(string Text, float Confidence, Rectangle Bbox);
+        private readonly object _gate = new();
+        private readonly LinkedList<(string text, DateTime when)> _recent = new();
+        private const int MaxRecent = 512;
+        private static readonly TimeSpan Window = TimeSpan.FromMinutes(2);
 
-        // Small rolling set of recently seen lines to reduce duplicate posts.
-        private readonly RollingWindow<string> _recent = new(200);
-
-        public OcrIngestor() { }
-
-        /// <summary>Record a line if it hasn't been seen recently.</summary>
+        /// <summary>
+        /// Returns true if this line has not been seen in the recent window. Adds it to the cache.
+        /// Used to avoid re-posting duplicates from OCR noise.
+        /// </summary>
         public bool TryRegisterLine(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return false;
-            var key = text.Trim();
-            if (_recent.Contains(key)) return false;
-            _recent.Add(key);
-            return true;
-        }
 
-        /// <summary>Clears the in-memory duplicate filter.</summary>
-        public void ResetRecent() => _recent.Clear();
-    }
-
-    /// <summary>Fixed-size FIFO set with O(1) add/contains for small N.</summary>
-    internal sealed class RollingWindow<T>
-    {
-        private readonly int _capacity;
-        private readonly Queue<T> _queue;
-        private readonly HashSet<T> _set;
-
-        public RollingWindow(int capacity)
-        {
-            if (capacity <= 0) throw new ArgumentOutOfRangeException(nameof(capacity));
-            _capacity = capacity;
-            _queue = new Queue<T>(capacity);
-            _set = new HashSet<T>();
-        }
-
-        public void Add(T value)
-        {
-            if (_set.Contains(value)) return;
-            _queue.Enqueue(value);
-            _set.Add(value);
-            if (_queue.Count > _capacity)
+            var now = DateTime.UtcNow;
+            lock (_gate)
             {
-                var old = _queue.Dequeue();
-                _set.Remove(old);
+                // prune old
+                while (_recent.Count > 0 && now - _recent.First!.Value.when > Window)
+                    _recent.RemoveFirst();
+
+                // duplicate check
+                foreach (var (t, _) in _recent)
+                    if (string.Equals(t, text, StringComparison.Ordinal))
+                        return false;
+
+                _recent.AddLast((text, now));
+                if (_recent.Count > MaxRecent)
+                    _recent.RemoveFirst();
+
+                return true;
             }
         }
 
-        public bool Contains(T value) => _set.Contains(value);
-
-        public void Clear()
-        {
-            _queue.Clear();
-            _set.Clear();
-        }
+        /// <summary>Clears the recent-line cache.</summary>
+        public void ClearRecent() { lock (_gate) _recent.Clear(); }
     }
 }
