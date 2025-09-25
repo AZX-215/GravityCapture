@@ -1,10 +1,11 @@
+// src/GravityCapture/Models/AppSettings.cs
 using System;
 using System.IO;
 using System.Text.Json;
 
 namespace GravityCapture.Models
 {
-    public sealed class AppSettings
+    public partial class AppSettings
     {
         public string? ApiBaseUrl { get; set; }
         public AuthSettings? Auth { get; set; }
@@ -26,7 +27,7 @@ namespace GravityCapture.Models
         public sealed class AuthSettings
         {
             public string? ApiKey { get; set; }
-            public string? SharedKey { get; set; } // kept for backward compat
+            public string? SharedKey { get; set; } // backward compat
         }
 
         public sealed class ImageSettings
@@ -57,7 +58,7 @@ namespace GravityCapture.Models
             {
                 Directory.CreateDirectory(ConfigDir);
 
-                // 1) seed from appsettings.Stage.json (if present)
+                // seed from appsettings.Stage.json (if present)
                 var exeDir = AppContext.BaseDirectory;
                 var seedPath = Path.Combine(exeDir, "appsettings.Stage.json");
                 AppSettings seed = new();
@@ -67,7 +68,7 @@ namespace GravityCapture.Models
                     seed = JsonSerializer.Deserialize<AppSettings>(seedJson) ?? new AppSettings();
                 }
 
-                // 2) overlay with persisted global.json
+                // overlay with persisted global.json
                 if (File.Exists(GlobalPath))
                 {
                     var gj = File.ReadAllText(GlobalPath);
@@ -79,7 +80,6 @@ namespace GravityCapture.Models
                 seed.Image ??= new ImageSettings();
                 seed.Capture ??= new CaptureSettings();
 
-                // ensure ApiKey mirrors SharedKey if only that was set
                 if (string.IsNullOrWhiteSpace(seed.Auth.ApiKey) && !string.IsNullOrWhiteSpace(seed.Auth.SharedKey))
                     seed.Auth.ApiKey = seed.Auth.SharedKey;
 
