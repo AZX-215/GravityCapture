@@ -7,14 +7,15 @@ namespace GravityCapture
     {
         protected override void OnClosing(CancelEventArgs e)
         {
-            // Persist the current UI values no matter how the app is closed.
+            // Persist current UI → settings on any app exit path.
             try
             {
-                SaveSettings();   // uses your existing private method in MainWindow.xaml.cs
+                BindToSettings();   // defined in MainWindow.xaml.cs
+                _settings.Save();   // defined on AppSettings
             }
             catch
             {
-                // Don't block the app from closing because of a save problem.
+                // Never block shutdown on save errors.
             }
 
             base.OnClosing(e);
