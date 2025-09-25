@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Media;
 using SWF = System.Windows.Forms;
 
 using GravityCapture.Views;
@@ -15,7 +16,11 @@ namespace GravityCapture.Services
         [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(System.Drawing.Point p);
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct RECT { public int Left, Top, Right, Bottom; public Rectangle ToRectangle() => Rectangle.FromLTRB(Left, Top, Right, Bottom); }
+        private struct RECT
+        {
+            public int Left, Top, Right, Bottom;
+            public Rectangle ToRectangle() => Rectangle.FromLTRB(Left, Top, Right, Bottom);
+        }
 
         public static IntPtr ResolveWindowByTitleHint(string hint, IntPtr lastHwnd, out IntPtr resolved)
         {
@@ -32,14 +37,14 @@ namespace GravityCapture.Services
                             resolved = p.MainWindowHandle;
                             break;
                         }
-                    } catch { }
+                    }
+                    catch { /* ignore */ }
                 }
             }
             if (resolved == IntPtr.Zero) resolved = lastHwnd;
             return resolved;
         }
 
-        // NEW: expose safe window rect
         public static bool TryGetWindowRect(IntPtr hwnd, out Rectangle rect)
         {
             rect = Rectangle.Empty;
@@ -52,8 +57,10 @@ namespace GravityCapture.Services
         public static Bitmap Capture(IntPtr hwnd)
         {
             Rectangle rect;
-            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r)) rect = SWF.Screen.PrimaryScreen.Bounds;
-            else rect = r.ToRectangle();
+            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r))
+                rect = SWF.Screen.PrimaryScreen.Bounds;
+            else
+                rect = r.ToRectangle();
 
             var bmp = new Bitmap(rect.Width, rect.Height, PixelFormat.Format24bppRgb);
             using var g = Graphics.FromImage(bmp);
@@ -65,13 +72,16 @@ namespace GravityCapture.Services
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double x, double y, double w, double h)
         {
             if (w <= 0 || h <= 0) return Capture(hwnd);
-            Rectangle baseRect;
-            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r)) baseRect = SWF.Screen.PrimaryScreen.Bounds;
-            else baseRect = r.ToRectangle();
 
-            int rx = baseRect.Left + (int)Math.Round(baseRect.Width  * x);
-            int ry = baseRect.Top  + (int)Math.Round(baseRect.Height * y);
-            int rw = Math.Max(1, (int)Math.Round(baseRect.Width  * w));
+            Rectangle baseRect;
+            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r))
+                baseRect = SWF.Screen.PrimaryScreen.Bounds;
+            else
+                baseRect = r.ToRectangle();
+
+            int rx = baseRect.Left + (int)Math.Round(baseRect.Width * x);
+            int ry = baseRect.Top + (int)Math.Round(baseRect.Height * y);
+            int rw = Math.Max(1, (int)Math.Round(baseRect.Width * w));
             int rh = Math.Max(1, (int)Math.Round(baseRect.Height * h));
 
             var bmp = new Bitmap(rw, rh, PixelFormat.Format24bppRgb);
@@ -98,49 +108,59 @@ namespace GravityCapture.Services
             return ImageCodecInfo.GetImageDecoders()[0];
         }
 
-        // ---- Region selection (bounded to ARK window when available) ----
+        // ---------------- Region selection (bounded when we know the game window) ----------------
         public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) SelectRegion(IntPtr preferredHwnd)
         {
             RegionSelectorWindow win;
             if (TryGetWindowRect(preferredHwnd, out var wrect))
             {
-                // Limit selection to the ARK window’s bounds
-                win = new RegionSelectorWindow(new System.Windows.Rect(wrect.Left, wrect.Top, wrect.Width, wrect.Height));
+                // Limit selection overlay to the actual game window bounds (pixels → ctor converts to DIPs)
+                win = new RegionSelectorWindow(wrect);
             }
             else
             {
-                // Fallback: full screen
-                win = new RegionSelectorWindow();
-                win.WindowState = WindowState.Maximized;
+                // Fallback: full-screen overlay
+                win = new RegionSelectorWindow { WindowState = WindowState.Maximized };
             }
 
             win.Owner = GetActiveWpfWindow();
             var ok = win.ShowDialog() == true;
 
-            var r = win.SelectedRect; // screen coordinates
-            var got = ok && r.Width >= 2 && r.Height >= 2;
-            var rect = got
-                ? Rectangle.FromLTRB((int)r.Left, (int)r.Top, (int)(r.Left + r.Width), (int)(r.Top + r.Height))
-                : Rectangle.Empty;
+            var rDip = win.SelectedRect;            // screen coordinates in DIPs
+            var got = ok && rDip.Width >= 2 && rDip.Height >= 2;
+
+            // Convert DIPs back to pixels using the overlay window’s DPI
+            var rectPx = Rectangle.Empty;
+            if (got)
+            {
+                var dpi = VisualTreeHelper.GetDpi(win);
+                int left   = (int)Math.Round(rDip.Left * dpi.DpiScaleX);
+                int top    = (int)Math.Round(rDip.Top  * dpi.DpiScaleY);
+                int right  = (int)Math.Round((rDip.Left + rDip.Width)  * dpi.DpiScaleX);
+                int bottom = (int)Math.Round((rDip.Top  + rDip.Height) * dpi.DpiScaleY);
+                rectPx = Rectangle.FromLTRB(left, top, right, bottom);
+            }
 
             IntPtr used = preferredHwnd;
             if (used == IntPtr.Zero && got)
             {
-                var center = new System.Drawing.Point(rect.Left + rect.Width / 2, rect.Top + rect.Height / 2);
+                var center = new System.Drawing.Point(rectPx.Left + rectPx.Width / 2,
+                                                      rectPx.Top  + rectPx.Height / 2);
                 used = WindowFromPoint(center);
             }
 
-            return (got, rect, used);
+            return (got, rectPx, used);
         }
 
         private static Window GetActiveWpfWindow()
         {
-            foreach (Window w in System.Windows.Application.Current.Windows)
+            foreach (Window w in Application.Current.Windows)
                 if (w.IsActive) return w;
-            return System.Windows.Application.Current.MainWindow;
+            return Application.Current.MainWindow;
         }
 
-        public static bool TryNormalizeRect(IntPtr hwnd, Rectangle rectScreen, out double nx, out double ny, out double nw, out double nh)
+        public static bool TryNormalizeRect(IntPtr hwnd, Rectangle rectScreen,
+                                            out double nx, out double ny, out double nw, out double nh)
         {
             nx = ny = nw = nh = 0;
             if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r)) return false;
@@ -148,7 +168,8 @@ namespace GravityCapture.Services
             return NormalizeAgainst(baseRect, rectScreen, out nx, out ny, out nw, out nh);
         }
 
-        public static bool TryNormalizeRectDesktop(Rectangle rectScreen, out double nx, out double ny, out double nw, out double nh)
+        public static bool TryNormalizeRectDesktop(Rectangle rectScreen,
+                                                   out double nx, out double ny, out double nw, out double nh)
         {
             var baseRect = SWF.Screen.PrimaryScreen.Bounds;
             return NormalizeAgainst(baseRect, rectScreen, out nx, out ny, out nw, out nh);
