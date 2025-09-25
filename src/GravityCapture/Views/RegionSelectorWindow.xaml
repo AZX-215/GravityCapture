@@ -14,15 +14,14 @@
         Width="800" Height="600"
         Loaded="OnLoaded">
   <Canvas x:Name="RootCanvas"
-          Background="Transparent"
-          MouseLeftButtonDown="OnDown"
-          MouseMove="OnMove"
-          MouseLeftButtonUp="OnUp">
+          Background="Transparent">
+    <!-- make sure this never intercepts the mouse -->
     <Rectangle x:Name="Sel"
                Stroke="#FF66CCFF"
                StrokeThickness="2"
                Fill="#4088CCFF"
-               Visibility="Collapsed"/>
+               Visibility="Collapsed"
+               IsHitTestVisible="False"/>
     <TextBlock x:Name="Hint"
                Foreground="White"
                FontSize="16"
