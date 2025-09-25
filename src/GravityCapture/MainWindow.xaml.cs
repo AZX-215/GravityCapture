@@ -22,7 +22,6 @@ namespace GravityCapture
 
         [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
 
         public MainWindow()
         {
@@ -66,7 +65,6 @@ namespace GravityCapture
 
         private void SelectCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Pass Ark (or last) to lock selector to that window
             if (_hwnd == IntPtr.Zero)
             {
                 var ark = ScreenCapture.ResolveArkWindow();
@@ -76,7 +74,7 @@ namespace GravityCapture
             var (ok, rect, hwndUsed) = ScreenCapture.SelectRegion(_hwnd);
             if (!ok) { StatusText.Text = "Selection cancelled."; return; }
 
-            _hwnd = hwndUsed != IntPtr.Zero ? hwndUsed : _hwnd;
+            if (hwndUsed != IntPtr.Zero) _hwnd = hwndUsed;
 
             bool normOk = (_hwnd != IntPtr.Zero)
                 ? ScreenCapture.TryNormalizeRect(_hwnd, rect, out _nx, out _ny, out _nw, out _nh)
@@ -116,26 +114,20 @@ namespace GravityCapture
             StatusText.Text = "Sent.";
         }
 
-        // Preview rules:
-        //  - Require a valid window handle and not minimized.
-        //  - If "Capture active window only" is checked, require foreground.
-        //  - Occlusion by other apps does NOT matter (WGC ignores it).
-        private bool PreviewAllowed()
-        {
-            if (_hwnd == IntPtr.Zero || !IsWindow(_hwnd)) return false;
-            if (IsIconic(_hwnd)) return false;
-
-            bool requireForeground = _settings.Capture?.ActiveWindow ?? false; // default false: allow occluded preview
-            return !requireForeground || GetForegroundWindow() == _hwnd;
-        }
-
         private void UpdatePreview()
         {
             try
             {
-                if (!PreviewAllowed())
+                if (_hwnd == IntPtr.Zero || !IsWindow(_hwnd))
                 {
                     LivePreview.Source = null;
+                    StatusText.Text = "No Ark window selected.";
+                    return;
+                }
+                if (IsIconic(_hwnd))
+                {
+                    LivePreview.Source = null;
+                    StatusText.Text = "Ark window minimized.";
                     return;
                 }
 
@@ -144,6 +136,7 @@ namespace GravityCapture
                     : ScreenCapture.Capture(_hwnd);
 
                 LivePreview.Source = ToBitmapImage(bmp);
+                StatusText.Text = "Preview OK.";
             }
             catch (Exception ex)
             {
@@ -166,15 +159,16 @@ namespace GravityCapture
             return img;
         }
 
-        // settings ↔ UI
         private void BindFromSettings()
         {
             ChannelBox.Text = _settings.Image?.ChannelId ?? "";
             ApiUrlBox.Text   = _settings.ApiBaseUrl ?? "";
             ApiKeyBox.Text   = _settings.Auth?.ApiKey ?? "";
-            IntervalBox.Text = Math.Max(1, _settings.IntervalMinutes).ToString(); // if Math.max not exists: replace with Math.Max
+            IntervalBox.Text = Math.Max(1, _settings.IntervalMinutes).ToString();
 
-            ActiveWindowCheck.IsChecked = _settings.Capture?.ActiveWindow ?? false; // default false to allow occluded
+            // Preview ignores this toggle; leaving it for future scheduled capture logic
+            ActiveWindowCheck.IsChecked = _settings.Capture?.ActiveWindow ?? false;
+
             ServerBox.Text = _settings.Capture?.ServerName ?? "";
             TribeBox.Text  = _settings.TribeName ?? "";
 
@@ -198,8 +192,7 @@ namespace GravityCapture
             _settings.Auth.ApiKey     = ApiKeyBox.Text?.Trim() ?? "";
             _settings.TribeName       = TribeBox.Text?.Trim() ?? "";
 
-            if (!int.TryParse(IntervalBox.Text, out var mins) || mins < 1) mins = 1;
-            _settings.IntervalMinutes   = mins;
+            _settings.IntervalMinutes = int.TryParse(IntervalBox.Text, out var mins) && mins > 0 ? mins : 1;
             _settings.Capture.ActiveWindow = ActiveWindowCheck.IsChecked == true;
             _settings.Capture.ServerName   = ServerBox.Text?.Trim() ?? "";
 
