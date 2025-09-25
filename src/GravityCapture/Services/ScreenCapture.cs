@@ -2,7 +2,6 @@ using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
@@ -153,7 +152,6 @@ namespace GravityCapture.Services
                     d3d, DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, item.Size);
                 using var session = pool.CreateCaptureSession(item);
                 session.IsCursorCaptureEnabled = false;
-                session.IsBorderRequired = false;
 
                 Direct3D11CaptureFrame? frame = null;
                 using var got = new ManualResetEventSlim(false);
@@ -186,15 +184,15 @@ namespace GravityCapture.Services
         // -------- GDI helpers --------
         private static Bitmap CaptureGdi(IntPtr hwnd)
         {
-            if (!TryGetWindowRect(hwnd, out var wr))
+            if (!TryGetWindowRect(hwnd, out var rect))
                 throw new InvalidOperationException("Window rect not found.");
 
-            int w = Math.Max(1, wr.Width);
-            int h = Math.Max(1, wr.Height);
+            int w = Math.Max(1, rect.Width);
+            int h = Math.Max(1, rect.Height);
 
             var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
             using var g = Graphics.FromImage(bmp);
-            g.CopyFromScreen(wr.left, wr.top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
+            g.CopyFromScreen(rect.Left, rect.Top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
             return bmp;
         }
 
@@ -243,11 +241,10 @@ namespace GravityCapture.Services
         // ---- WGC interop helpers ----
         private static GraphicsCaptureItem? CreateItemForWindow(IntPtr hwnd)
         {
-            var factory = (IGraphicsCaptureItemInterop)WindowsRuntimeMarshal.GetActivationFactory(typeof(GraphicsCaptureItem));
+            var interop = (IGraphicsCaptureItemInterop)Activator.CreateInstance(typeof(GraphicsCaptureItem))!;
             var iid = typeof(GraphicsCaptureItem).GUID;
-            IntPtr pItem = factory.CreateForWindow(hwnd, ref iid);
-            if (pItem == IntPtr.Zero) return null;
-            return WinRT.MarshalInterface<GraphicsCaptureItem>.FromAbi(pItem);
+            int hr = interop.CreateForWindow(hwnd, ref iid, out GraphicsCaptureItem item);
+            return hr == 0 ? item : null;
         }
 
         private static ID3D11Device CreateD3DDevice()
@@ -325,14 +322,16 @@ namespace GravityCapture.Services
         }
 
         // interop
-        [ComImport, Guid("3628E81B-3CAC-4A9E-8545-75C971C37E80"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [ComImport, Guid("3628E81B-3CAC-4A9E-8545-75C971C37E80"),
+         InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IGraphicsCaptureItemInterop
         {
-            IntPtr CreateForWindow(IntPtr hwnd, ref Guid iid);
-            IntPtr CreateForMonitor(IntPtr hmon, ref Guid iid);
+            int CreateForWindow(IntPtr hwnd, ref Guid iid, out GraphicsCaptureItem result);
+            int CreateForMonitor(IntPtr hmon, ref Guid iid, out GraphicsCaptureItem result);
         }
 
-        [ComImport, Guid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [ComImport, Guid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1"),
+         InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IDirect3DDxgiInterfaceAccess
         {
             IntPtr GetInterface(ref Guid iid);
