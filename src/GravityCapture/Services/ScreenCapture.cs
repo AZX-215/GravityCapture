@@ -39,6 +39,16 @@ namespace GravityCapture.Services
             return resolved;
         }
 
+        // NEW: expose safe window rect
+        public static bool TryGetWindowRect(IntPtr hwnd, out Rectangle rect)
+        {
+            rect = Rectangle.Empty;
+            if (hwnd == IntPtr.Zero) return false;
+            if (!GetWindowRect(hwnd, out var r)) return false;
+            rect = r.ToRectangle();
+            return rect.Width > 1 && rect.Height > 1;
+        }
+
         public static Bitmap Capture(IntPtr hwnd)
         {
             Rectangle rect;
@@ -88,16 +98,26 @@ namespace GravityCapture.Services
             return ImageCodecInfo.GetImageDecoders()[0];
         }
 
-        // ---- Region selection ----
-
+        // ---- Region selection (bounded to ARK window when available) ----
         public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) SelectRegion(IntPtr preferredHwnd)
         {
-            var win = new RegionSelectorWindow();
+            RegionSelectorWindow win;
+            if (TryGetWindowRect(preferredHwnd, out var wrect))
+            {
+                // Limit selection to the ARK window’s bounds
+                win = new RegionSelectorWindow(new System.Windows.Rect(wrect.Left, wrect.Top, wrect.Width, wrect.Height));
+            }
+            else
+            {
+                // Fallback: full screen
+                win = new RegionSelectorWindow();
+                win.WindowState = WindowState.Maximized;
+            }
+
             win.Owner = GetActiveWpfWindow();
             var ok = win.ShowDialog() == true;
 
-            // SelectedRect is in screen coordinates (WPF device pixels)
-            var r = win.SelectedRect;
+            var r = win.SelectedRect; // screen coordinates
             var got = ok && r.Width >= 2 && r.Height >= 2;
             var rect = got
                 ? Rectangle.FromLTRB((int)r.Left, (int)r.Top, (int)(r.Left + r.Width), (int)(r.Top + r.Height))
