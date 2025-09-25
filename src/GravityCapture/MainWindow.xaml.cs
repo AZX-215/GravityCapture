@@ -1,3 +1,4 @@
+// src/GravityCapture/MainWindow.xaml.cs
 using System;
 using System.Drawing;
 using System.Globalization;
@@ -5,7 +6,6 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Timers;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 
@@ -13,7 +13,8 @@ using GravityCapture.Models;
 using GravityCapture.Services;
 
 using WpfMessageBox = System.Windows.MessageBox;
-using WpfCursors     = System.Windows.Input.Cursors;
+using WpfCursors   = System.Windows.Input.Cursors;
+using WpfImage     = System.Windows.Controls.Image;
 
 namespace GravityCapture
 {
@@ -37,9 +38,9 @@ namespace GravityCapture
         // live preview plumbing
         private readonly System.Windows.Threading.DispatcherTimer _previewTimer =
             new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        private Image? _embeddedPreviewImage;       // from XAML if exists: <Image x:Name="LivePreview" .../>
-        private Window? _previewPopupWindow;        // fallback small window if XAML image not present
-        private Image? _popupImage;                 // image inside popup
+        private WpfImage? _embeddedPreviewImage;   // from XAML if exists: <Image x:Name="LivePreview" .../>
+        private Window? _previewPopupWindow;       // fallback small window if XAML image not present
+        private WpfImage? _popupImage;             // image inside popup
 
         private static void SetEnvInt(string key, int value) =>
             Environment.SetEnvironmentVariable(key, value.ToString(), EnvironmentVariableTarget.Process);
@@ -89,11 +90,11 @@ namespace GravityCapture
             ApplyActiveProfile();
             UpdateActiveProfileLabel();
 
-            // ----- live preview bootstrap -----
-            _embeddedPreviewImage = FindName("LivePreview") as Image;
+            // live preview bootstrap
+            _embeddedPreviewImage = FindName("LivePreview") as WpfImage;
             if (_embeddedPreviewImage == null)
             {
-                _popupImage = new Image { Stretch = System.Windows.Media.Stretch.Uniform };
+                _popupImage = new WpfImage { Stretch = System.Windows.Media.Stretch.Uniform };
                 _previewPopupWindow = new Window
                 {
                     Title = "Live Preview",
@@ -111,7 +112,6 @@ namespace GravityCapture
             }
             _previewTimer.Tick += (_, __) => UpdateLivePreview();
             _previewTimer.Start();
-            // ----------------------------------
 
             if (_settings.Autostart)
             {
@@ -246,7 +246,7 @@ namespace GravityCapture
             }
         }
 
-        // -------- live preview ----------
+        // live preview
         private void UpdateLivePreview()
         {
             try
@@ -273,7 +273,6 @@ namespace GravityCapture
             }
             catch { /* ignore preview errors */ }
         }
-        // ---------------------------------
 
         private async System.Threading.Tasks.Task CaptureOnceAsync()
         {
@@ -345,7 +344,7 @@ namespace GravityCapture
             SetEnvDouble("OCR_SCALE", 1.0);
         }
 
-        // === Button handlers (minimal, some are now no-ops) ===
+        // handlers
 
         private void ProfileToggleBtn_Click(object sender, RoutedEventArgs e)
         {
@@ -353,23 +352,26 @@ namespace GravityCapture
                 MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
-        private void RefreshRecentBtn_Click(object sender, RoutedEventArgs e)
-        {
-            // deprecated in new flow; keeping as no-op for now
-            Status("Refreshed.");
-        }
+        private void RefreshRecentBtn_Click(object sender, RoutedEventArgs e) =>
+            Status("Refreshed."); // deprecated
 
-        private async void PreviewCropBtn_Click(object sender, RoutedEventArgs e) => await OcrCropPasteOnceAsync(); // legacy button name; now copies OCR text
+        private async void PreviewCropBtn_Click(object sender, RoutedEventArgs e) =>
+            await OcrCropPasteOnceAsync(); // legacy button name; copies OCR text
 
-        private void SelectCropBtn_Click(object sender, RoutedEventArgs e) => SelectRegionBtn_Click(sender, e);
+        private void SelectCropBtn_Click(object sender, RoutedEventArgs e) =>
+            SelectRegionBtn_Click(sender, e);
 
-        private void OcrCropBtn_Click(object sender, RoutedEventArgs e) => _ = OcrCropPasteOnceAsync();
+        private void OcrCropBtn_Click(object sender, RoutedEventArgs e) =>
+            _ = OcrCropPasteOnceAsync();
 
-        private async void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e) => await OcrAndPostOnceAsync();
+        private async void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e) =>
+            await OcrAndPostOnceAsync();
 
-        private void SendTestBtn_Click(object sender, RoutedEventArgs e) => _ = CaptureOnceAsync(); // keep for testing; remove later
+        private void SendTestBtn_Click(object sender, RoutedEventArgs e) =>
+            _ = CaptureOnceAsync(); // kept for testing
 
-        private void SendParsedBtn_Click(object sender, RoutedEventArgs e) => _ = OcrAndPostOnceAsync();
+        private void SendParsedBtn_Click(object sender, RoutedEventArgs e) =>
+            _ = OcrAndPostOnceAsync();
 
         private void SelectRegionBtn_Click(object sender, RoutedEventArgs e)
         {
