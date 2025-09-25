@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <!-- Windows 10 (2004) or newer so Windows.Graphics.Capture is available -->
@@ -14,6 +13,9 @@
 
     <!-- Silence cross-platform System.Drawing warnings we already gate to Windows -->
     <NoWarn>$(NoWarn);CA1416</NoWarn>
+
+    <!-- Needed for Buffer.MemoryCopy in WGC readback -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
     <!-- Disable SDK-generated AssemblyInfo to avoid duplicate attributes -->
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
@@ -47,14 +49,15 @@
     <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.2.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4948" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.205" PrivateAssets="all" />
-
     <!-- Existing dependency -->
     <PackageReference Include="Tesseract" Version="5.2.0" />
+    <!-- WGC capture dependencies -->
+    <PackageReference Include="Vortice.Windows" Version="2.4.20" />
+    <PackageReference Include="WinRT.Runtime" Version="2.0.7" />
   </ItemGroup>
 
   <!-- Tell CsWin32 which APIs to generate -->
   <ItemGroup>
     <AdditionalFiles Include="NativeMethods.txt" />
   </ItemGroup>
-
 </Project>
