@@ -159,8 +159,7 @@ namespace GravityCapture.Services
                 using var pool = Direct3D11CaptureFramePool.Create(
                     d3d, DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, item.Size);
                 using var session = pool.CreateCaptureSession(item);
-                session.IsCursorCaptureEnabled = false;
-                session.IsBorderRequired = false;
+                session.IsCursorCaptureEnabled = false; // keep cursor off
 
                 Direct3D11CaptureFrame? frame = null;
 
