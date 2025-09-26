@@ -67,12 +67,23 @@ namespace GravityCapture.Services
             return true;
         }
 
-        // Always WGC for a window. GDI only for full desktop.
+        // Strict capture for posting: WGC only for window, GDI for desktop.
         public static Bitmap Capture(IntPtr hwnd)
         {
             if (hwnd == IntPtr.Zero) return CaptureDesktopFull();
-            if (TryCaptureWgc(hwnd, out var bmp)) return bmp;
+            if (TryCaptureWgc(hwnd, out var bmp, out _)) return bmp;
             throw new InvalidOperationException("WGC failed for window capture.");
+        }
+
+        // Robust capture for preview: try WGC, else screen fallback of window rect.
+        public static Bitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? failReason)
+        {
+            usedFallback = false;
+            if (hwnd == IntPtr.Zero) { failReason = "no hwnd"; return CaptureDesktopFull(); }
+            if (TryCaptureWgc(hwnd, out var bmp, out failReason)) return bmp;
+            usedFallback = true;
+            failReason ??= "WGC unavailable";
+            return CaptureWindowFallback(hwnd);
         }
 
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
@@ -130,16 +141,17 @@ namespace GravityCapture.Services
         }
 
         // -------- WGC (ignores occlusion) --------
-        private static bool TryCaptureWgc(IntPtr hwnd, out Bitmap bmp)
+        private static bool TryCaptureWgc(IntPtr hwnd, out Bitmap bmp, out string? reason)
         {
             bmp = null!;
+            reason = null;
             try
             {
-                if (Environment.OSVersion.Version.Major < 10) return false;
+                if (Environment.OSVersion.Version.Major < 10) { reason = "OS<10"; return false; }
 
                 var item = CreateItemForWindow(hwnd);
                 if (item is null || item.Size.Width <= 0 || item.Size.Height <= 0)
-                    return false;
+                { reason = "CreateForWindow failed"; return false; }
 
                 using var device = CreateD3DDevice();
                 using var d3d = CreateDirect3DDevice(device);
@@ -148,6 +160,7 @@ namespace GravityCapture.Services
                     d3d, DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, item.Size);
                 using var session = pool.CreateCaptureSession(item);
                 session.IsCursorCaptureEnabled = false;
+                session.IsBorderRequired = false;
 
                 Direct3D11CaptureFrame? frame = null;
 
@@ -158,17 +171,16 @@ namespace GravityCapture.Services
 
                 session.StartCapture();
 
-                var sw = Stopwatch.StartNew();
-                while (frame == null && sw.ElapsedMilliseconds < 1500)
+                var t0 = Environment.TickCount;
+                while (frame == null && Environment.TickCount - t0 < 1500)
                 {
                     frame = pool.TryGetNextFrame();
                     Thread.Sleep(16);
                 }
-                sw.Stop();
 
                 session.Dispose();
 
-                if (frame is null) return false;
+                if (frame is null) { reason = "no frames (fullscreen/elevation/protected?)"; return false; }
 
                 using (frame)
                 {
@@ -178,12 +190,16 @@ namespace GravityCapture.Services
                 }
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                reason = ex.Message;
                 bmp = null!;
                 return false;
             }
         }
+
+        private static bool TryCaptureWgc(IntPtr hwnd, out Bitmap bmp)
+            => TryCaptureWgc(hwnd, out bmp, out _);
 
         private static Bitmap CaptureDesktopFull()
         {
@@ -191,6 +207,17 @@ namespace GravityCapture.Services
             var bmp = new Bitmap(b.Width, b.Height, PixelFormat.Format32bppPArgb);
             using var g = Graphics.FromImage(bmp);
             g.CopyFromScreen(b.X, b.Y, 0, 0, b.Size, CopyPixelOperation.SourceCopy);
+            return bmp;
+        }
+
+        private static Bitmap CaptureWindowFallback(IntPtr hwnd)
+        {
+            if (!GetWindowRect(hwnd, out var r) || r.right <= r.left || r.bottom <= r.top)
+                throw new InvalidOperationException("Bad window rect.");
+            int w = r.right - r.left, h = r.bottom - r.top;
+            var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
+            using var g = Graphics.FromImage(bmp);
+            g.CopyFromScreen(r.left, r.top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
             return bmp;
         }
 
