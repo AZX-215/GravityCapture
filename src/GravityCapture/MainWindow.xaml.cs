@@ -131,12 +131,28 @@ namespace GravityCapture
                     return;
                 }
 
-                using Bitmap bmp = _haveCrop
-                    ? ScreenCapture.CaptureCropNormalized(_hwnd, _nx, _ny, _nw, _nh)
-                    : ScreenCapture.Capture(_hwnd);
+                using var frameBmp = ScreenCapture.CaptureForPreview(_hwnd, out bool fallback, out string? why);
 
-                LivePreview.Source = ToBitmapImage(bmp);
-                StatusText.Text = "Preview OK.";
+                Bitmap toShow = frameBmp;
+                Bitmap? cropped = null;
+                if (_haveCrop)
+                {
+                    // crop using normalized rect against the captured frame size
+                    int rx = Math.Clamp((int)Math.Round(_nx * frameBmp.Width), 0, frameBmp.Width - 1);
+                    int ry = Math.Clamp((int)Math.Round(_ny * frameBmp.Height), 0, frameBmp.Height - 1);
+                    int rw = Math.Clamp((int)Math.Round(_nw * frameBmp.Width), 1, frameBmp.Width - rx);
+                    int rh = Math.Clamp((int)Math.Round(_nh * frameBmp.Height), 1, frameBmp.Height - ry);
+
+                    cropped = new Bitmap(rw, rh, PixelFormat.Format32bppPArgb);
+                    using var g = Graphics.FromImage(cropped);
+                    g.DrawImage(frameBmp, new Rectangle(0, 0, rw, rh), new Rectangle(rx, ry, rw, rh), GraphicsUnit.Pixel);
+                    toShow = cropped;
+                }
+
+                LivePreview.Source = ToBitmapImage(toShow);
+                cropped?.Dispose();
+
+                StatusText.Text = fallback ? $"Preview: screen fallback ({why})" : "Preview: WGC";
             }
             catch (Exception ex)
             {
@@ -166,7 +182,7 @@ namespace GravityCapture
             ApiKeyBox.Text   = _settings.Auth?.ApiKey ?? "";
             IntervalBox.Text = Math.Max(1, _settings.IntervalMinutes).ToString();
 
-            // Preview ignores this toggle; leaving it for future scheduled capture logic
+            // Preview ignores this toggle; reserved for scheduled capture logic
             ActiveWindowCheck.IsChecked = _settings.Capture?.ActiveWindow ?? false;
 
             ServerBox.Text = _settings.Capture?.ServerName ?? "";
