@@ -8,7 +8,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
-using System.Windows.Controls;            // <-- needed for Canvas
+using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using GravityCapture.Models;
