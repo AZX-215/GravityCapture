@@ -2,7 +2,10 @@ using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -73,7 +76,6 @@ namespace GravityCapture
             if (!ok) { StatusText.Text = "Selection cancelled."; return; }
             if (hwndUsed != IntPtr.Zero) _hwnd = hwndUsed;
 
-            // Normalize against window client if possible; desktop otherwise.
             bool normOk = (_hwnd != IntPtr.Zero)
                 ? ScreenCapture.TryNormalizeRect(_hwnd, rect, out _nx, out _ny, out _nw, out _nh)
                 : ScreenCapture.TryNormalizeRectDesktop(rect, out _nx, out _ny, out _nw, out _nh);
@@ -95,7 +97,8 @@ namespace GravityCapture
             UpdatePreview();
         }
 
-        private void OcrCropBtn_Click(object? sender, RoutedEventArgs e)
+        // ===== OCR: crop -> paste text in box (and clipboard) =====
+        private async void OcrCropBtn_Click(object? sender, RoutedEventArgs e)
         {
             try
             {
@@ -103,38 +106,66 @@ namespace GravityCapture
                 if (_hwnd == IntPtr.Zero || !IsWindow(_hwnd)) { StatusText.Text = "No target window."; return; }
 
                 using var bmp = ScreenCapture.CaptureCropNormalized(_hwnd, _nx, _ny, _nw, _nh);
-                var img = ToBitmapImage(bmp);
+                LivePreview.Source = ToBitmapImage(bmp);
 
-                // Clipboard can be busy; retry briefly.
-                var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(300);
-                while (true)
-                {
-                    try { System.Windows.Clipboard.SetImage(img); break; }
-                    catch { if (DateTime.UtcNow > deadline) throw; System.Threading.Thread.Sleep(30); }
-                }
+                using var ms = new MemoryStream();
+                bmp.Save(ms, ImageFormat.Png);
+                ms.Position = 0;
 
-                LivePreview.Source = img;
-                StatusText.Text = "Cropped image copied to clipboard.";
+                var ocr = new RemoteOcrService(_settings);
+                var res = await ocr.ExtractAsync(ms, CancellationToken.None);
+
+                var text = string.Join(Environment.NewLine,
+                    (res?.Lines ?? Array.Empty<ExtractLine>())
+                        .Select(l => l?.Text ?? string.Empty)
+                        .Where(t => !string.IsNullOrWhiteSpace(t)));
+
+                LogLineBox.Text = text;
+                try { System.Windows.Clipboard.SetText(text); } catch { /* clipboard busy */ }
+
+                StatusText.Text = "OCR done → text pasted.";
             }
             catch (Exception ex)
             {
-                StatusText.Text = $"OCR crop failed: {ex.Message}";
+                StatusText.Text = $"OCR failed: {ex.Message}";
             }
         }
 
-        private void OcrAndPostNowBtn_Click(object? sender, RoutedEventArgs e)
+        // ===== OCR + post to API (and paste text) =====
+        private async void OcrAndPostNowBtn_Click(object? sender, RoutedEventArgs e)
         {
             try
             {
                 if (!_haveCrop) { StatusText.Text = "No crop set."; return; }
+                if (_hwnd == IntPtr.Zero || !IsWindow(_hwnd)) { StatusText.Text = "No target window."; return; }
+
                 using var bmp = ScreenCapture.CaptureCropNormalized(_hwnd, _nx, _ny, _nw, _nh);
                 LivePreview.Source = ToBitmapImage(bmp);
-                StatusText.Text = "Captured now.";
-                // Hook your OCR+post pipeline here.
+
+                using var ms = new MemoryStream();
+                bmp.Save(ms, ImageFormat.Png);
+                ms.Position = 0;
+
+                var apiKey  = _settings.Auth?.ApiKey ?? string.Empty;
+                var channel = _settings.Image?.ChannelId ?? string.Empty;
+                var tribe   = _settings.TribeName ?? string.Empty;
+
+                var ingestor = new OcrIngestor();
+                var result   = await ingestor.ScanAndPostAsync(ms, apiKey, channel, tribe, CancellationToken.None);
+
+                var text = string.Join(Environment.NewLine,
+                    (result?.Lines ?? Array.Empty<ExtractLine>())
+                        .Select(l => l?.Text ?? string.Empty)
+                        .Where(t => !string.IsNullOrWhiteSpace(t)));
+
+                LogLineBox.Text = text;
+                try { System.Windows.Clipboard.SetText(text); } catch { }
+
+                StatusText.Text = "OCR posted.";
             }
             catch (Exception ex)
             {
-                StatusText.Text = $"Capture now failed: {ex.Message}";
+                StatusText.Text = $"Post failed: {ex.Message}";
             }
         }
 
@@ -171,7 +202,7 @@ namespace GravityCapture
                     int rw = Math.Clamp((int)Math.Round(_nw * frameBmp.Width), 1, frameBmp.Width - rx);
                     int rh = Math.Clamp((int)Math.Round(_nh * frameBmp.Height), 1, frameBmp.Height - ry);
 
-                    cropped = new Bitmap(rw, rh, PixelFormat.Format32bppPArgb);
+                    cropped = new Bitmap(rw, rh, ImageFormatToPixelFormat());
                     using var g = Graphics.FromImage(cropped);
                     g.DrawImage(frameBmp, new Rectangle(0, 0, rw, rh), new Rectangle(rx, ry, rw, rh), GraphicsUnit.Pixel);
                     toShow = cropped;
@@ -188,6 +219,8 @@ namespace GravityCapture
                 StatusText.Text = $"Preview error: {ex.Message}";
             }
         }
+
+        private static PixelFormat ImageFormatToPixelFormat() => PixelFormat.Format32bppPArgb;
 
         private static BitmapImage ToBitmapImage(Bitmap bmp)
         {
@@ -223,7 +256,6 @@ namespace GravityCapture
             FilterStructCheck.IsChecked  = _settings.Image?.FilterStructureDestroyed ?? false;
             FilterTribeCheck.IsChecked   = _settings.Image?.FilterTribeMateDeath ?? false;
 
-            // Restore crop if present
             if (_settings.UseCrop)
             {
                 _nx = _settings.CropX; _ny = _settings.CropY; _nw = _settings.CropW; _nh = _settings.CropH;
