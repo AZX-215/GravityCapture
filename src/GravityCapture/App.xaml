@@ -7,8 +7,11 @@
     <Color x:Key="BgColor">#0B0B0C</Color>
     <Color x:Key="CardColor">#141519</Color>
     <Color x:Key="AccentColor">#7D7FFF</Color>
-    <Color x:Key="TextPrimaryColor">#808080</Color>
-    <Color x:Key="TextSecondaryColor">#C7C7C7</Color>
+
+    <!-- Brighter text for dark theme -->
+    <Color x:Key="TextPrimaryColor">#F3F4F6</Color>
+    <Color x:Key="TextSecondaryColor">#E5E7EB</Color>
+
     <Color x:Key="InputBgColor">#1B1D22</Color>
     <Color x:Key="InputBorderColor">#2A2D36</Color>
 
@@ -84,7 +87,7 @@
     <Style TargetType="Button" x:Key="SecondaryButton" BasedOn="{StaticResource PrimaryButton}">
       <Setter Property="Background" Value="{StaticResource CardBrush}"/>
       <Setter Property="BorderBrush" Value="{StaticResource InputBorderBrush}"/>
-      <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+      <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
     </Style>
   </Application.Resources>
 </Application>
