@@ -67,23 +67,30 @@ namespace GravityCapture.Services
             return true;
         }
 
-        // Strict capture for posting: WGC only for window, GDI for desktop.
-        public static Bitmap Capture(IntPtr hwnd)
-        {
-            if (hwnd == IntPtr.Zero) return CaptureDesktopFull();
-            if (TryCaptureWgc(hwnd, out var bmp, out _)) return bmp;
-            throw new InvalidOperationException("WGC failed for window capture.");
-        }
+        // -------- capture APIs --------
 
-        // Robust capture for preview: try WGC, else screen fallback of window rect.
-        public static Bitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? failReason)
+        // Non-throwing. Uses WGC when possible, else grabs the window rectangle from the desktop.
+        public static Bitmap Capture(IntPtr hwnd) => Capture(hwnd, out _, out _);
+
+        public static Bitmap Capture(IntPtr hwnd, out bool usedFallback, out string? reason)
         {
             usedFallback = false;
-            if (hwnd == IntPtr.Zero) { failReason = "no hwnd"; return CaptureDesktopFull(); }
-            if (TryCaptureWgc(hwnd, out var bmp, out failReason)) return bmp;
+            reason = null;
+
+            if (hwnd == IntPtr.Zero) return CaptureDesktopFull();
+
+            if (TryCaptureWgc(hwnd, out var bmp, out reason))
+                return bmp;
+
             usedFallback = true;
-            failReason ??= "WGC unavailable";
+            reason ??= "WGC unavailable";
             return CaptureWindowFallback(hwnd);
+        }
+
+        // Robust preview helper (kept for clarity)
+        public static Bitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? failReason)
+        {
+            return Capture(hwnd, out usedFallback, out failReason);
         }
 
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
@@ -102,7 +109,7 @@ namespace GravityCapture.Services
                 return bmpDesk;
             }
 
-            using var full = Capture(hwnd);
+            using var full = Capture(hwnd, out _, out _);
 
             var rx2 = (int)Math.Round(nx * full.Width);
             var ry2 = (int)Math.Round(ny * full.Height);
@@ -192,9 +199,6 @@ namespace GravityCapture.Services
                 return false;
             }
         }
-
-        private static bool TryCaptureWgc(IntPtr hwnd, out Bitmap bmp)
-            => TryCaptureWgc(hwnd, out bmp, out _);
 
         private static Bitmap CaptureDesktopFull()
         {
@@ -368,7 +372,6 @@ namespace GravityCapture.Services
 
         [DllImport("d3d11.dll")] private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
 
-        // WinRT activation + HSTRING helpers
         [DllImport("combase.dll")] private static extern int RoGetActivationFactory(IntPtr hstringClassId, ref Guid iid, out IntPtr factory);
         [DllImport("combase.dll", CharSet = CharSet.Unicode)] private static extern int WindowsCreateString(string source, int length, out IntPtr hstring);
         [DllImport("combase.dll")] private static extern int WindowsDeleteString(IntPtr hstring);
