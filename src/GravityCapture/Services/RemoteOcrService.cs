@@ -44,7 +44,9 @@ namespace GravityCapture.Services
 
             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
             var parsed = JsonSerializer.Deserialize<ExtractResponse>(json, options);
-            return parsed ?? new ExtractResponse { Lines = Array.Empty<ExtractResponse.Line>() };
+
+            // FIX: don’t reference a nested type that may not exist in your model.
+            return parsed ?? new ExtractResponse();
         }
 
         // -------- Debug-rich OCR (boxes, binarized PNG) --------
