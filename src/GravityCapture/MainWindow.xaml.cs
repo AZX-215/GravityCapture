@@ -8,9 +8,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using System.Threading;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using GravityCapture.Models;
@@ -26,7 +24,6 @@ namespace GravityCapture
         private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(800) };
         private AppSettings _settings = AppSettings.Load();
 
-        // OCR debug state
         private byte[]? _lastCropPng;
         private byte[]? _lastBinarizedPng;
         private string? _lastOcrJson;
@@ -36,7 +33,6 @@ namespace GravityCapture
         [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hWnd);
 
-        // dark title bar
         [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(
             IntPtr hwnd, int attr, ref int attrValue, int attrSize);
         private const int DWMWA_USE_IMMERSIVE_DARK_MODE_19 = 19;
@@ -140,7 +136,7 @@ namespace GravityCapture
                 _lastCropPng = ms.ToArray();
 
                 var ocr = new RemoteOcrService(_settings);
-                var dbg = await ocr.ExtractWithDebugAsync(new MemoryStream(_lastCropPng), CancellationToken.None);
+                var dbg = await ocr.ExtractWithDebugAsync(new MemoryStream(_lastCropPng), default);
 
                 _lastOcrJson = dbg.RawJson;
                 _lastBinarizedPng = dbg.BinarizedPng;
@@ -175,9 +171,9 @@ namespace GravityCapture
                 bmp.Save(ms, ImageFormat.Png);
                 _lastCropPng = ms.ToArray();
 
-                // OCR-first for overlay + text
                 var ocr = new RemoteOcrService(_settings);
-                var dbg = await ocr.ExtractWithDebugAsync(new MemoryStream(_lastCropPng), CancellationToken.None);
+                var dbg = await ocr.ExtractWithDebugAsync(new MemoryStream(_lastCropPng), default);
+
                 _lastOcrJson = dbg.RawJson;
                 _lastBinarizedPng = dbg.BinarizedPng;
                 _lastBoxes = dbg.Boxes.Select(b => new OcrBox(b.X, b.Y, b.W, b.H, b.Conf, b.Text)).ToArray();
@@ -186,13 +182,12 @@ namespace GravityCapture
                 TryCopyText(text);
                 RenderOcrOverlay();
 
-                // Post using same image
                 var apiKey  = _settings.Auth?.ApiKey ?? string.Empty;
                 var channel = _settings.Image?.ChannelId ?? string.Empty;
                 var tribe   = _settings.TribeName ?? string.Empty;
 
                 var ingestor = new OcrIngestor();
-                _ = await ingestor.ScanAndPostAsync(new MemoryStream(_lastCropPng), apiKey, channel, tribe, CancellationToken.None);
+                _ = await ingestor.ScanAndPostAsync(new MemoryStream(_lastCropPng), apiKey, channel, tribe, default);
 
                 StatusText.Text = "OCR posted.";
             }
@@ -204,6 +199,7 @@ namespace GravityCapture
 
         private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
         {
+            // This button only stages text in UI; posting happens on the server after /ingest is used
             StatusText.Text = "Sent.";
         }
 
