@@ -1,4 +1,5 @@
 // File: src/GravityCapture/Services/ScreenCapture.cs
+#nullable enable
 using System;
 using System.Diagnostics;
 using System.Drawing;
@@ -8,7 +9,6 @@ using System.Threading;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
-using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using DXGI = Vortice.DXGI;
 using D3D11Api = Vortice.Direct3D11.D3D11;
@@ -17,7 +17,7 @@ namespace GravityCapture.Services
 {
     public static class ScreenCapture
     {
-        // ---------- Public API ----------
+        // -------- public API --------
 
         public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) SelectRegion(IntPtr preferredHwnd)
             => OverlaySelector.Select(preferredHwnd);
@@ -63,7 +63,6 @@ namespace GravityCapture.Services
             out double nx, out double ny, out double nw, out double nh)
         {
             nx = ny = nw = nh = 0;
-
             var scr = System.Windows.Forms.Screen.PrimaryScreen;
             if (scr is null) return false;
             var b = scr.Bounds;
@@ -152,19 +151,30 @@ namespace GravityCapture.Services
             return r.Width > 0 && r.Height > 0;
         }
 
-        // ---------- WGC ----------
+        // -------- WGC (with monitor fallback) --------
 
         private static bool TryCaptureWgc(IntPtr hwnd, out Bitmap bmp, out string? reason)
         {
             bmp = null!;
             reason = null;
+
             try
             {
                 if (Environment.OSVersion.Version.Major < 10) { reason = "OS<10"; return false; }
 
-                var item = CreateItemForWindow(hwnd);
-                if (item is null || item.Size.Width <= 0 || item.Size.Height <= 0)
-                { reason = "CreateForWindow failed"; return false; }
+                // window first
+                var item = CreateItemForWindow(hwnd, out int hrWin);
+                if (item is null)
+                {
+                    // monitor fallback
+                    var hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                    item = CreateItemForMonitor(hmon, out int hrMon);
+                    if (item is null)
+                    {
+                        reason = $"CreateForWindow 0x{hrWin:X8}, CreateForMonitor 0x{hrMon:X8}";
+                        return false;
+                    }
+                }
 
                 using var device = CreateD3DDevice();
                 using var d3d = CreateDirect3DDevice(device);
@@ -189,11 +199,9 @@ namespace GravityCapture.Services
 
                 if (frame is null) { reason = "no frames (fullscreen/elevation/protected?)"; return false; }
 
-                var surface = frame.Surface;
-                if (surface is null) { reason = "frame surface null"; return false; }
-
                 using (frame)
                 {
+                    var surface = frame.Surface;
                     var tex = GetD3DTexture2D(device, surface);
                     bmp = CopyTextureToBitmap(device, tex);
                     tex.Dispose();
@@ -231,7 +239,7 @@ namespace GravityCapture.Services
             return bmp;
         }
 
-        // ---------- Helpers ----------
+        // -------- helpers --------
 
         private static class OverlaySelector
         {
@@ -266,47 +274,57 @@ namespace GravityCapture.Services
             throw new InvalidOperationException("JPEG encoder not found.");
         }
 
-        // ---- WinRT activation via RoGetActivationFactory ----
-        private static GraphicsCaptureItem? CreateItemForWindow(IntPtr hwnd)
-        {
-            const string RuntimeClass = "Windows.Graphics.Capture.GraphicsCaptureItem";
-            IntPtr hstr = IntPtr.Zero;
-            int hr = WindowsCreateString(RuntimeClass, RuntimeClass.Length, out hstr);
-            if (hr < 0) return null;
+        // ---- WinRT interop (window + monitor) ----
 
+        private static GraphicsCaptureItem? CreateItemForWindow(IntPtr hwnd, out int hrOut)
+        {
+            hrOut = -1;
+            const string RuntimeClass = "Windows.Graphics.Capture.GraphicsCaptureItem";
+            if (WindowsCreateString(RuntimeClass, RuntimeClass.Length, out var hstr) < 0) return null;
             try
             {
-                Guid iidFactory = typeof(IGraphicsCaptureItemInterop).GUID;
-                IntPtr factoryPtr;
-                hr = RoGetActivationFactory(hstr, ref iidFactory, out factoryPtr);
-                if (hr < 0 || factoryPtr == IntPtr.Zero) return null;
-
+                var iidFactory = typeof(IGraphicsCaptureItemInterop).GUID;
+                if (RoGetActivationFactory(hstr, ref iidFactory, out var factoryPtr) < 0 || factoryPtr == IntPtr.Zero)
+                    return null;
                 try
                 {
-                    var obj = Marshal.GetObjectForIUnknown(factoryPtr);
-                    if (obj is null) return null;
-                    var interop = (IGraphicsCaptureItemInterop)obj;
+                    var interop = (IGraphicsCaptureItemInterop)Marshal.GetObjectForIUnknown(factoryPtr);
+                    var iidItem = typeof(GraphicsCaptureItem).GUID;
+                    hrOut = interop.CreateForWindow(hwnd, ref iidItem, out GraphicsCaptureItem item);
+                    return hrOut == 0 ? item : null;
+                }
+                finally { Marshal.Release(factoryPtr); }
+            }
+            finally { WindowsDeleteString(hstr); }
+        }
 
-                    Guid iidItem = typeof(GraphicsCaptureItem).GUID;
-                    hr = interop.CreateForWindow(hwnd, ref iidItem, out GraphicsCaptureItem item);
-                    return hr == 0 ? item : null;
-                }
-                finally
-                {
-                    Marshal.Release(factoryPtr);
-                }
-            }
-            finally
+        private static GraphicsCaptureItem? CreateItemForMonitor(IntPtr hmon, out int hrOut)
+        {
+            hrOut = -1;
+            const string RuntimeClass = "Windows.Graphics.Capture.GraphicsCaptureItem";
+            if (WindowsCreateString(RuntimeClass, RuntimeClass.Length, out var hstr) < 0) return null;
+            try
             {
-                WindowsDeleteString(hstr);
+                var iidFactory = typeof(IGraphicsCaptureItemInterop).GUID;
+                if (RoGetActivationFactory(hstr, ref iidFactory, out var factoryPtr) < 0 || factoryPtr == IntPtr.Zero)
+                    return null;
+                try
+                {
+                    var interop = (IGraphicsCaptureItemInterop)Marshal.GetObjectForIUnknown(factoryPtr);
+                    var iidItem = typeof(GraphicsCaptureItem).GUID;
+                    hrOut = interop.CreateForMonitor(hmon, ref iidItem, out GraphicsCaptureItem item);
+                    return hrOut == 0 ? item : null;
+                }
+                finally { Marshal.Release(factoryPtr); }
             }
+            finally { WindowsDeleteString(hstr); }
         }
 
         private static ID3D11Device CreateD3DDevice()
         {
             _ = D3D11Api.D3D11CreateDevice(
-                null, DriverType.Hardware,
-                DeviceCreationFlags.BgraSupport | DeviceCreationFlags.VideoSupport,
+                null, Vortice.Direct3D.DriverType.Hardware,
+                Vortice.Direct3D11.DeviceCreationFlags.BgraSupport | Vortice.Direct3D11.DeviceCreationFlags.VideoSupport,
                 null, out ID3D11Device device);
             if (device == null) throw new InvalidOperationException("D3D11CreateDevice failed.");
             return device;
@@ -334,15 +352,15 @@ namespace GravityCapture.Services
 
             var stagingDesc = desc;
             stagingDesc.BindFlags = 0;
-            stagingDesc.CPUAccessFlags = CpuAccessFlags.Read;
-            stagingDesc.Usage = ResourceUsage.Staging;
-            stagingDesc.MiscFlags = ResourceOptionFlags.None;
+            stagingDesc.CPUAccessFlags = Vortice.Direct3D11.CpuAccessFlags.Read;
+            stagingDesc.Usage = Vortice.Direct3D11.ResourceUsage.Staging;
+            stagingDesc.MiscFlags = Vortice.Direct3D11.ResourceOptionFlags.None;
 
             using var staging = device.CreateTexture2D(stagingDesc);
             var ctx = device.ImmediateContext!;
             ctx.CopyResource(staging, src);
 
-            var map = ctx.Map(staging, 0, MapMode.Read, MapFlags.None);
+            var map = ctx.Map(staging, 0, Vortice.Direct3D11.MapMode.Read, Vortice.Direct3D11.MapFlags.None);
             try
             {
                 int width = (int)desc.Width;
@@ -374,7 +392,7 @@ namespace GravityCapture.Services
             }
         }
 
-        // ---------- P/Invoke ----------
+        // -------- P/Invoke --------
 
         [ComImport, Guid("3628E81B-3CAC-4A9E-8545-75C971C37E80"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IGraphicsCaptureItemInterop
@@ -401,6 +419,9 @@ namespace GravityCapture.Services
         [DllImport("user32.dll")] private static extern int GetWindowTextLength(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
         [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+        [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+        private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
 
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
