@@ -1,17 +1,17 @@
+// File: src/GravityCapture/MainWindow.xaml.cs
 #nullable enable
 using System;
-using System.Drawing;                      // Bitmap
-using System.Drawing.Imaging;              // System.Drawing.Imaging.PixelFormat
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;             // Canvas
-using System.Windows.Media.Imaging;        // BitmapImage
+using System.Windows.Controls;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using GravityCapture.Models;
 using GravityCapture.Services;
@@ -36,6 +36,19 @@ namespace GravityCapture
         [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hWnd);
 
+        // dark title bar
+        [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(
+            IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_19 = 19;
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_20 = 20;
+        private void EnableDarkTitleBar()
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            int on = 1;
+            _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_20, ref on, sizeof(int));
+            _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_19, ref on, sizeof(int));
+        }
+
         public MainWindow()
         {
             InitializeComponent();
@@ -50,6 +63,7 @@ namespace GravityCapture
 
             Loaded += (_, __) =>
             {
+                EnableDarkTitleBar();
                 _previewTimer.Start();
                 UpdatePreview();
             };
@@ -109,7 +123,6 @@ namespace GravityCapture
             UpdatePreview();
         }
 
-        // ===== OCR: crop -> paste text (with details) =====
         private async void OcrCropBtn_Click(object? sender, RoutedEventArgs e)
         {
             try
@@ -146,7 +159,6 @@ namespace GravityCapture
             }
         }
 
-        // ===== OCR + post (also shows details) =====
         private async void OcrAndPostNowBtn_Click(object? sender, RoutedEventArgs e)
         {
             try
@@ -163,7 +175,7 @@ namespace GravityCapture
                 bmp.Save(ms, ImageFormat.Png);
                 _lastCropPng = ms.ToArray();
 
-                // 1) OCR-first to get overlay + text
+                // OCR-first for overlay + text
                 var ocr = new RemoteOcrService(_settings);
                 var dbg = await ocr.ExtractWithDebugAsync(new MemoryStream(_lastCropPng), CancellationToken.None);
                 _lastOcrJson = dbg.RawJson;
@@ -174,7 +186,7 @@ namespace GravityCapture
                 TryCopyText(text);
                 RenderOcrOverlay();
 
-                // 2) Post using the same image
+                // Post using same image
                 var apiKey  = _settings.Auth?.ApiKey ?? string.Empty;
                 var channel = _settings.Image?.ChannelId ?? string.Empty;
                 var tribe   = _settings.TribeName ?? string.Empty;
@@ -195,7 +207,6 @@ namespace GravityCapture
             StatusText.Text = "Sent.";
         }
 
-        // ===== Debug ZIP =====
         private void SaveDebugBtn_Click(object? sender, RoutedEventArgs e)
         {
             try
@@ -242,7 +253,6 @@ namespace GravityCapture
             }
         }
 
-        // ===== Overlay rendering =====
         private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e) => RenderOcrOverlay();
         private void LivePreview_SizeChanged(object sender, SizeChangedEventArgs e) => RenderOcrOverlay();
 
@@ -319,8 +329,8 @@ namespace GravityCapture
 
                     cropped = new Bitmap(rw, rh, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
                     using var g = Graphics.FromImage(cropped);
-                    g.DrawImage(frameBmp, new System.Drawing.Rectangle(0, 0, rw, rh),
-                        new System.Drawing.Rectangle(rx, ry, rw, rh), GraphicsUnit.Pixel);
+                    g.DrawImage(frameBmp, new Rectangle(0, 0, rw, rh),
+                        new Rectangle(rx, ry, rw, rh), GraphicsUnit.Pixel);
                     toShow = cropped;
                 }
 
