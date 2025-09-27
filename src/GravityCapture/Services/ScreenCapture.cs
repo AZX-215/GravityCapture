@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows;
-using GravityCapture;  // RegionSelectorWindow (existing overlay)
+using GravityCapture;  // RegionSelectorWindow
 
 namespace GravityCapture.Services
 {
@@ -17,7 +17,7 @@ namespace GravityCapture.Services
 
             bool EnumWindowsProc(IntPtr h, IntPtr l)
             {
-                var title = GetWindowText(h);
+                var title = GetWindowTitle(h);
                 if (title.Contains("ARK", StringComparison.OrdinalIgnoreCase))
                 {
                     found = h;
@@ -43,7 +43,7 @@ namespace GravityCapture.Services
             return IntPtr.Zero;
         }
 
-        // -------- region selection (uses your window) --------
+        // -------- region selection (uses your overlay window) --------
         public static (bool ok, Rectangle rect, IntPtr hwndUsed) SelectRegion(IntPtr hintHwnd)
         {
             var dlg = new RegionSelectorWindow(hintHwnd);
@@ -126,11 +126,9 @@ namespace GravityCapture.Services
             using var hBmp = new GdiObject(CreateCompatibleBitmap(srcDc.Handle, w, h));
             var old = SelectObject(memDc.Handle, hBmp.Handle);
 
-            // Try PrintWindow (full content) first
             const int PW_RENDERFULLCONTENT = 0x00000002;
             bool printed = PrintWindow(hwnd, memDc.Handle, PW_RENDERFULLCONTENT);
 
-            // If PrintWindow fails, BitBlt visible area
             if (!printed)
             {
                 const int SRCCOPY = 0x00CC0020;
@@ -138,9 +136,7 @@ namespace GravityCapture.Services
             }
 
             using (var tmp = Image.FromHbitmap(hBmp.Handle))
-            {
                 g.DrawImageUnscaled(tmp, 0, 0);
-            }
 
             SelectObject(memDc.Handle, old);
             return bmp;
@@ -186,7 +182,7 @@ namespace GravityCapture.Services
         [DllImport("user32.dll")] private static extern int GetWindowTextLength(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern int GetSystemMetrics(int nIndex);
 
-        private static string GetWindowText(IntPtr hWnd)
+        private static string GetWindowTitle(IntPtr hWnd)
         {
             int len = GetWindowTextLength(hWnd);
             var sb = new System.Text.StringBuilder(len + 1);
