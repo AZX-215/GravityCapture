@@ -1,16 +1,15 @@
 #nullable enable
 using System;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Threading;
-using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
 using WinRT;
-using WinRT.Interop;
 
 namespace GravityCapture.Services
 {
@@ -26,10 +25,8 @@ namespace GravityCapture.Services
             try
             {
                 if (!IsSupported()) { why = "WGC not supported"; return null; }
-
                 var item = GraphicsCaptureItemInterop.CreateForWindow(hwnd);
                 if (item is null) { why = "CreateForWindow returned null"; return null; }
-
                 return new WgcCapture(item);
             }
             catch (Exception ex) { why = ex.Message; return null; }
@@ -41,12 +38,10 @@ namespace GravityCapture.Services
             bmp = null; why = null;
             if (_disposed) { why = "disposed"; return false; }
 
-            // fast-path: consume the last prepared CPU bitmap if present
             var snap = Interlocked.Exchange(ref _lastBitmap, null);
             if (snap != null) { bmp = snap; return true; }
 
-            // If no event has fired yet, try to force one by waiting a tiny bit
-            if (_firstFrame.Wait(0))
+            if (_firstFrame.IsSet)
             {
                 snap = Interlocked.Exchange(ref _lastBitmap, null);
                 if (snap != null) { bmp = snap; return true; }
@@ -61,23 +56,16 @@ namespace GravityCapture.Services
             if (_disposed) return;
             _disposed = true;
 
-            if (_session != null)
-            {
-                try { _session.IsCursorCaptureEnabled = false; _session.Dispose(); } catch {}
-            }
-            if (_pool != null)
-            {
-                try { _pool.Dispose(); } catch {}
-            }
-            _item?.Dispose();
+            try { _session?.Dispose(); } catch {}
+            try { _pool?.Dispose(); } catch {}
+            try { _item?.Dispose(); } catch {}
 
-            _context?.ClearState();
-            _context?.Flush();
-            _context?.Dispose();
-            _device?.Dispose();
-            _dxgiDevice?.Dispose();
+            try { _context?.ClearState(); _context?.Flush(); } catch {}
+            try { _context?.Dispose(); } catch {}
+            try { _device?.Dispose(); } catch {}
+            try { _dxgiDevice?.Dispose(); } catch {}
 
-            _lastBitmap?.Dispose();
+            try { _lastBitmap?.Dispose(); } catch {}
         }
 
         // ---- Impl ------------------------------------------------------------
@@ -93,7 +81,9 @@ namespace GravityCapture.Services
         private volatile Bitmap? _lastBitmap;
         private readonly ManualResetEventSlim _firstFrame = new(false);
 
-        public WgcCapture(GraphicsCaptureItem item)
+        private const DirectXPixelFormat PixelFormat = DirectXPixelFormat.B8G8R8A8UIntNormalized;
+
+        private WgcCapture(GraphicsCaptureItem item)
         {
             _item = item;
 
@@ -103,16 +93,18 @@ namespace GravityCapture.Services
 
         private void CreateDevice()
         {
-            // D3D11 device with BGRA + VideoSupport for WGC
-            var flags = DeviceCreationFlags.BgraSupport | DeviceCreationFlags.VideoSupport;
+            // BGRA + Video support recommended for capture
             D3D11.D3D11CreateDevice(
-                null, DriverType.Hardware, DeviceCreationFlags.None,
-                flags, null, out _device, out _context).CheckError();
+                null,
+                Vortice.Direct3D.DriverType.Hardware,
+                DeviceCreationFlags.BgraSupport | DeviceCreationFlags.VideoSupport,
+                null,
+                out _device,
+                out _context).CheckError();
 
-            _dxgiDevice = _device!.QueryInterface<IDXGIDevice>();
+            _dxgiDevice = _device!.QueryInterfaceOrNull<IDXGIDevice>();
             var winrtDev = CreateDirect3DDeviceFromDXGIDevice(_dxgiDevice!);
-            _pool = Direct3D11CaptureFramePool.Create(
-                winrtDev, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, _item.Size);
+            _pool = Direct3D11CaptureFramePool.Create(winrtDev, PixelFormat, 2, _item.Size);
         }
 
         private void CreatePoolAndSession(GraphicsCaptureItem item)
@@ -126,7 +118,7 @@ namespace GravityCapture.Services
             item.Closed += (_, __) => Dispose();
         }
 
-        private void OnFrameArrived(Direct3D11CaptureFramePool sender, object args)
+        private unsafe void OnFrameArrived(Direct3D11CaptureFramePool sender, object args)
         {
             if (_disposed) return;
 
@@ -135,34 +127,37 @@ namespace GravityCapture.Services
 
             try
             {
-                // Convert WinRT surface -> ID3D11Texture2D
                 using var tex = GetTextureFromSurface(frame.Surface);
 
-                // Copy to CPU-readable staging
                 var desc = tex.Description;
-                desc.BindFlags = 0;
-                desc.CpuAccessFlags = CpuAccessFlags.Read;
-                desc.Usage = ResourceUsage.Staging;
-                desc.MiscFlags = 0;
+                var stagingDesc = desc with
+                {
+                    BindFlags = 0,
+                    CpuAccessFlags = CpuAccessFlags.Read,
+                    Usage = ResourceUsage.Staging,
+                    MiscFlags = 0
+                };
 
-                using var staging = _device!.CreateTexture2D(desc);
+                using var staging = _device!.CreateTexture2D(stagingDesc);
                 _context!.CopyResource(staging, tex);
 
-                // Map and create GDI bitmap
-                var db = _context.Map(staging, 0, MapMode.Read, MapFlags.None);
+                var map = _context.Map(staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
+
                 try
                 {
-                    var bmp = new Bitmap(desc.Width, desc.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                    var bmp = new Bitmap(desc.Width, desc.Height, PixelFormat.Format32bppPArgb);
                     var bd = bmp.LockBits(new Rectangle(0, 0, desc.Width, desc.Height),
-                        System.Drawing.Imaging.ImageLockMode.WriteOnly, bmp.PixelFormat);
-
+                                          ImageLockMode.WriteOnly, bmp.PixelFormat);
                     try
                     {
-                        // row-by-row copy honoring pitch
-                        unsafe
+                        int rowBytes = desc.Width * 4;
+                        for (int y = 0; y < desc.Height; y++)
                         {
-                            Buffer.MemoryCopy(db.DataPointer.ToPointer(), bd.Scan0.ToPointer(),
-                                              bd.Stride * bd.Height, desc.Width * 4L * desc.Height);
+                            Buffer.MemoryCopy(
+                                source: (byte*)map.DataPointer + (y * map.RowPitch),
+                                destination: (byte*)bd.Scan0 + (y * bd.Stride),
+                                destinationSizeInBytes: bd.Stride,
+                                sourceBytesToCopy: rowBytes);
                         }
                     }
                     finally
@@ -170,7 +165,6 @@ namespace GravityCapture.Services
                         bmp.UnlockBits(bd);
                     }
 
-                    // Swap-in as latest frame
                     var old = Interlocked.Exchange(ref _lastBitmap, bmp);
                     old?.Dispose();
                     _firstFrame.Set();
@@ -182,20 +176,20 @@ namespace GravityCapture.Services
             }
             catch
             {
-                // swallow; next frame will try again
+                // ignore; next frame will arrive
             }
         }
 
         // ---- helpers ----------------------------------------------------------
 
-        // Create WinRT IDirect3DDevice from DXGI device
+        // WinRT device from DXGI device
         private static IDirect3DDevice CreateDirect3DDeviceFromDXGIDevice(IDXGIDevice dxgi)
         {
             CreateDirect3D11DeviceFromDXGIDevice(dxgi.NativePointer, out var p).CheckError();
             return MarshalInterface<IDirect3DDevice>.FromAbi(p);
         }
 
-        // Extract ID3D11Texture2D from WinRT IDirect3DSurface
+        // Surface -> ID3D11Texture2D
         private static ID3D11Texture2D GetTextureFromSurface(IDirect3DSurface surface)
         {
             var access = (IDirect3DDxgiInterfaceAccess)(object)surface;
@@ -215,7 +209,24 @@ namespace GravityCapture.Services
         private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
     }
 
-    // Simple HRESULT helper
+    internal static class GraphicsCaptureItemInterop
+    {
+        public static GraphicsCaptureItem? CreateForWindow(IntPtr hwnd)
+        {
+            var interop = WinRT.ActivationFactory.As<IGraphicsCaptureItemInterop>(typeof(GraphicsCaptureItem));
+            var iid = typeof(GraphicsCaptureItem).GUID;
+            interop.CreateForWindow(hwnd, ref iid, out var result);
+            return MarshalInterface<GraphicsCaptureItem>.FromAbi(result);
+        }
+
+        [ComImport, Guid("79C3F95B-31F7-4EC2-A464-632EF5D30760"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IGraphicsCaptureItemInterop
+        {
+            void CreateForWindow(IntPtr window, ref Guid iid, out IntPtr result);
+            void CreateForMonitor(IntPtr hmon, ref Guid iid, out IntPtr result);
+        }
+    }
+
     internal static class HResultExt
     {
         public static void CheckError(this int hr)
