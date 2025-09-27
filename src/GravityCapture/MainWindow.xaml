@@ -2,9 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Gravity Capture" Height="720" Width="1060"
-        Background="{StaticResource BgBrush}"
+        Background="{DynamicResource BgBrush}"
         FontFamily="Segoe UI"
-        Foreground="{StaticResource TextSecondaryBrush}"
+        Foreground="{DynamicResource TextSecondaryBrush}"
         WindowStartupLocation="CenterScreen">
 
   <Grid Margin="12">
@@ -17,10 +17,10 @@
 
     <!-- TOP -->
     <Border Grid.Row="0"
-            Background="{StaticResource CardBrush}"
-            BorderBrush="{StaticResource InputBorderBrush}"
+            Background="{DynamicResource CardBrush}"
+            BorderBrush="{DynamicResource InputBorderBrush}"
             BorderThickness="1"
-            CornerRadius="{StaticResource CardRadius}"
+            CornerRadius="{DynamicResource CardRadius}"
             Padding="10">
       <Grid>
         <Grid.ColumnDefinitions>
@@ -88,16 +88,16 @@
           <TextBox x:Name="TitleHintBox" Visibility="Collapsed" />
 
           <WrapPanel Grid.Row="2" Margin="0,8,0,0">
-            <Button x:Name="SaveBtn" Click="SaveBtn_Click" Content="Save" Style="{StaticResource SecondaryButton}"/>
-            <Button x:Name="StartBtn" Click="StartBtn_Click" Content="Start" Style="{StaticResource PrimaryButton}"/>
-            <Button x:Name="StopBtn" Click="StopBtn_Click" Content="Stop" Style="{StaticResource SecondaryButton}"/>
-            <Button x:Name="SelectAreaBtn" Click="SelectCropBtn_Click" Content="Select Log Area…" Style="{StaticResource SecondaryButton}"/>
+            <Button x:Name="SaveBtn" Click="SaveBtn_Click" Content="Save" Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <Button x:Name="StartBtn" Click="StartBtn_Click" Content="Start" Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <Button x:Name="StopBtn" Click="StopBtn_Click" Content="Stop" Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <Button x:Name="SelectAreaBtn" Click="SelectCropBtn_Click" Content="Select Log Area…" Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
           </WrapPanel>
 
           <WrapPanel Grid.Row="3" Margin="0,6,0,0" VerticalAlignment="Center">
-            <Button x:Name="OcrCropBtn" Click="OcrCropBtn_Click" Content="OCR Crop → Paste" Style="{StaticResource SecondaryButton}"/>
-            <Button x:Name="OcrAndPostNowBtn" Click="OcrAndPostNowBtn_Click" Content="OCR &amp; Post Visible Now" Style="{StaticResource SecondaryButton}"/>
-            <Button x:Name="SendParsedBtn" Click="SendParsedBtn_Click" Content="Send Pasted Log Line" Style="{StaticResource SecondaryButton}"/>
+            <Button x:Name="OcrCropBtn" Click="OcrCropBtn_Click" Content="OCR Crop → Paste" Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <Button x:Name="OcrAndPostNowBtn" Click="OcrAndPostNowBtn_Click" Content="OCR &amp; Post Visible Now" Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <Button x:Name="SendParsedBtn" Click="SendParsedBtn_Click" Content="Send Pasted Log Line" Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
           </WrapPanel>
         </Grid>
       </Grid>
@@ -105,10 +105,10 @@
 
     <!-- FILTERS -->
     <Border Grid.Row="1"
-            Background="{StaticResource CardBrush}"
-            BorderBrush="{StaticResource InputBorderBrush}"
+            Background="{DynamicResource CardBrush}"
+            BorderBrush="{DynamicResource InputBorderBrush}"
             BorderThickness="1"
-            CornerRadius="{StaticResource CardRadius}"
+            CornerRadius="{DynamicResource CardRadius}"
             Padding="10" Margin="0,10,0,0">
       <StackPanel Orientation="Horizontal">
         <CheckBox x:Name="AutoOcrCheck" Content="Auto OCR ingest"/>
@@ -127,25 +127,39 @@
         <ColumnDefinition Width="3*"/>
       </Grid.ColumnDefinitions>
 
+      <!-- Live preview with OCR overlay + debug -->
       <Border Grid.Column="0"
-              Background="{StaticResource CardBrush}"
-              BorderBrush="{StaticResource InputBorderBrush}"
+              Background="{DynamicResource CardBrush}"
+              BorderBrush="{DynamicResource InputBorderBrush}"
               BorderThickness="1"
-              CornerRadius="{StaticResource CardRadius}"
+              CornerRadius="{DynamicResource CardRadius}"
               Padding="10" Margin="0,0,10,0">
         <DockPanel>
-          <TextBlock Text="Live preview" DockPanel.Dock="Top" Margin="2,0,0,6"/>
-          <Border Background="#121316" BorderBrush="{StaticResource InputBorderBrush}" BorderThickness="1" CornerRadius="6">
-            <Image x:Name="LivePreview" Stretch="Uniform" />
+          <StackPanel Orientation="Horizontal" DockPanel.Dock="Top">
+            <TextBlock Text="Live preview" Margin="2,0,12,6"/>
+            <CheckBox x:Name="ShowOcrDetailsCheck" Content="Show OCR details"
+                      Margin="0,0,12,0"
+                      Checked="ShowOcrDetailsCheck_Changed"
+                      Unchecked="ShowOcrDetailsCheck_Changed"/>
+            <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click"
+                    Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+          </StackPanel>
+
+          <Border Background="#121316" BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" CornerRadius="6">
+            <Grid>
+              <Image x:Name="LivePreview" Stretch="Uniform" SizeChanged="LivePreview_SizeChanged"/>
+              <Canvas x:Name="OcrOverlay" IsHitTestVisible="False"/>
+            </Grid>
           </Border>
         </DockPanel>
       </Border>
 
+      <!-- Paste box -->
       <Border Grid.Column="1"
-              Background="{StaticResource CardBrush}"
-              BorderBrush="{StaticResource InputBorderBrush}"
+              Background="{DynamicResource CardBrush}"
+              BorderBrush="{DynamicResource InputBorderBrush}"
               BorderThickness="1"
-              CornerRadius="{StaticResource CardRadius}"
+              CornerRadius="{DynamicResource CardRadius}"
               Padding="10">
         <DockPanel>
           <TextBlock Text="Paste a tribe log line:" DockPanel.Dock="Top" Margin="2,0,0,6"/>
