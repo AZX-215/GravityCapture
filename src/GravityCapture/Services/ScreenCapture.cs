@@ -59,7 +59,10 @@ namespace GravityCapture.Services
         public static bool TryNormalizeRectDesktop(Rectangle screenRect,
             out double nx, out double ny, out double nw, out double nh)
         {
-            var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+            var scr = System.Windows.Forms.Screen.PrimaryScreen;
+            if (scr is null) return false;
+            var b = scr.Bounds;
+
             nx = (screenRect.X - b.X) / (double)b.Width;
             ny = (screenRect.Y - b.Y) / (double)b.Height;
             nw = screenRect.Width / (double)b.Width;
@@ -69,7 +72,7 @@ namespace GravityCapture.Services
 
         // -------- capture APIs --------
 
-        // Non-throwing. Uses WGC when possible, else grabs the window rectangle from the desktop.
+        // Non-throwing helper also returned below.
         public static Bitmap Capture(IntPtr hwnd) => Capture(hwnd, out _, out _);
 
         public static Bitmap Capture(IntPtr hwnd, out bool usedFallback, out string? reason)
@@ -80,24 +83,24 @@ namespace GravityCapture.Services
             if (hwnd == IntPtr.Zero) return CaptureDesktopFull();
 
             if (TryCaptureWgc(hwnd, out var bmp, out reason))
-                return bmp;
+                return bmp!; // proven non-null when TryCaptureWgc returns true
 
             usedFallback = true;
             reason ??= "WGC unavailable";
             return CaptureWindowFallback(hwnd);
         }
 
-        // Robust preview helper (kept for clarity)
         public static Bitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? failReason)
-        {
-            return Capture(hwnd, out usedFallback, out failReason);
-        }
+            => Capture(hwnd, out usedFallback, out failReason);
 
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
         {
             if (hwnd == IntPtr.Zero)
             {
-                var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+                var scr = System.Windows.Forms.Screen.PrimaryScreen
+                          ?? throw new InvalidOperationException("No primary screen.");
+                var b = scr.Bounds;
+
                 int rx = b.X + (int)Math.Round(nx * b.Width);
                 int ry = b.Y + (int)Math.Round(ny * b.Height);
                 int rw = Math.Max(1, (int)Math.Round(nw * b.Width));
@@ -184,9 +187,12 @@ namespace GravityCapture.Services
 
                 if (frame is null) { reason = "no frames (fullscreen/elevation/protected?)"; return false; }
 
+                var surface = frame.Surface;
+                if (surface is null) { reason = "frame surface null"; return false; }
+
                 using (frame)
                 {
-                    var tex = GetD3DTexture2D(device, frame.Surface);
+                    var tex = GetD3DTexture2D(device, surface);
                     bmp = CopyTextureToBitmap(device, tex);
                     tex.Dispose();
                 }
@@ -202,7 +208,10 @@ namespace GravityCapture.Services
 
         private static Bitmap CaptureDesktopFull()
         {
-            var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+            var scr = System.Windows.Forms.Screen.PrimaryScreen
+                      ?? throw new InvalidOperationException("No primary screen.");
+            var b = scr.Bounds;
+
             var bmp = new Bitmap(b.Width, b.Height, PixelFormat.Format32bppPArgb);
             using var g = Graphics.FromImage(bmp);
             g.CopyFromScreen(b.X, b.Y, 0, 0, b.Size, CopyPixelOperation.SourceCopy);
@@ -270,7 +279,10 @@ namespace GravityCapture.Services
 
                 try
                 {
-                    var interop = (IGraphicsCaptureItemInterop)Marshal.GetObjectForIUnknown(factoryPtr);
+                    var obj = Marshal.GetObjectForIUnknown(factoryPtr);
+                    if (obj is null) return null;
+                    var interop = (IGraphicsCaptureItemInterop)obj;
+
                     Guid iidItem = typeof(GraphicsCaptureItem).GUID;
                     hr = interop.CreateForWindow(hwnd, ref iidItem, out GraphicsCaptureItem item);
                     return hr == 0 ? item : null;
@@ -306,7 +318,7 @@ namespace GravityCapture.Services
 
         private static ID3D11Texture2D GetD3DTexture2D(ID3D11Device device, Windows.Graphics.DirectX.Direct3D11.IDirect3DSurface surface)
         {
-            var access = (IDirect3DDxgiInterfaceAccess)surface;
+            var access = (IDirect3DDxgiInterfaceAccess)surface!;
             var iid = typeof(ID3D11Texture2D).GUID;
             var ptr = access.GetInterface(ref iid);
             return new ID3D11Texture2D(ptr);
@@ -323,9 +335,10 @@ namespace GravityCapture.Services
             stagingDesc.MiscFlags = ResourceOptionFlags.None;
 
             using var staging = device.CreateTexture2D(stagingDesc);
-            device.ImmediateContext.CopyResource(staging, src);
+            var ctx = device.ImmediateContext!; // analyzer: context is non-null for a valid device
+            ctx.CopyResource(staging, src);
 
-            var map = device.ImmediateContext.Map(staging, 0, MapMode.Read, MapFlags.None);
+            var map = ctx.Map(staging, 0, MapMode.Read, MapFlags.None);
             try
             {
                 int width = (int)desc.Width;
@@ -353,7 +366,7 @@ namespace GravityCapture.Services
             }
             finally
             {
-                device.ImmediateContext.Unmap(staging, 0);
+                ctx.Unmap(staging, 0);
             }
         }
 
@@ -371,7 +384,6 @@ namespace GravityCapture.Services
         }
 
         [DllImport("d3d11.dll")] private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
-
         [DllImport("combase.dll")] private static extern int RoGetActivationFactory(IntPtr hstringClassId, ref Guid iid, out IntPtr factory);
         [DllImport("combase.dll", CharSet = CharSet.Unicode)] private static extern int WindowsCreateString(string source, int length, out IntPtr hstring);
         [DllImport("combase.dll")] private static extern int WindowsDeleteString(IntPtr hstring);
