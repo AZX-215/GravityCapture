@@ -1,4 +1,3 @@
-// File: src/GravityCapture/MainWindow.xaml.cs
 #nullable enable
 using System;
 using System.Drawing;
@@ -9,6 +8,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Controls;            // <-- needed for Canvas
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using GravityCapture.Models;
@@ -199,7 +199,6 @@ namespace GravityCapture
 
         private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
         {
-            // This button only stages text in UI; posting happens on the server after /ingest is used
             StatusText.Text = "Sent.";
         }
 
