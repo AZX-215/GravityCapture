@@ -56,9 +56,7 @@
           <StackPanel Orientation="Horizontal" Grid.Row="3">
             <TextBlock Text="Interval (min):" Margin="2,2,8,2"/>
             <TextBox x:Name="IntervalBox" Width="60" TextAlignment="Center"/>
-            <!-- legacy toggle hidden; logic preserved -->
-            <CheckBox x:Name="ActiveWindowCheck" Content="Capture active window only"
-                      Margin="16,0,0,0" Visibility="Collapsed"/>
+            <CheckBox x:Name="ActiveWindowCheck" Content="Capture active window only" Margin="16,0,0,0"/>
           </StackPanel>
 
           <StackPanel Orientation="Horizontal" Grid.Row="4" VerticalAlignment="Center">
@@ -90,23 +88,16 @@
           <TextBox x:Name="TitleHintBox" Visibility="Collapsed" />
 
           <WrapPanel Grid.Row="2" Margin="0,8,0,0">
-            <Button x:Name="SaveBtn" Click="SaveBtn_Click" Content="Save"
-                    Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-            <Button x:Name="StartBtn" Click="StartBtn_Click" Content="Start"
-                    Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-            <Button x:Name="StopBtn" Click="StopBtn_Click" Content="Stop"
-                    Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-            <Button x:Name="SelectAreaBtn" Click="SelectCropBtn_Click" Content="Select Log Area…"
-                    Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <Button x:Name="SaveBtn" Click="SaveBtn_Click" Content="Save" Style="{DynamicResource SecondaryButton}"/>
+            <Button x:Name="StartBtn" Click="StartBtn_Click" Content="Start" Style="{DynamicResource SecondaryButton}"/>
+            <Button x:Name="StopBtn" Click="StopBtn_Click" Content="Stop" Style="{DynamicResource SecondaryButton}"/>
+            <Button x:Name="SelectAreaBtn" Click="SelectCropBtn_Click" Content="Select Log Area…" Style="{DynamicResource SecondaryButton}"/>
           </WrapPanel>
 
           <WrapPanel Grid.Row="3" Margin="0,6,0,0" VerticalAlignment="Center">
-            <Button x:Name="OcrCropBtn" Click="OcrCropBtn_Click" Content="OCR Crop → Paste"
-                    Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-            <Button x:Name="OcrAndPostNowBtn" Click="OcrAndPostNowBtn_Click" Content="OCR &amp; Post Visible Now"
-                    Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-            <Button x:Name="SendParsedBtn" Click="SendParsedBtn_Click" Content="Send Pasted Log Line"
-                    Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <Button x:Name="OcrCropBtn" Click="OcrCropBtn_Click" Content="OCR Crop → Paste" Style="{DynamicResource SecondaryButton}"/>
+            <Button x:Name="OcrAndPostNowBtn" Click="OcrAndPostNowBtn_Click" Content="OCR &amp; Post Visible Now" Style="{DynamicResource SecondaryButton}"/>
+            <Button x:Name="SendParsedBtn" Click="SendParsedBtn_Click" Content="Send Pasted Log Line" Style="{DynamicResource SecondaryButton}"/>
           </WrapPanel>
         </Grid>
       </Grid>
@@ -151,11 +142,10 @@
                       Checked="ShowOcrDetailsCheck_Changed"
                       Unchecked="ShowOcrDetailsCheck_Changed"/>
             <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click"
-                    Style="{DynamicResource SecondaryButton}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    Style="{DynamicResource SecondaryButton}"/>
           </StackPanel>
 
-          <Border Background="#121316" BorderBrush="{DynamicResource InputBorderBrush}"
-                  BorderThickness="1" CornerRadius="6">
+          <Border Background="#121316" BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" CornerRadius="6">
             <Grid>
               <Image x:Name="LivePreview" Stretch="Uniform" SizeChanged="LivePreview_SizeChanged"/>
               <Canvas x:Name="OcrOverlay" IsHitTestVisible="False"/>
