@@ -2,15 +2,20 @@ using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using GravityCapture.Models;
 using GravityCapture.Services;
+using Microsoft.Win32;
 
 namespace GravityCapture
 {
@@ -21,6 +26,13 @@ namespace GravityCapture
         private double _nx, _ny, _nw, _nh;
         private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(800) };
         private AppSettings _settings = AppSettings.Load();
+
+        // OCR debug state
+        private byte[]? _lastCropPng;
+        private byte[]? _lastBinarizedPng;
+        private string? _lastOcrJson;
+        private OcrBox[] _lastBoxes = Array.Empty<OcrBox>();
+        private int _lastImgPixelW, _lastImgPixelH;
 
         [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hWnd);
@@ -61,6 +73,7 @@ namespace GravityCapture
         {
             _previewTimer.Stop();
             LivePreview.Source = null;
+            OcrOverlay.Children.Clear();
             StatusText.Text = "Preview stopped.";
         }
 
@@ -97,7 +110,7 @@ namespace GravityCapture
             UpdatePreview();
         }
 
-        // ===== OCR: crop -> paste text in box (and clipboard) =====
+        // ===== OCR: crop -> paste text (with details) =====
         private async void OcrCropBtn_Click(object? sender, RoutedEventArgs e)
         {
             try
@@ -106,23 +119,26 @@ namespace GravityCapture
                 if (_hwnd == IntPtr.Zero || !IsWindow(_hwnd)) { StatusText.Text = "No target window."; return; }
 
                 using var bmp = ScreenCapture.CaptureCropNormalized(_hwnd, _nx, _ny, _nw, _nh);
-                LivePreview.Source = ToBitmapImage(bmp);
+                var img = ToBitmapImage(bmp, out int pxW, out int pxH);
+                _lastImgPixelW = pxW; _lastImgPixelH = pxH;
+                LivePreview.Source = img;
 
                 using var ms = new MemoryStream();
                 bmp.Save(ms, ImageFormat.Png);
-                ms.Position = 0;
+                _lastCropPng = ms.ToArray();
 
                 var ocr = new RemoteOcrService(_settings);
-                var res = await ocr.ExtractAsync(ms, CancellationToken.None);
+                var dbg = await ocr.ExtractWithDebugAsync(new MemoryStream(_lastCropPng), CancellationToken.None);
 
-                var text = string.Join(Environment.NewLine,
-                    (res?.Lines ?? Array.Empty<ExtractLine>())
-                        .Select(l => l?.Text ?? string.Empty)
-                        .Where(t => !string.IsNullOrWhiteSpace(t)));
+                _lastOcrJson = dbg.RawJson;
+                _lastBinarizedPng = dbg.BinarizedPng;
+                _lastBoxes = dbg.Boxes.Select(b => new OcrBox(b.X, b.Y, b.W, b.H, b.Conf, b.Text)).ToArray();
 
+                var text = string.Join(Environment.NewLine, dbg.LinesText ?? Array.Empty<string>());
                 LogLineBox.Text = text;
-                try { System.Windows.Clipboard.SetText(text); } catch { /* clipboard busy */ }
+                TryCopyText(text);
 
+                RenderOcrOverlay();
                 StatusText.Text = "OCR done → text pasted.";
             }
             catch (Exception ex)
@@ -131,7 +147,7 @@ namespace GravityCapture
             }
         }
 
-        // ===== OCR + post to API (and paste text) =====
+        // ===== OCR + post (also shows details) =====
         private async void OcrAndPostNowBtn_Click(object? sender, RoutedEventArgs e)
         {
             try
@@ -140,26 +156,32 @@ namespace GravityCapture
                 if (_hwnd == IntPtr.Zero || !IsWindow(_hwnd)) { StatusText.Text = "No target window."; return; }
 
                 using var bmp = ScreenCapture.CaptureCropNormalized(_hwnd, _nx, _ny, _nw, _nh);
-                LivePreview.Source = ToBitmapImage(bmp);
+                var img = ToBitmapImage(bmp, out int pxW, out int pxH);
+                _lastImgPixelW = pxW; _lastImgPixelH = pxH;
+                LivePreview.Source = img;
 
                 using var ms = new MemoryStream();
                 bmp.Save(ms, ImageFormat.Png);
-                ms.Position = 0;
+                _lastCropPng = ms.ToArray();
 
+                // 1) OCR-first to get overlay + text
+                var ocr = new RemoteOcrService(_settings);
+                var dbg = await ocr.ExtractWithDebugAsync(new MemoryStream(_lastCropPng), CancellationToken.None);
+                _lastOcrJson = dbg.RawJson;
+                _lastBinarizedPng = dbg.BinarizedPng;
+                _lastBoxes = dbg.Boxes.Select(b => new OcrBox(b.X, b.Y, b.W, b.H, b.Conf, b.Text)).ToArray();
+                var text = string.Join(Environment.NewLine, dbg.LinesText ?? Array.Empty<string>());
+                LogLineBox.Text = text;
+                TryCopyText(text);
+                RenderOcrOverlay();
+
+                // 2) Post using the same image
                 var apiKey  = _settings.Auth?.ApiKey ?? string.Empty;
                 var channel = _settings.Image?.ChannelId ?? string.Empty;
                 var tribe   = _settings.TribeName ?? string.Empty;
 
                 var ingestor = new OcrIngestor();
-                var result   = await ingestor.ScanAndPostAsync(ms, apiKey, channel, tribe, CancellationToken.None);
-
-                var text = string.Join(Environment.NewLine,
-                    (result?.Lines ?? Array.Empty<ExtractLine>())
-                        .Select(l => l?.Text ?? string.Empty)
-                        .Where(t => !string.IsNullOrWhiteSpace(t)));
-
-                LogLineBox.Text = text;
-                try { System.Windows.Clipboard.SetText(text); } catch { }
+                _ = await ingestor.ScanAndPostAsync(new MemoryStream(_lastCropPng), apiKey, channel, tribe, CancellationToken.None);
 
                 StatusText.Text = "OCR posted.";
             }
@@ -174,6 +196,97 @@ namespace GravityCapture
             StatusText.Text = "Sent.";
         }
 
+        // ===== Debug ZIP =====
+        private void SaveDebugBtn_Click(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_lastCropPng is null || _lastOcrJson is null)
+                {
+                    StatusText.Text = "No OCR run yet.";
+                    return;
+                }
+
+                var sfd = new SaveFileDialog
+                {
+                    Title = "Save debug ZIP",
+                    Filter = "ZIP files (*.zip)|*.zip",
+                    FileName = $"gravity_debug_{DateTime.Now:yyyyMMdd_HHmmss}.zip"
+                };
+                if (sfd.ShowDialog() != true) return;
+
+                using var fs = File.Create(sfd.FileName);
+                using var zip = new ZipArchive(fs, ZipArchiveMode.Create);
+
+                var e1 = zip.CreateEntry("crop.png");
+                using (var z = e1.Open()) z.Write(_lastCropPng, 0, _lastCropPng.Length);
+
+                if (_lastBinarizedPng is not null)
+                {
+                    var e2 = zip.CreateEntry("binarized.png");
+                    using var z2 = e2.Open();
+                    z2.Write(_lastBinarizedPng, 0, _lastBinarizedPng.Length);
+                }
+
+                var e3 = zip.CreateEntry("response.json");
+                using (var w = new StreamWriter(e3.Open())) w.Write(_lastOcrJson);
+
+                var e4 = zip.CreateEntry("settings.json");
+                using (var w2 = new StreamWriter(e4.Open()))
+                    w2.Write(JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true }));
+
+                StatusText.Text = "Debug ZIP saved.";
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = $"Save ZIP failed: {ex.Message}";
+            }
+        }
+
+        // ===== Overlay rendering =====
+        private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e) => RenderOcrOverlay();
+        private void LivePreview_SizeChanged(object sender, SizeChangedEventArgs e) => RenderOcrOverlay();
+
+        private void RenderOcrOverlay()
+        {
+            OcrOverlay.Children.Clear();
+            if (LivePreview.Source is not BitmapSource src) return;
+            if (ShowOcrDetailsCheck?.IsChecked != true) return;
+            if (_lastBoxes.Length == 0) return;
+
+            double viewW = LivePreview.ActualWidth;
+            double viewH = LivePreview.ActualHeight;
+            if (viewW <= 0 || viewH <= 0) return;
+
+            int pxW = _lastImgPixelW > 0 ? _lastImgPixelW : src.PixelWidth;
+            int pxH = _lastImgPixelH > 0 ? _lastImgPixelH : src.PixelHeight;
+
+            double scale = Math.Min(viewW / pxW, viewH / pxH);
+            double xOff = (viewW - pxW * scale) / 2.0;
+            double yOff = (viewH - pxH * scale) / 2.0;
+
+            foreach (var b in _lastBoxes)
+            {
+                var r = new Rectangle
+                {
+                    Stroke = Brushes.Lime,
+                    StrokeThickness = 1,
+                    Fill = new SolidColorBrush(Color.FromArgb(40, 0, 255, 0))
+                };
+                double x = xOff + b.X * scale;
+                double y = yOff + b.Y * scale;
+                double w = Math.Max(1, b.W * scale);
+                double h = Math.Max(1, b.H * scale);
+
+                Canvas.SetLeft(r, x);
+                Canvas.SetTop(r, y);
+                r.Width = w;
+                r.Height = h;
+                r.ToolTip = $"{b.Conf:P0}  {b.Text}";
+                OcrOverlay.Children.Add(r);
+            }
+        }
+
         private void UpdatePreview()
         {
             try
@@ -181,12 +294,14 @@ namespace GravityCapture
                 if (_hwnd == IntPtr.Zero || !IsWindow(_hwnd))
                 {
                     LivePreview.Source = null;
+                    OcrOverlay.Children.Clear();
                     StatusText.Text = "No Ark window selected.";
                     return;
                 }
                 if (IsIconic(_hwnd))
                 {
                     LivePreview.Source = null;
+                    OcrOverlay.Children.Clear();
                     StatusText.Text = "Ark window minimized.";
                     return;
                 }
@@ -202,27 +317,35 @@ namespace GravityCapture
                     int rw = Math.Clamp((int)Math.Round(_nw * frameBmp.Width), 1, frameBmp.Width - rx);
                     int rh = Math.Clamp((int)Math.Round(_nh * frameBmp.Height), 1, frameBmp.Height - ry);
 
-                    cropped = new Bitmap(rw, rh, ImageFormatToPixelFormat());
+                    cropped = new Bitmap(rw, rh, PixelFormat.Format32bppPArgb);
                     using var g = Graphics.FromImage(cropped);
-                    g.DrawImage(frameBmp, new Rectangle(0, 0, rw, rh), new Rectangle(rx, ry, rw, rh), GraphicsUnit.Pixel);
+                    g.DrawImage(frameBmp, new System.Drawing.Rectangle(0, 0, rw, rh),
+                        new System.Drawing.Rectangle(rx, ry, rw, rh), GraphicsUnit.Pixel);
                     toShow = cropped;
                 }
 
-                LivePreview.Source = ToBitmapImage(toShow);
+                LivePreview.Source = ToBitmapImage(toShow, out _lastImgPixelW, out _lastImgPixelH);
                 cropped?.Dispose();
+
+                // keep overlay aligned when preview refreshes
+                RenderOcrOverlay();
 
                 StatusText.Text = fallback ? $"Preview: screen fallback ({why})" : "Preview: WGC";
             }
             catch (Exception ex)
             {
                 LivePreview.Source = null;
+                OcrOverlay.Children.Clear();
                 StatusText.Text = $"Preview error: {ex.Message}";
             }
         }
 
-        private static PixelFormat ImageFormatToPixelFormat() => PixelFormat.Format32bppPArgb;
+        private static void TryCopyText(string text)
+        {
+            try { System.Windows.Clipboard.SetText(text); } catch { }
+        }
 
-        private static BitmapImage ToBitmapImage(Bitmap bmp)
+        private static BitmapImage ToBitmapImage(Bitmap bmp, out int pixelW, out int pixelH)
         {
             using var ms = new MemoryStream();
             bmp.Save(ms, ImageFormat.Png);
@@ -233,6 +356,8 @@ namespace GravityCapture
             img.StreamSource = ms;
             img.EndInit();
             img.Freeze();
+            pixelW = img.PixelWidth;
+            pixelH = img.PixelHeight;
             return img;
         }
 
@@ -291,6 +416,14 @@ namespace GravityCapture
                 _settings.UseCrop = true;
                 _settings.CropX = _nx; _settings.CropY = _ny; _settings.CropW = _nw; _settings.CropH = _nh;
             }
+        }
+
+        private readonly struct OcrBox
+        {
+            public readonly double X, Y, W, H, Conf;
+            public readonly string Text;
+            public OcrBox(double x, double y, double w, double h, double conf, string? text)
+            { X = x; Y = y; W = w; H = h; Conf = conf; Text = text ?? ""; }
         }
     }
 }
