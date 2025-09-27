@@ -1,6 +1,7 @@
+#nullable enable
 using System;
-using System.Drawing;
-using System.Drawing.Imaging;
+using System.Drawing;                      // Bitmap
+using System.Drawing.Imaging;              // System.Drawing.Imaging.PixelFormat
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -9,13 +10,11 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
+using System.Windows.Controls;             // Canvas
+using System.Windows.Media.Imaging;        // BitmapImage
 using System.Windows.Threading;
 using GravityCapture.Models;
 using GravityCapture.Services;
-using Microsoft.Win32;
 
 namespace GravityCapture
 {
@@ -207,7 +206,7 @@ namespace GravityCapture
                     return;
                 }
 
-                var sfd = new SaveFileDialog
+                var sfd = new Microsoft.Win32.SaveFileDialog
                 {
                     Title = "Save debug ZIP",
                     Filter = "ZIP files (*.zip)|*.zip",
@@ -267,11 +266,12 @@ namespace GravityCapture
 
             foreach (var b in _lastBoxes)
             {
-                var r = new Rectangle
+                var r = new System.Windows.Shapes.Rectangle
                 {
-                    Stroke = Brushes.Lime,
+                    Stroke = System.Windows.Media.Brushes.Lime,
                     StrokeThickness = 1,
-                    Fill = new SolidColorBrush(Color.FromArgb(40, 0, 255, 0))
+                    Fill = new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromArgb(40, 0, 255, 0))
                 };
                 double x = xOff + b.X * scale;
                 double y = yOff + b.Y * scale;
@@ -317,7 +317,7 @@ namespace GravityCapture
                     int rw = Math.Clamp((int)Math.Round(_nw * frameBmp.Width), 1, frameBmp.Width - rx);
                     int rh = Math.Clamp((int)Math.Round(_nh * frameBmp.Height), 1, frameBmp.Height - ry);
 
-                    cropped = new Bitmap(rw, rh, PixelFormat.Format32bppPArgb);
+                    cropped = new Bitmap(rw, rh, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
                     using var g = Graphics.FromImage(cropped);
                     g.DrawImage(frameBmp, new System.Drawing.Rectangle(0, 0, rw, rh),
                         new System.Drawing.Rectangle(rx, ry, rw, rh), GraphicsUnit.Pixel);
@@ -327,7 +327,6 @@ namespace GravityCapture
                 LivePreview.Source = ToBitmapImage(toShow, out _lastImgPixelW, out _lastImgPixelH);
                 cropped?.Dispose();
 
-                // keep overlay aligned when preview refreshes
                 RenderOcrOverlay();
 
                 StatusText.Text = fallback ? $"Preview: screen fallback ({why})" : "Preview: WGC";
