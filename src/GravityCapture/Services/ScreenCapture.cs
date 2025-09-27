@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime; // WinRT factory
 using System.Threading;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
@@ -256,7 +257,10 @@ namespace GravityCapture.Services
         // ---- WGC interop helpers ----
         private static GraphicsCaptureItem? CreateItemForWindow(IntPtr hwnd)
         {
-            var interop = (IGraphicsCaptureItemInterop)Activator.CreateInstance(typeof(GraphicsCaptureItem))!;
+            // Use WinRT activation factory instead of Activator
+            var factory = WindowsRuntimeMarshal.GetActivationFactory(typeof(GraphicsCaptureItem));
+            var interop = (IGraphicsCaptureItemInterop)factory;
+
             var iid = typeof(GraphicsCaptureItem).GUID;
             int hr = interop.CreateForWindow(hwnd, ref iid, out GraphicsCaptureItem item);
             return hr == 0 ? item : null;
