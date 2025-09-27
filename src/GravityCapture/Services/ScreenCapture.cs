@@ -1,439 +1,199 @@
-// File: src/GravityCapture/Services/ScreenCapture.cs
 #nullable enable
 using System;
 using System.Diagnostics;
 using System.Drawing;
-using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
-using System.Threading;
-using Windows.Graphics.Capture;
-using Windows.Graphics.DirectX;
-using Windows.Graphics.DirectX.Direct3D11;
-using Vortice.Direct3D11;
-using DXGI = Vortice.DXGI;
-using D3D11Api = Vortice.Direct3D11.D3D11;
+using System.Windows;
+using GravityCapture.Windows; // RegionSelectorWindow (your existing overlay)
 
 namespace GravityCapture.Services
 {
     public static class ScreenCapture
     {
-        // -------- public API --------
-
-        public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) SelectRegion(IntPtr preferredHwnd)
-            => OverlaySelector.Select(preferredHwnd);
-
+        // -------- window discovery --------
         public static IntPtr ResolveArkWindow()
         {
-            foreach (var p in Process.GetProcessesByName("arkascended"))
-                if (p.MainWindowHandle != IntPtr.Zero) return p.MainWindowHandle;
-
             IntPtr found = IntPtr.Zero;
-            EnumWindows((h, _) =>
+
+            bool EnumWindowsProc(IntPtr h, IntPtr l)
             {
-                if (!IsWindowVisible(h)) return true;
-                var title = GetWindowTitle(h);
-                if (!string.IsNullOrEmpty(title) &&
-                    title.IndexOf("ARK", StringComparison.OrdinalIgnoreCase) >= 0)
-                { found = h; return false; }
+                var title = GetWindowText(h);
+                if (title.Contains("ARK", StringComparison.OrdinalIgnoreCase))
+                {
+                    found = h;
+                    return false;
+                }
                 return true;
-            }, IntPtr.Zero);
-            return found;
+            }
+
+            EnumWindows(EnumWindowsProc, IntPtr.Zero);
+            if (found != IntPtr.Zero) return found;
+
+            foreach (var p in Process.GetProcesses())
+            {
+                try
+                {
+                    if (p.MainWindowHandle != IntPtr.Zero &&
+                        p.ProcessName.Contains("Ark", StringComparison.OrdinalIgnoreCase))
+                        return p.MainWindowHandle;
+                }
+                catch { /* ignore */ }
+            }
+
+            return IntPtr.Zero;
         }
 
-        public static bool TryNormalizeRect(IntPtr hwnd, Rectangle screenRect,
-            out double nx, out double ny, out double nw, out double nh)
+        // -------- region selection (uses your window) --------
+        public static (bool ok, Rectangle rect, IntPtr hwndUsed) SelectRegion(IntPtr hintHwnd)
+        {
+            var dlg = new RegionSelectorWindow(hintHwnd);
+            var ok = dlg.ShowDialog() == true;
+            return (ok, dlg.SelectedRect, dlg.CapturedHwnd);
+        }
+
+        // -------- normalization helpers --------
+        public static bool TryNormalizeRect(IntPtr hwnd, Rectangle r, out double nx, out double ny, out double nw, out double nh)
         {
             nx = ny = nw = nh = 0;
-            if (hwnd == IntPtr.Zero) return false;
+            if (hwnd == IntPtr.Zero || r.Width <= 0 || r.Height <= 0) return false;
 
-            var client = GetClientScreenRect(hwnd);
-            if (client.Width <= 0 || client.Height <= 0) return false;
+            if (!GetWindowRect(hwnd, out var wr)) return false;
+            int ww = Math.Max(1, wr.Right - wr.Left);
+            int wh = Math.Max(1, wr.Bottom - wr.Top);
 
-            var inter = Rectangle.Intersect(screenRect, client);
-            if (inter.Width <= 0 || inter.Height <= 0) return false;
+            int x = Math.Clamp(r.Left - wr.Left, 0, ww - 1);
+            int y = Math.Clamp(r.Top - wr.Top, 0, wh - 1);
+            int w = Math.Clamp(r.Width, 1, ww - x);
+            int h = Math.Clamp(r.Height, 1, wh - y);
 
-            nx = (inter.X - client.X) / (double)client.Width;
-            ny = (inter.Y - client.Y) / (double)client.Height;
-            nw = inter.Width / (double)client.Width;
-            nh = inter.Height / (double)client.Height;
+            nx = (double)x / ww;
+            ny = (double)y / wh;
+            nw = (double)w / ww;
+            nh = (double)h / wh;
             return true;
         }
 
-        public static bool TryNormalizeRectDesktop(Rectangle screenRect,
-            out double nx, out double ny, out double nw, out double nh)
+        public static bool TryNormalizeRectDesktop(Rectangle r, out double nx, out double ny, out double nw, out double nh)
         {
             nx = ny = nw = nh = 0;
-            var scr = System.Windows.Forms.Screen.PrimaryScreen;
-            if (scr is null) return false;
-            var b = scr.Bounds;
+            if (r.Width <= 0 || r.Height <= 0) return false;
 
-            nx = (screenRect.X - b.X) / (double)b.Width;
-            ny = (screenRect.Y - b.Y) / (double)b.Height;
-            nw = screenRect.Width / (double)b.Width;
-            nh = screenRect.Height / (double)b.Height;
+            var ww = GetSystemMetrics(0);
+            var wh = GetSystemMetrics(1);
+            nx = (double)r.Left / ww;
+            ny = (double)r.Top / wh;
+            nw = (double)r.Width / ww;
+            nh = (double)r.Height / wh;
             return true;
         }
 
-        public static Bitmap Capture(IntPtr hwnd) => Capture(hwnd, out _, out _);
-
-        public static Bitmap Capture(IntPtr hwnd, out bool usedFallback, out string? reason)
+        // -------- preview frame (BitBlt/PrintWindow path only) --------
+        public static Bitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? reason)
         {
-            usedFallback = false;
-            reason = null;
-
-            if (hwnd == IntPtr.Zero) return CaptureDesktopFull();
-
-            if (TryCaptureWgc(hwnd, out var bmp, out reason))
-                return bmp!;
-
             usedFallback = true;
-            reason ??= "WGC unavailable";
-            return CaptureWindowFallback(hwnd);
+            reason = "CreateForWindow failed";
+            return Capture(hwnd);
         }
 
-        public static Bitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? failReason)
-            => Capture(hwnd, out usedFallback, out failReason);
-
+        // -------- crop using normalized rect --------
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
         {
-            if (hwnd == IntPtr.Zero)
-            {
-                var scr = System.Windows.Forms.Screen.PrimaryScreen
-                          ?? throw new InvalidOperationException("No primary screen.");
-                var b = scr.Bounds;
+            using var full = Capture(hwnd);
 
-                int rx = b.X + (int)Math.Round(nx * b.Width);
-                int ry = b.Y + (int)Math.Round(ny * b.Height);
-                int rw = Math.Max(1, (int)Math.Round(nw * b.Width));
-                int rh = Math.Max(1, (int)Math.Round(nh * b.Height));
+            int x = Math.Clamp((int)Math.Round(nx * full.Width), 0, full.Width - 1);
+            int y = Math.Clamp((int)Math.Round(ny * full.Height), 0, full.Height - 1);
+            int w = Math.Clamp((int)Math.Round(nw * full.Width), 1, full.Width - x);
+            int h = Math.Clamp((int)Math.Round(nh * full.Height), 1, full.Height - y);
 
-                var bmpDesk = new Bitmap(rw, rh, PixelFormat.Format32bppPArgb);
-                using (var g = Graphics.FromImage(bmpDesk))
-                    g.CopyFromScreen(rx, ry, 0, 0, new Size(rw, rh), CopyPixelOperation.SourceCopy);
-                return bmpDesk;
-            }
-
-            using var full = Capture(hwnd, out _, out _);
-
-            var rx2 = (int)Math.Round(nx * full.Width);
-            var ry2 = (int)Math.Round(ny * full.Height);
-            var rw2 = Math.Clamp((int)Math.Round(nw * full.Width), 1, full.Width);
-            var rh2 = Math.Clamp((int)Math.Round(nh * full.Height), 1, full.Height);
-
-            rx2 = Math.Clamp(rx2, 0, full.Width - 1);
-            ry2 = Math.Clamp(ry2, 0, full.Height - 1);
-            rw2 = Math.Clamp(rw2, 1, full.Width - rx2);
-            rh2 = Math.Clamp(rh2, 1, full.Height - ry2);
-
-            var crop = new Rectangle(rx2, ry2, rw2, rh2);
-            var bmp = new Bitmap(crop.Width, crop.Height, PixelFormat.Format32bppPArgb);
-            using var gg = Graphics.FromImage(bmp);
-            gg.DrawImage(full, new Rectangle(0, 0, crop.Width, crop.Height), crop, GraphicsUnit.Pixel);
-            return bmp;
-        }
-
-        public static byte[] ToJpegBytes(Bitmap bmp, int quality)
-        {
-            using var ms = new System.IO.MemoryStream();
-            var codec = GetEncoder(ImageFormat.Jpeg);
-            using var ep = new EncoderParameters(1);
-            ep.Param[0] = new EncoderParameter(Encoder.Quality, Math.Clamp(quality, 50, 100));
-            bmp.Save(ms, codec, ep);
-            return ms.ToArray();
-        }
-
-        public static bool TryGetWindowRect(IntPtr hwnd, out Rectangle r)
-        {
-            r = Rectangle.Empty;
-            if (hwnd == IntPtr.Zero) return false;
-            if (!GetWindowRect(hwnd, out var wr)) return false;
-            r = Rectangle.FromLTRB(wr.left, wr.top, wr.right, wr.bottom);
-            return r.Width > 0 && r.Height > 0;
-        }
-
-        // -------- WGC (with monitor fallback) --------
-
-        private static bool TryCaptureWgc(IntPtr hwnd, out Bitmap bmp, out string? reason)
-        {
-            bmp = null!;
-            reason = null;
-
-            try
-            {
-                if (Environment.OSVersion.Version.Major < 10) { reason = "OS<10"; return false; }
-
-                // window first
-                var item = CreateItemForWindow(hwnd, out int hrWin);
-                if (item is null)
-                {
-                    // monitor fallback
-                    var hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-                    item = CreateItemForMonitor(hmon, out int hrMon);
-                    if (item is null)
-                    {
-                        reason = $"CreateForWindow 0x{hrWin:X8}, CreateForMonitor 0x{hrMon:X8}";
-                        return false;
-                    }
-                }
-
-                using var device = CreateD3DDevice();
-                using var d3d = CreateDirect3DDevice(device);
-
-                using var pool = Direct3D11CaptureFramePool.Create(
-                    d3d, DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, item.Size);
-                using var session = pool.CreateCaptureSession(item);
-                session.IsCursorCaptureEnabled = false;
-
-                Direct3D11CaptureFrame? frame = null;
-                pool.FrameArrived += (s, e) => frame ??= s.TryGetNextFrame();
-                session.StartCapture();
-
-                var t0 = Environment.TickCount;
-                while (frame == null && Environment.TickCount - t0 < 1500)
-                {
-                    frame = pool.TryGetNextFrame();
-                    Thread.Sleep(16);
-                }
-
-                session.Dispose();
-
-                if (frame is null) { reason = "no frames (fullscreen/elevation/protected?)"; return false; }
-
-                using (frame)
-                {
-                    var surface = frame.Surface;
-                    var tex = GetD3DTexture2D(device, surface);
-                    bmp = CopyTextureToBitmap(device, tex);
-                    tex.Dispose();
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                reason = ex.Message;
-                bmp = null!;
-                return false;
-            }
-        }
-
-        private static Bitmap CaptureDesktopFull()
-        {
-            var scr = System.Windows.Forms.Screen.PrimaryScreen
-                      ?? throw new InvalidOperationException("No primary screen.");
-            var b = scr.Bounds;
-
-            var bmp = new Bitmap(b.Width, b.Height, PixelFormat.Format32bppPArgb);
+            var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
             using var g = Graphics.FromImage(bmp);
-            g.CopyFromScreen(b.X, b.Y, 0, 0, b.Size, CopyPixelOperation.SourceCopy);
+            g.DrawImage(full, new Rectangle(0, 0, w, h), new Rectangle(x, y, w, h), GraphicsUnit.Pixel);
             return bmp;
         }
 
-        private static Bitmap CaptureWindowFallback(IntPtr hwnd)
+        // -------- core window capture via PrintWindow -> BitBlt fallback --------
+        public static Bitmap Capture(IntPtr hwnd)
         {
-            if (!GetWindowRect(hwnd, out var r) || r.right <= r.left || r.bottom <= r.top)
-                throw new InvalidOperationException("Bad window rect.");
-            int w = r.right - r.left, h = r.bottom - r.top;
-            var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
+            if (!GetWindowRect(hwnd, out var r)) throw new InvalidOperationException("Invalid window.");
+            int w = Math.Max(1, r.Right - r.Left);
+            int h = Math.Max(1, r.Bottom - r.Top);
+
+            var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
             using var g = Graphics.FromImage(bmp);
-            g.CopyFromScreen(r.left, r.top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
+            using var srcDc = new DeviceContext(GetWindowDC(hwnd), releaseWindow: true);
+            using var memDc = new DeviceContext(CreateCompatibleDC(srcDc.Handle));
+
+            using var hBmp = new GdiObject(CreateCompatibleBitmap(srcDc.Handle, w, h));
+            var old = SelectObject(memDc.Handle, hBmp.Handle);
+
+            // Try PrintWindow (full content) first
+            const int PW_RENDERFULLCONTENT = 0x00000002;
+            bool printed = PrintWindow(hwnd, memDc.Handle, PW_RENDERFULLCONTENT);
+
+            // If PrintWindow fails, BitBlt visible area
+            if (!printed)
+            {
+                const int SRCCOPY = 0x00CC0020;
+                BitBlt(memDc.Handle, 0, 0, w, h, srcDc.Handle, 0, 0, SRCCOPY);
+            }
+
+            using (var tmp = Image.FromHbitmap(hBmp.Handle))
+            {
+                g.DrawImageUnscaled(tmp, 0, 0);
+            }
+
+            SelectObject(memDc.Handle, old);
             return bmp;
         }
 
-        // -------- helpers --------
-
-        private static class OverlaySelector
+        // -------- Win32 helpers --------
+        private sealed class DeviceContext : IDisposable
         {
-            public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) Select(IntPtr preferredHwnd)
+            public IntPtr Handle { get; }
+            private readonly bool _releaseWindow;
+            public DeviceContext(IntPtr h, bool releaseWindow = false)
+            { Handle = h; _releaseWindow = releaseWindow; }
+            public void Dispose()
             {
-                var win = new GravityCapture.Views.RegionSelectorWindow(preferredHwnd);
-                try
-                {
-                    var ok = win.ShowDialog() == true;
-                    return (ok, win.SelectedRect, win.CapturedHwnd != IntPtr.Zero ? win.CapturedHwnd : preferredHwnd);
-                }
-                finally
-                {
-                    if (win.IsVisible) win.Close();
-                }
+                if (Handle == IntPtr.Zero) return;
+                if (_releaseWindow) ReleaseDC(IntPtr.Zero, Handle);
+                else DeleteDC(Handle);
             }
         }
 
-        private static Rectangle GetClientScreenRect(IntPtr hwnd)
+        private sealed class GdiObject : IDisposable
         {
-            GetClientRect(hwnd, out var rc);
-            var pt = new POINT { x = rc.left, y = rc.top };
-            ClientToScreen(hwnd, ref pt);
-            return new Rectangle(pt.x, pt.y, rc.right - rc.left, rc.bottom - rc.top);
-        }
-
-        private static ImageCodecInfo GetEncoder(ImageFormat format)
-        {
-            var encoders = ImageCodecInfo.GetImageDecoders();
-            foreach (var c in encoders)
-                if (c.FormatID == format.Guid) return c;
-            throw new InvalidOperationException("JPEG encoder not found.");
-        }
-
-        // ---- WinRT interop (window + monitor) ----
-
-        private static GraphicsCaptureItem? CreateItemForWindow(IntPtr hwnd, out int hrOut)
-        {
-            hrOut = -1;
-            const string RuntimeClass = "Windows.Graphics.Capture.GraphicsCaptureItem";
-            if (WindowsCreateString(RuntimeClass, RuntimeClass.Length, out var hstr) < 0) return null;
-            try
+            public IntPtr Handle { get; }
+            public GdiObject(IntPtr h) { Handle = h; }
+            public void Dispose()
             {
-                var iidFactory = typeof(IGraphicsCaptureItemInterop).GUID;
-                if (RoGetActivationFactory(hstr, ref iidFactory, out var factoryPtr) < 0 || factoryPtr == IntPtr.Zero)
-                    return null;
-                try
-                {
-                    var interop = (IGraphicsCaptureItemInterop)Marshal.GetObjectForIUnknown(factoryPtr);
-                    var iidItem = typeof(GraphicsCaptureItem).GUID;
-                    hrOut = interop.CreateForWindow(hwnd, ref iidItem, out GraphicsCaptureItem item);
-                    return hrOut == 0 ? item : null;
-                }
-                finally { Marshal.Release(factoryPtr); }
-            }
-            finally { WindowsDeleteString(hstr); }
-        }
-
-        private static GraphicsCaptureItem? CreateItemForMonitor(IntPtr hmon, out int hrOut)
-        {
-            hrOut = -1;
-            const string RuntimeClass = "Windows.Graphics.Capture.GraphicsCaptureItem";
-            if (WindowsCreateString(RuntimeClass, RuntimeClass.Length, out var hstr) < 0) return null;
-            try
-            {
-                var iidFactory = typeof(IGraphicsCaptureItemInterop).GUID;
-                if (RoGetActivationFactory(hstr, ref iidFactory, out var factoryPtr) < 0 || factoryPtr == IntPtr.Zero)
-                    return null;
-                try
-                {
-                    var interop = (IGraphicsCaptureItemInterop)Marshal.GetObjectForIUnknown(factoryPtr);
-                    var iidItem = typeof(GraphicsCaptureItem).GUID;
-                    hrOut = interop.CreateForMonitor(hmon, ref iidItem, out GraphicsCaptureItem item);
-                    return hrOut == 0 ? item : null;
-                }
-                finally { Marshal.Release(factoryPtr); }
-            }
-            finally { WindowsDeleteString(hstr); }
-        }
-
-        private static ID3D11Device CreateD3DDevice()
-        {
-            _ = D3D11Api.D3D11CreateDevice(
-                null, Vortice.Direct3D.DriverType.Hardware,
-                Vortice.Direct3D11.DeviceCreationFlags.BgraSupport | Vortice.Direct3D11.DeviceCreationFlags.VideoSupport,
-                null, out ID3D11Device device);
-            if (device == null) throw new InvalidOperationException("D3D11CreateDevice failed.");
-            return device;
-        }
-
-        private static Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice CreateDirect3DDevice(ID3D11Device device)
-        {
-            using var dxgi = device.QueryInterface<DXGI.IDXGIDevice>();
-            int hr = CreateDirect3D11DeviceFromDXGIDevice(dxgi.NativePointer, out var unk);
-            if (hr < 0) Marshal.ThrowExceptionForHR(hr);
-            return WinRT.MarshalInterface<Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice>.FromAbi(unk);
-        }
-
-        private static ID3D11Texture2D GetD3DTexture2D(ID3D11Device device, Windows.Graphics.DirectX.Direct3D11.IDirect3DSurface surface)
-        {
-            var access = (IDirect3DDxgiInterfaceAccess)surface!;
-            var iid = typeof(ID3D11Texture2D).GUID;
-            var ptr = access.GetInterface(ref iid);
-            return new ID3D11Texture2D(ptr);
-        }
-
-        private static Bitmap CopyTextureToBitmap(ID3D11Device device, ID3D11Texture2D src)
-        {
-            var desc = src.Description;
-
-            var stagingDesc = desc;
-            stagingDesc.BindFlags = 0;
-            stagingDesc.CPUAccessFlags = Vortice.Direct3D11.CpuAccessFlags.Read;
-            stagingDesc.Usage = Vortice.Direct3D11.ResourceUsage.Staging;
-            stagingDesc.MiscFlags = Vortice.Direct3D11.ResourceOptionFlags.None;
-
-            using var staging = device.CreateTexture2D(stagingDesc);
-            var ctx = device.ImmediateContext!;
-            ctx.CopyResource(staging, src);
-
-            var map = ctx.Map(staging, 0, Vortice.Direct3D11.MapMode.Read, Vortice.Direct3D11.MapFlags.None);
-            try
-            {
-                int width = (int)desc.Width;
-                int height = (int)desc.Height;
-                int rowPitch = (int)map.RowPitch;
-
-                var bmp = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
-                var data = bmp.LockBits(new Rectangle(0, 0, width, height),
-                    ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
-
-                int rowBytes = width * 4;
-                unsafe
-                {
-                    for (int y = 0; y < height; y++)
-                    {
-                        Buffer.MemoryCopy(
-                            (void*)IntPtr.Add(map.DataPointer, y * rowPitch),
-                            (void*)IntPtr.Add(data.Scan0, y * data.Stride),
-                            rowBytes, rowBytes);
-                    }
-                }
-
-                bmp.UnlockBits(data);
-                return bmp;
-            }
-            finally
-            {
-                ctx.Unmap(staging, 0);
+                if (Handle != IntPtr.Zero) DeleteObject(Handle);
             }
         }
-
-        // -------- P/Invoke --------
-
-        [ComImport, Guid("3628E81B-3CAC-4A9E-8545-75C971C37E80"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        private interface IGraphicsCaptureItemInterop
-        {
-            int CreateForWindow(IntPtr hwnd, ref Guid iid, out GraphicsCaptureItem result);
-            int CreateForMonitor(IntPtr hmon, ref Guid iid, out GraphicsCaptureItem result);
-        }
-
-        [ComImport, Guid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        private interface IDirect3DDxgiInterfaceAccess
-        {
-            IntPtr GetInterface(ref Guid iid);
-        }
-
-        [DllImport("d3d11.dll")] private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
-        [DllImport("combase.dll")] private static extern int RoGetActivationFactory(IntPtr hstringClassId, ref Guid iid, out IntPtr factory);
-        [DllImport("combase.dll", CharSet = CharSet.Unicode)] private static extern int WindowsCreateString(string source, int length, out IntPtr hstring);
-        [DllImport("combase.dll")] private static extern int WindowsDeleteString(IntPtr hstring);
 
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern IntPtr GetWindowDC(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+        [DllImport("gdi32.dll")]  private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+        [DllImport("gdi32.dll")]  private static extern bool DeleteDC(IntPtr hdc);
+        [DllImport("gdi32.dll")]  private static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int nWidth, int nHeight);
+        [DllImport("gdi32.dll")]  private static extern IntPtr SelectObject(IntPtr hdc, IntPtr hgdiobj);
+        [DllImport("gdi32.dll")]  private static extern bool DeleteObject(IntPtr ho);
+        [DllImport("gdi32.dll")]  private static extern bool BitBlt(IntPtr hdc, int x, int y, int cx, int cy, IntPtr hdcSrc, int x1, int y1, int rop);
+        [DllImport("user32.dll")] private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, int nFlags);
+        [DllImport("user32.dll")] private static extern bool EnumWindows(Func<IntPtr, IntPtr, bool> lpEnumFunc, IntPtr lParam);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
         [DllImport("user32.dll")] private static extern int GetWindowTextLength(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
-        [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+        [DllImport("user32.dll")] private static extern int GetSystemMetrics(int nIndex);
 
-        [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
-        private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
-
-        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-        private static string GetWindowTitle(IntPtr hWnd)
+        private static string GetWindowText(IntPtr hWnd)
         {
-            int length = GetWindowTextLength(hWnd);
-            var sb = new System.Text.StringBuilder(length + 1);
+            int len = GetWindowTextLength(hWnd);
+            var sb = new System.Text.StringBuilder(len + 1);
             _ = GetWindowText(hWnd, sb, sb.Capacity);
             return sb.ToString();
         }
 
-        private struct RECT { public int left, top, right, bottom; }
-        private struct POINT { public int x, y; }
+        private struct RECT { public int Left, Top, Right, Bottom; }
     }
 }
