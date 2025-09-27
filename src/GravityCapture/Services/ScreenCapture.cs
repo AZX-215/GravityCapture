@@ -1,3 +1,4 @@
+// File: src/GravityCapture/Services/ScreenCapture.cs
 using System;
 using System.Diagnostics;
 using System.Drawing;
@@ -16,6 +17,8 @@ namespace GravityCapture.Services
 {
     public static class ScreenCapture
     {
+        // ---------- Public API ----------
+
         public static (bool ok, Rectangle rectScreen, IntPtr hwndUsed) SelectRegion(IntPtr preferredHwnd)
             => OverlaySelector.Select(preferredHwnd);
 
@@ -28,7 +31,7 @@ namespace GravityCapture.Services
             EnumWindows((h, _) =>
             {
                 if (!IsWindowVisible(h)) return true;
-                var title = GetWindowText(h);
+                var title = GetWindowTitle(h);
                 if (!string.IsNullOrEmpty(title) &&
                     title.IndexOf("ARK", StringComparison.OrdinalIgnoreCase) >= 0)
                 { found = h; return false; }
@@ -71,8 +74,6 @@ namespace GravityCapture.Services
             nh = screenRect.Height / (double)b.Height;
             return true;
         }
-
-        // -------- capture APIs --------
 
         public static Bitmap Capture(IntPtr hwnd) => Capture(hwnd, out _, out _);
 
@@ -151,7 +152,8 @@ namespace GravityCapture.Services
             return r.Width > 0 && r.Height > 0;
         }
 
-        // -------- WGC (ignores occlusion) --------
+        // ---------- WGC ----------
+
         private static bool TryCaptureWgc(IntPtr hwnd, out Bitmap bmp, out string? reason)
         {
             bmp = null!;
@@ -174,7 +176,6 @@ namespace GravityCapture.Services
 
                 Direct3D11CaptureFrame? frame = null;
                 pool.FrameArrived += (s, e) => frame ??= s.TryGetNextFrame();
-
                 session.StartCapture();
 
                 var t0 = Environment.TickCount;
@@ -229,6 +230,8 @@ namespace GravityCapture.Services
             g.CopyFromScreen(r.left, r.top, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
             return bmp;
         }
+
+        // ---------- Helpers ----------
 
         private static class OverlaySelector
         {
@@ -371,6 +374,8 @@ namespace GravityCapture.Services
             }
         }
 
+        // ---------- P/Invoke ----------
+
         [ComImport, Guid("3628E81B-3CAC-4A9E-8545-75C971C37E80"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IGraphicsCaptureItemInterop
         {
@@ -398,7 +403,8 @@ namespace GravityCapture.Services
         [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
 
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-        private static string GetWindowText(IntPtr hWnd)
+
+        private static string GetWindowTitle(IntPtr hWnd)
         {
             int length = GetWindowTextLength(hWnd);
             var sb = new System.Text.StringBuilder(length + 1);
