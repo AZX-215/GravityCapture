@@ -17,7 +17,6 @@ namespace GravityCapture
         private bool _haveCrop = false;
         private double _nx, _ny, _nw, _nh;
         private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(800) };
-
         private AppSettings _settings = AppSettings.Load();
 
         [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
@@ -28,7 +27,6 @@ namespace GravityCapture
             InitializeComponent();
             BindFromSettings();
 
-            // Prefer Ark automatically
             var ark = ScreenCapture.ResolveArkWindow();
             if (ark != IntPtr.Zero) _hwnd = ark;
 
@@ -73,9 +71,9 @@ namespace GravityCapture
 
             var (ok, rect, hwndUsed) = ScreenCapture.SelectRegion(_hwnd);
             if (!ok) { StatusText.Text = "Selection cancelled."; return; }
-
             if (hwndUsed != IntPtr.Zero) _hwnd = hwndUsed;
 
+            // Normalize against window client if possible; desktop otherwise.
             bool normOk = (_hwnd != IntPtr.Zero)
                 ? ScreenCapture.TryNormalizeRect(_hwnd, rect, out _nx, out _ny, out _nw, out _nh)
                 : ScreenCapture.TryNormalizeRectDesktop(rect, out _nx, out _ny, out _nw, out _nh);
@@ -87,26 +85,57 @@ namespace GravityCapture
                 _settings.UseCrop = true;
                 _settings.CropX = _nx; _settings.CropY = _ny; _settings.CropW = _nw; _settings.CropH = _nh;
                 _settings.Save();
+                StatusText.Text = $"Crop set. nx={_nx:F3} ny={_ny:F3} nw={_nw:F3} nh={_nh:F3}";
+            }
+            else
+            {
+                StatusText.Text = "Failed to normalize crop.";
             }
 
-            StatusText.Text = normOk ? "Crop set." : "Failed to normalize crop.";
             UpdatePreview();
         }
 
-        private void OcrCropBtn_Click(object sender, RoutedEventArgs e)
+        private void OcrCropBtn_Click(object? sender, RoutedEventArgs e)
         {
-            if (!_haveCrop) { StatusText.Text = "No crop set."; return; }
-            using var bmp = ScreenCapture.CaptureCropNormalized(_hwnd, _nx, _ny, _nw, _nh);
-            System.Windows.Clipboard.SetImage(ToBitmapImage(bmp));
-            StatusText.Text = "Cropped image copied.";
+            try
+            {
+                if (!_haveCrop) { StatusText.Text = "No crop set."; return; }
+                if (_hwnd == IntPtr.Zero || !IsWindow(_hwnd)) { StatusText.Text = "No target window."; return; }
+
+                using var bmp = ScreenCapture.CaptureCropNormalized(_hwnd, _nx, _ny, _nw, _nh);
+                var img = ToBitmapImage(bmp);
+
+                // Clipboard can be busy; retry briefly.
+                var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(300);
+                while (true)
+                {
+                    try { System.Windows.Clipboard.SetImage(img); break; }
+                    catch { if (DateTime.UtcNow > deadline) throw; System.Threading.Thread.Sleep(30); }
+                }
+
+                LivePreview.Source = img;
+                StatusText.Text = "Cropped image copied to clipboard.";
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = $"OCR crop failed: {ex.Message}";
+            }
         }
 
-        private void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
+        private void OcrAndPostNowBtn_Click(object? sender, RoutedEventArgs e)
         {
-            if (!_haveCrop) { StatusText.Text = "No crop set."; return; }
-            using var bmp = ScreenCapture.CaptureCropNormalized(_hwnd, _nx, _ny, _nw, _nh);
-            LivePreview.Source = ToBitmapImage(bmp);
-            StatusText.Text = "Captured now.";
+            try
+            {
+                if (!_haveCrop) { StatusText.Text = "No crop set."; return; }
+                using var bmp = ScreenCapture.CaptureCropNormalized(_hwnd, _nx, _ny, _nw, _nh);
+                LivePreview.Source = ToBitmapImage(bmp);
+                StatusText.Text = "Captured now.";
+                // Hook your OCR+post pipeline here.
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = $"Capture now failed: {ex.Message}";
+            }
         }
 
         private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
@@ -137,7 +166,6 @@ namespace GravityCapture
                 Bitmap? cropped = null;
                 if (_haveCrop)
                 {
-                    // crop using normalized rect against the captured frame size
                     int rx = Math.Clamp((int)Math.Round(_nx * frameBmp.Width), 0, frameBmp.Width - 1);
                     int ry = Math.Clamp((int)Math.Round(_ny * frameBmp.Height), 0, frameBmp.Height - 1);
                     int rw = Math.Clamp((int)Math.Round(_nw * frameBmp.Width), 1, frameBmp.Width - rx);
@@ -182,7 +210,6 @@ namespace GravityCapture
             ApiKeyBox.Text   = _settings.Auth?.ApiKey ?? "";
             IntervalBox.Text = Math.Max(1, _settings.IntervalMinutes).ToString();
 
-            // Preview ignores this toggle; reserved for scheduled capture logic
             ActiveWindowCheck.IsChecked = _settings.Capture?.ActiveWindow ?? false;
 
             ServerBox.Text = _settings.Capture?.ServerName ?? "";
@@ -195,6 +222,13 @@ namespace GravityCapture
             FilterTameCheck.IsChecked    = _settings.Image?.FilterTameDeath ?? false;
             FilterStructCheck.IsChecked  = _settings.Image?.FilterStructureDestroyed ?? false;
             FilterTribeCheck.IsChecked   = _settings.Image?.FilterTribeMateDeath ?? false;
+
+            // Restore crop if present
+            if (_settings.UseCrop)
+            {
+                _nx = _settings.CropX; _ny = _settings.CropY; _nw = _settings.CropW; _nh = _settings.CropH;
+                _haveCrop = _nw > 0 && _nh > 0;
+            }
         }
 
         private void BindToSettings()
@@ -219,6 +253,12 @@ namespace GravityCapture
             _settings.Image.FilterTameDeath          = FilterTameCheck.IsChecked == true;
             _settings.Image.FilterStructureDestroyed = FilterStructCheck.IsChecked == true;
             _settings.Image.FilterTribeMateDeath     = FilterTribeCheck.IsChecked == true;
+
+            if (_haveCrop)
+            {
+                _settings.UseCrop = true;
+                _settings.CropX = _nx; _settings.CropY = _ny; _settings.CropW = _nw; _settings.CropH = _nh;
+            }
         }
     }
 }
