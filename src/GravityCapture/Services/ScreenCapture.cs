@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows;
-using GravityCapture.Windows; // RegionSelectorWindow (your existing overlay)
+using GravityCapture;  // RegionSelectorWindow (existing overlay)
 
 namespace GravityCapture.Services
 {
