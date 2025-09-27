@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.WindowsRuntime; // WinRT factory
 using System.Threading;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
@@ -160,14 +159,10 @@ namespace GravityCapture.Services
                 using var pool = Direct3D11CaptureFramePool.Create(
                     d3d, DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, item.Size);
                 using var session = pool.CreateCaptureSession(item);
-                session.IsCursorCaptureEnabled = false; // keep cursor off
+                session.IsCursorCaptureEnabled = false;
 
                 Direct3D11CaptureFrame? frame = null;
-
-                pool.FrameArrived += (s, e) =>
-                {
-                    frame ??= s.TryGetNextFrame();
-                };
+                pool.FrameArrived += (s, e) => frame ??= s.TryGetNextFrame();
 
                 session.StartCapture();
 
@@ -254,16 +249,37 @@ namespace GravityCapture.Services
             throw new InvalidOperationException("JPEG encoder not found.");
         }
 
-        // ---- WGC interop helpers ----
+        // ---- WinRT activation via RoGetActivationFactory ----
         private static GraphicsCaptureItem? CreateItemForWindow(IntPtr hwnd)
         {
-            // Use WinRT activation factory instead of Activator
-            var factory = WindowsRuntimeMarshal.GetActivationFactory(typeof(GraphicsCaptureItem));
-            var interop = (IGraphicsCaptureItemInterop)factory;
+            const string RuntimeClass = "Windows.Graphics.Capture.GraphicsCaptureItem";
+            IntPtr hstr = IntPtr.Zero;
+            int hr = WindowsCreateString(RuntimeClass, RuntimeClass.Length, out hstr);
+            if (hr < 0) return null;
 
-            var iid = typeof(GraphicsCaptureItem).GUID;
-            int hr = interop.CreateForWindow(hwnd, ref iid, out GraphicsCaptureItem item);
-            return hr == 0 ? item : null;
+            try
+            {
+                Guid iidFactory = typeof(IGraphicsCaptureItemInterop).GUID;
+                IntPtr factoryPtr;
+                hr = RoGetActivationFactory(hstr, ref iidFactory, out factoryPtr);
+                if (hr < 0 || factoryPtr == IntPtr.Zero) return null;
+
+                try
+                {
+                    var interop = (IGraphicsCaptureItemInterop)Marshal.GetObjectForIUnknown(factoryPtr);
+                    Guid iidItem = typeof(GraphicsCaptureItem).GUID;
+                    hr = interop.CreateForWindow(hwnd, ref iidItem, out GraphicsCaptureItem item);
+                    return hr == 0 ? item : null;
+                }
+                finally
+                {
+                    Marshal.Release(factoryPtr);
+                }
+            }
+            finally
+            {
+                WindowsDeleteString(hstr);
+            }
         }
 
         private static ID3D11Device CreateD3DDevice()
@@ -351,6 +367,11 @@ namespace GravityCapture.Services
         }
 
         [DllImport("d3d11.dll")] private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
+
+        // WinRT activation + HSTRING helpers
+        [DllImport("combase.dll")] private static extern int RoGetActivationFactory(IntPtr hstringClassId, ref Guid iid, out IntPtr factory);
+        [DllImport("combase.dll", CharSet = CharSet.Unicode)] private static extern int WindowsCreateString(string source, int length, out IntPtr hstring);
+        [DllImport("combase.dll")] private static extern int WindowsDeleteString(IntPtr hstring);
 
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
