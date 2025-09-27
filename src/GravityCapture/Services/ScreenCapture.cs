@@ -59,6 +59,8 @@ namespace GravityCapture.Services
         public static bool TryNormalizeRectDesktop(Rectangle screenRect,
             out double nx, out double ny, out double nw, out double nh)
         {
+            nx = ny = nw = nh = 0;
+
             var scr = System.Windows.Forms.Screen.PrimaryScreen;
             if (scr is null) return false;
             var b = scr.Bounds;
@@ -72,7 +74,6 @@ namespace GravityCapture.Services
 
         // -------- capture APIs --------
 
-        // Non-throwing helper also returned below.
         public static Bitmap Capture(IntPtr hwnd) => Capture(hwnd, out _, out _);
 
         public static Bitmap Capture(IntPtr hwnd, out bool usedFallback, out string? reason)
@@ -83,7 +84,7 @@ namespace GravityCapture.Services
             if (hwnd == IntPtr.Zero) return CaptureDesktopFull();
 
             if (TryCaptureWgc(hwnd, out var bmp, out reason))
-                return bmp!; // proven non-null when TryCaptureWgc returns true
+                return bmp!;
 
             usedFallback = true;
             reason ??= "WGC unavailable";
@@ -335,7 +336,7 @@ namespace GravityCapture.Services
             stagingDesc.MiscFlags = ResourceOptionFlags.None;
 
             using var staging = device.CreateTexture2D(stagingDesc);
-            var ctx = device.ImmediateContext!; // analyzer: context is non-null for a valid device
+            var ctx = device.ImmediateContext!;
             ctx.CopyResource(staging, src);
 
             var map = ctx.Map(staging, 0, MapMode.Read, MapFlags.None);
