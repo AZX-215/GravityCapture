@@ -1,15 +1,19 @@
 #nullable enable
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
-using System.Windows;
-using GravityCapture;  // RegionSelectorWindow
+using GravityCapture;                 // RegionSelectorWindow
+using GravityCapture.Services;        // WgcCapture
 
 namespace GravityCapture.Services
 {
     public static class ScreenCapture
     {
+        // Cache WGC sessions per window
+        private static readonly ConcurrentDictionary<IntPtr, WgcCapture> _wgc = new();
+
         // -------- window discovery --------
         public static IntPtr ResolveArkWindow()
         {
@@ -87,28 +91,62 @@ namespace GravityCapture.Services
             return true;
         }
 
-        // -------- preview frame (BitBlt/PrintWindow path only) --------
+        // -------- preview frame: WGC first, GDI fallback --------
         public static Bitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? reason)
         {
+            reason = null;
+
+            if (WgcCapture.IsSupported())
+            {
+                var cap = _wgc.GetOrAdd(hwnd, h =>
+                {
+                    var c = WgcCapture.TryStartForWindow(h, out var why);
+                    if (c == null) reason = why;
+                    return c!;
+                });
+
+                if (cap != null && cap.TryGetLatest(out var bmp, out var whyWgc) && bmp != null)
+                {
+                    usedFallback = false;
+                    return bmp;
+                }
+
+                reason = whyWgc ?? reason ?? "WGC had no frame";
+            }
+
             usedFallback = true;
-            reason = "CreateForWindow failed";
             return Capture(hwnd);
         }
 
-        // -------- crop using normalized rect --------
+        // -------- crop using normalized rect (WGC first) --------
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
         {
-            using var full = Capture(hwnd);
+            Bitmap source;
+            if (WgcCapture.IsSupported())
+            {
+                if (_wgc.TryGetValue(hwnd, out var cap) || (cap = WgcCapture.TryStartForWindow(hwnd, out _)) != null)
+                {
+                    if (cap.TryGetLatest(out var bmp, out _) && bmp != null)
+                        source = bmp;
+                    else
+                        source = Capture(hwnd); // fallback
+                }
+                else source = Capture(hwnd);
+            }
+            else source = Capture(hwnd);
 
-            int x = Math.Clamp((int)Math.Round(nx * full.Width), 0, full.Width - 1);
-            int y = Math.Clamp((int)Math.Round(ny * full.Height), 0, full.Height - 1);
-            int w = Math.Clamp((int)Math.Round(nw * full.Width), 1, full.Width - x);
-            int h = Math.Clamp((int)Math.Round(nh * full.Height), 1, full.Height - y);
+            using (source)
+            {
+                int x = Math.Clamp((int)Math.Round(nx * source.Width), 0, source.Width - 1);
+                int y = Math.Clamp((int)Math.Round(ny * source.Height), 0, source.Height - 1);
+                int w = Math.Clamp((int)Math.Round(nw * source.Width), 1, source.Width - x);
+                int h = Math.Clamp((int)Math.Round(nh * source.Height), 1, source.Height - y);
 
-            var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-            using var g = Graphics.FromImage(bmp);
-            g.DrawImage(full, new Rectangle(0, 0, w, h), new Rectangle(x, y, w, h), GraphicsUnit.Pixel);
-            return bmp;
+                var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                using var g = Graphics.FromImage(bmp);
+                g.DrawImage(source, new Rectangle(0, 0, w, h), new Rectangle(x, y, w, h), GraphicsUnit.Pixel);
+                return bmp;
+            }
         }
 
         // -------- core window capture via PrintWindow -> BitBlt fallback --------
