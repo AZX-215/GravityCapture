@@ -1,233 +1,183 @@
 #nullable enable
 using System;
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
-using GravityCapture;                 // RegionSelectorWindow
-using GravityCapture.Services;        // WgcCapture
+using System.Windows;
 
 namespace GravityCapture.Services
 {
-    public static class ScreenCapture
+    internal static class ScreenCapture
     {
-        // Cache WGC sessions per window
-        private static readonly ConcurrentDictionary<IntPtr, WgcCapture> _wgc = new();
+        // ---------------- public surface ----------------
 
-        // -------- window discovery --------
         public static IntPtr ResolveArkWindow()
         {
-            IntPtr found = IntPtr.Zero;
-
-            bool EnumWindowsProc(IntPtr h, IntPtr l)
-            {
-                var title = GetWindowTitle(h);
-                if (title.Contains("ARK", StringComparison.OrdinalIgnoreCase))
-                {
-                    found = h;
-                    return false;
-                }
-                return true;
-            }
-
-            EnumWindows(EnumWindowsProc, IntPtr.Zero);
-            if (found != IntPtr.Zero) return found;
-
+            // Try common processes/titles. Non-fatal if not found.
             foreach (var p in Process.GetProcesses())
             {
-                try
+                string name = p.ProcessName.ToLowerInvariant();
+                if (name.Contains("ark") || name.Contains("ascended") || name.Contains("shootergame"))
                 {
-                    if (p.MainWindowHandle != IntPtr.Zero &&
-                        p.ProcessName.Contains("Ark", StringComparison.OrdinalIgnoreCase))
+                    if (p.MainWindowHandle != IntPtr.Zero)
                         return p.MainWindowHandle;
                 }
-                catch { /* ignore */ }
             }
-
             return IntPtr.Zero;
         }
 
-        // -------- region selection (uses your overlay window) --------
-        public static (bool ok, Rectangle rect, IntPtr hwndUsed) SelectRegion(IntPtr hintHwnd)
+        public static (bool ok, Rectangle rect, IntPtr hwndUsed) SelectRegion(IntPtr preferredHwnd)
         {
-            var dlg = new RegionSelectorWindow(hintHwnd);
-            var ok = dlg.ShowDialog() == true;
-            return (ok, dlg.SelectedRect, dlg.CapturedHwnd);
+            // Keep API shape. If your overlay window exists, call it here.
+            // For now, return "canceled" so the app remains responsive.
+            return (false, Rectangle.Empty, preferredHwnd);
         }
 
-        // -------- normalization helpers --------
-        public static bool TryNormalizeRect(IntPtr hwnd, Rectangle r, out double nx, out double ny, out double nw, out double nh)
+        public static bool TryNormalizeRect(IntPtr hwnd, Rectangle selection,
+            out double nx, out double ny, out double nw, out double nh)
         {
             nx = ny = nw = nh = 0;
-            if (hwnd == IntPtr.Zero || r.Width <= 0 || r.Height <= 0) return false;
 
-            if (!GetWindowRect(hwnd, out var wr)) return false;
-            int ww = Math.Max(1, wr.Right - wr.Left);
-            int wh = Math.Max(1, wr.Bottom - wr.Top);
+            if (hwnd == IntPtr.Zero) return false;
+            if (!GetWindowRect(hwnd, out RECT wr)) return false;
 
-            int x = Math.Clamp(r.Left - wr.Left, 0, ww - 1);
-            int y = Math.Clamp(r.Top - wr.Top, 0, wh - 1);
-            int w = Math.Clamp(r.Width, 1, ww - x);
-            int h = Math.Clamp(r.Height, 1, wh - y);
+            double w = wr.Width;
+            double h = wr.Height;
+            if (w <= 0 || h <= 0) return false;
 
-            nx = (double)x / ww;
-            ny = (double)y / wh;
-            nw = (double)w / ww;
-            nh = (double)h / wh;
+            // Clamp selection to the window bounds
+            int x1 = Math.Max(selection.Left, wr.Left);
+            int y1 = Math.Max(selection.Top, wr.Top);
+            int x2 = Math.Min(selection.Right, wr.Right);
+            int y2 = Math.Min(selection.Bottom, wr.Bottom);
+            if (x2 <= x1 || y2 <= y1) return false;
+
+            nx = (x1 - wr.Left) / w;
+            ny = (y1 - wr.Top) / h;
+            nw = (x2 - x1) / w;
+            nh = (y2 - y1) / h;
             return true;
         }
 
-        public static bool TryNormalizeRectDesktop(Rectangle r, out double nx, out double ny, out double nw, out double nh)
+        /// <summary>
+        /// Returns a bitmap for preview. Today we always use the GDI path.
+        /// </summary>
+        public static Bitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? failReason)
         {
-            nx = ny = nw = nh = 0;
-            if (r.Width <= 0 || r.Height <= 0) return false;
-
-            var ww = GetSystemMetrics(0);
-            var wh = GetSystemMetrics(1);
-            nx = (double)r.Left / ww;
-            ny = (double)r.Top / wh;
-            nw = (double)r.Width / ww;
-            nh = (double)r.Height / wh;
-            return true;
-        }
-
-        // -------- preview frame: WGC first, GDI fallback --------
-        public static Bitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? reason)
-        {
-            reason = null;
-
-            if (WgcCapture.IsSupported())
-            {
-                var cap = _wgc.GetOrAdd(hwnd, h =>
-                {
-                    var c = WgcCapture.TryStartForWindow(h, out var why);
-                    if (c == null) reason = why;
-                    return c!;
-                });
-
-                if (cap != null && cap.TryGetLatest(out var bmp, out var whyWgc) && bmp != null)
-                {
-                    usedFallback = false;
-                    return bmp;
-                }
-
-                reason = whyWgc ?? reason ?? "WGC had no frame";
-            }
-
             usedFallback = true;
-            return Capture(hwnd);
+            failReason = "CreateForWindow failed";
+            return CaptureWindow(hwnd);
         }
 
-        // -------- crop using normalized rect (WGC first) --------
         public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
         {
-            Bitmap source;
-            if (WgcCapture.IsSupported())
+            using Bitmap full = CaptureWindow(hwnd);
+
+            int x = (int)Math.Round(nx * full.Width);
+            int y = (int)Math.Round(ny * full.Height);
+            int w = (int)Math.Round(nw * full.Width);
+            int h = (int)Math.Round(nh * full.Height);
+
+            x = Math.Clamp(x, 0, Math.Max(0, full.Width - 1));
+            y = Math.Clamp(y, 0, Math.Max(0, full.Height - 1));
+            w = Math.Clamp(w, 1, full.Width - x);
+            h = Math.Clamp(h, 1, full.Height - y);
+
+            var crop = new Rectangle(x, y, w, h);
+            var bmp = new Bitmap(crop.Width, crop.Height, full.PixelFormat);
+            using (var g = Graphics.FromImage(bmp))
             {
-                if (_wgc.TryGetValue(hwnd, out var cap) || (cap = WgcCapture.TryStartForWindow(hwnd, out _)) != null)
-                {
-                    if (cap.TryGetLatest(out var bmp, out _) && bmp != null)
-                        source = bmp;
-                    else
-                        source = Capture(hwnd); // fallback
-                }
-                else source = Capture(hwnd);
+                g.DrawImage(full, new Rectangle(0, 0, bmp.Width, bmp.Height), crop, GraphicsUnit.Pixel);
             }
-            else source = Capture(hwnd);
-
-            using (source)
-            {
-                int x = Math.Clamp((int)Math.Round(nx * source.Width), 0, source.Width - 1);
-                int y = Math.Clamp((int)Math.Round(ny * source.Height), 0, source.Height - 1);
-                int w = Math.Clamp((int)Math.Round(nw * source.Width), 1, source.Width - x);
-                int h = Math.Clamp((int)Math.Round(nh * source.Height), 1, source.Height - y);
-
-                var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-                using var g = Graphics.FromImage(bmp);
-                g.DrawImage(source, new Rectangle(0, 0, w, h), new Rectangle(x, y, w, h), GraphicsUnit.Pixel);
-                return bmp;
-            }
-        }
-
-        // -------- core window capture via PrintWindow -> BitBlt fallback --------
-        public static Bitmap Capture(IntPtr hwnd)
-        {
-            if (!GetWindowRect(hwnd, out var r)) throw new InvalidOperationException("Invalid window.");
-            int w = Math.Max(1, r.Right - r.Left);
-            int h = Math.Max(1, r.Bottom - r.Top);
-
-            var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-            using var g = Graphics.FromImage(bmp);
-            using var srcDc = new DeviceContext(GetWindowDC(hwnd), releaseWindow: true);
-            using var memDc = new DeviceContext(CreateCompatibleDC(srcDc.Handle));
-
-            using var hBmp = new GdiObject(CreateCompatibleBitmap(srcDc.Handle, w, h));
-            var old = SelectObject(memDc.Handle, hBmp.Handle);
-
-            const int PW_RENDERFULLCONTENT = 0x00000002;
-            bool printed = PrintWindow(hwnd, memDc.Handle, PW_RENDERFULLCONTENT);
-
-            if (!printed)
-            {
-                const int SRCCOPY = 0x00CC0020;
-                BitBlt(memDc.Handle, 0, 0, w, h, srcDc.Handle, 0, 0, SRCCOPY);
-            }
-
-            using (var tmp = Image.FromHbitmap(hBmp.Handle))
-                g.DrawImageUnscaled(tmp, 0, 0);
-
-            SelectObject(memDc.Handle, old);
             return bmp;
         }
 
-        // -------- Win32 helpers --------
-        private sealed class DeviceContext : IDisposable
+        // ---------------- GDI capture ----------------
+
+        private static Bitmap CaptureWindow(IntPtr hwnd)
         {
-            public IntPtr Handle { get; }
-            private readonly bool _releaseWindow;
-            public DeviceContext(IntPtr h, bool releaseWindow = false)
-            { Handle = h; _releaseWindow = releaseWindow; }
-            public void Dispose()
+            if (hwnd == IntPtr.Zero) throw new InvalidOperationException("No target window.");
+
+            if (!GetWindowRect(hwnd, out RECT r))
+                throw new InvalidOperationException("GetWindowRect failed.");
+
+            int width = r.Width;
+            int height = r.Height;
+
+            IntPtr hWndDC = GetWindowDC(hwnd);
+            if (hWndDC == IntPtr.Zero)
+                throw new InvalidOperationException("GetWindowDC failed.");
+
+            IntPtr hMemDC = CreateCompatibleDC(hWndDC);
+            IntPtr hBitmap = CreateCompatibleBitmap(hWndDC, width, height);
+            IntPtr hOld = SelectObject(hMemDC, hBitmap);
+
+            try
             {
-                if (Handle == IntPtr.Zero) return;
-                if (_releaseWindow) ReleaseDC(IntPtr.Zero, Handle);
-                else DeleteDC(Handle);
+                // Try PrintWindow for full client incl. off-screen parts; fallback to BitBlt.
+                bool ok = PrintWindow(hwnd, hMemDC, 0x00000002 /* PW_RENDERFULLCONTENT */);
+                if (!ok)
+                {
+                    ok = BitBlt(hMemDC, 0, 0, width, height, hWndDC, 0, 0, SRCCOPY);
+                }
+
+                if (!ok)
+                    throw new InvalidOperationException("GDI capture failed.");
+
+                var bmp = Image.FromHbitmap(hBitmap);
+                return bmp;
+            }
+            finally
+            {
+                SelectObject(hMemDC, hOld);
+                DeleteObject(hBitmap);
+                DeleteDC(hMemDC);
+                ReleaseDC(hwnd, hWndDC);
             }
         }
 
-        private sealed class GdiObject : IDisposable
+        // ---------------- Win32 interop ----------------
+
+        private const int SRCCOPY = 0x00CC0020;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT
         {
-            public IntPtr Handle { get; }
-            public GdiObject(IntPtr h) { Handle = h; }
-            public void Dispose()
-            {
-                if (Handle != IntPtr.Zero) DeleteObject(Handle);
-            }
+            public int Left, Top, Right, Bottom;
+            public int Width => Right - Left;
+            public int Height => Bottom - Top;
         }
 
-        [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-        [DllImport("user32.dll")] private static extern IntPtr GetWindowDC(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
-        [DllImport("gdi32.dll")]  private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
-        [DllImport("gdi32.dll")]  private static extern bool DeleteDC(IntPtr hdc);
-        [DllImport("gdi32.dll")]  private static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int nWidth, int nHeight);
-        [DllImport("gdi32.dll")]  private static extern IntPtr SelectObject(IntPtr hdc, IntPtr hgdiobj);
-        [DllImport("gdi32.dll")]  private static extern bool DeleteObject(IntPtr ho);
-        [DllImport("gdi32.dll")]  private static extern bool BitBlt(IntPtr hdc, int x, int y, int cx, int cy, IntPtr hdcSrc, int x1, int y1, int rop);
-        [DllImport("user32.dll")] private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, int nFlags);
-        [DllImport("user32.dll")] private static extern bool EnumWindows(Func<IntPtr, IntPtr, bool> lpEnumFunc, IntPtr lParam);
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
-        [DllImport("user32.dll")] private static extern int GetWindowTextLength(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern int GetSystemMetrics(int nIndex);
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
-        private static string GetWindowTitle(IntPtr hWnd)
-        {
-            int len = GetWindowTextLength(hWnd);
-            var sb = new System.Text.StringBuilder(len + 1);
-            _ = GetWindowText(hWnd, sb, sb.Capacity);
-            return sb.ToString();
-        }
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetWindowDC(IntPtr hWnd);
 
-        private struct RECT { public int Left, Top, Right, Bottom; }
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteDC(IntPtr hdc);
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int nWidth, int nHeight);
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr SelectObject(IntPtr hdc, IntPtr h);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteObject(IntPtr hObject);
+
+        [DllImport("user32.dll")]
+        private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        private static extern bool BitBlt(
+            IntPtr hdcDest, int nXDest, int nYDest, int nWidth, int nHeight,
+            IntPtr hdcSrc, int nXSrc, int nYSrc, int dwRop);
+
+        [DllImport("user32.dll")]
+        private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
     }
 }
