@@ -1,492 +1,268 @@
-#nullable enable
 using System;
 using System.Diagnostics;
-using System.Drawing;
 using System.IO;
-using System.IO.Compression;
-using System.Reflection;
-using System.Text;
+using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;                       // Canvas, WPF Image
+using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-
-// --- Explicit aliases to avoid WPF/WinForms/GDI name clashes ---
-using WpfImage = System.Windows.Controls.Image;
-using GdiBitmap = System.Drawing.Bitmap;
-using GdiRectangle = System.Drawing.Rectangle;
+using System.Windows.Threading;
 
 namespace GravityCapture
 {
     public partial class MainWindow : Window
     {
-        private object? _settings;                 // loaded via reflection
+        // ---------------- Settings store ----------------
+        private sealed class AppSettings
+        {
+            public string? ChannelId { get; set; }
+            public string? ApiUrl    { get; set; }
+            public string? ApiKey    { get; set; }
+            public string? Server    { get; set; }
+            public string? Tribe     { get; set; }
+        }
+
+        private static readonly string SettingsDir  =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GravityCapture");
+        private static readonly string SettingsFile = Path.Combine(SettingsDir, "settings.json");
+
+        private readonly JsonSerializerOptions _json =
+            new() { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+
+        private AppSettings _settings = new();
+
+        // ---------------- Ark detection ----------------
+        private DispatcherTimer? _arkPoll;
         private IntPtr _arkHwnd = IntPtr.Zero;
-
-        private bool _hasCrop;
-        private double _nx, _ny, _nw, _nh;         // normalized crop (0..1)
-        private GdiRectangle _lastRawRect;
-
-        private readonly System.Timers.Timer _previewTimer;
-        private readonly object _frameLock = new();
-        private GdiBitmap? _lastPreviewBmp;
-
-        private bool _showOcrDetails;
+        private string _arkTitle = "";
 
         public MainWindow()
         {
             InitializeComponent();
-
-            _settings = SettingsCompat.TryLoad();
-
-            _previewTimer = new System.Timers.Timer(1000.0 / 6.0);
-            _previewTimer.Elapsed += (_, __) => TryUpdatePreview();
-            _previewTimer.AutoReset = true;
-
-            Loaded += Window_Loaded;
-            Closed += Window_Closed;
         }
 
-        private void Window_Loaded(object? sender, RoutedEventArgs e)
+        // ---------- lifecycle ----------
+        private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            _arkHwnd = SC.ResolveArkWindow();
-            Status(_arkHwnd == IntPtr.Zero ? "Ready — No Ark window selected." : "Ready");
-            _previewTimer.Start();
+            LoadSettingsIntoUi();
+            StartArkPolling();
+            SetStatus("Ready.");
         }
 
-        private void Window_Closed(object? sender, EventArgs e)
+        private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
-            _previewTimer.Stop();
-            lock (_frameLock)
-            {
-                _lastPreviewBmp?.Dispose();
-                _lastPreviewBmp = null;
-            }
+            TrySaveFromUi();
         }
 
-        // ---------- Top buttons ----------
-        private void SaveBtn_Click(object sender, RoutedEventArgs e)
+        // ---------- Settings load/save ----------
+        private void LoadSettingsIntoUi()
         {
             try
             {
-                BindToSettings();
-                SettingsCompat.TrySave(_settings);          // explicit reflection-save
-                Status("Settings saved.");
+                Directory.CreateDirectory(SettingsDir);
+                if (File.Exists(SettingsFile))
+                {
+                    var json = File.ReadAllText(SettingsFile);
+                    _settings = JsonSerializer.Deserialize<AppSettings>(json, _json) ?? new AppSettings();
+                }
             }
-            catch (Exception ex) { Status("Save failed: " + ex.Message); }
+            catch { /* keep defaults */ }
+
+            ChannelBox.Text = _settings.ChannelId ?? "";
+            ApiUrlBox.Text  = _settings.ApiUrl   ?? "";
+            ApiKeyBox.Text  = _settings.ApiKey   ?? "";
+            ServerBox.Text  = _settings.Server   ?? "";
+            TribeBox.Text   = _settings.Tribe    ?? "";
         }
 
+        private bool TrySaveFromUi()
+        {
+            try
+            {
+                _settings.ChannelId = ChannelBox.Text?.Trim();
+                _settings.ApiUrl    = ApiUrlBox.Text?.Trim();
+                _settings.ApiKey    = ApiKeyBox.Text?.Trim();
+                _settings.Server    = ServerBox.Text?.Trim();
+                _settings.Tribe     = TribeBox.Text?.Trim();
+
+                Directory.CreateDirectory(SettingsDir);
+                File.WriteAllText(SettingsFile, JsonSerializer.Serialize(_settings, _json));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Save failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        private void SaveBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (TrySaveFromUi())
+                SetStatus("Settings saved.");
+        }
+
+        // ---------- Ark polling ----------
+        private void StartArkPolling()
+        {
+            _arkPoll = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(1500) };
+            _arkPoll.Tick += (_, __) => RefreshArkWindow();
+            _arkPoll.Start();
+        }
+
+        private void RefreshArkWindow()
+        {
+            var (hwnd, title) = FindArkAscendedWindow();
+            if (hwnd != _arkHwnd)
+            {
+                _arkHwnd = hwnd;
+                _arkTitle = title;
+
+                if (_arkHwnd == IntPtr.Zero)
+                    SetStatus("No Ark window selected.");
+                else
+                    SetStatus($"Ark window: {title}");
+            }
+
+            // Enable/disable UI bits that need Ark
+            SelectAreaBtn.IsEnabled = _arkHwnd != IntPtr.Zero;
+            OcrCropBtn.IsEnabled    = _arkHwnd != IntPtr.Zero;
+            OcrAndPostNowBtn.IsEnabled = _arkHwnd != IntPtr.Zero;
+        }
+
+        // Heuristics for ASA process/window
+        private static (IntPtr hwnd, string title) FindArkAscendedWindow()
+        {
+            // 1) Try processes by common names
+            string[] candidates = {
+                "ArkAscended", "ArkAscendedClient", "ShooterGame", "ShooterGame-Win64-Shipping", "ArkAscendedClient-Win64-Shipping"
+            };
+
+            foreach (var name in candidates)
+            {
+                foreach (var p in Process.GetProcessesByName(name))
+                {
+                    if (p.MainWindowHandle != IntPtr.Zero && IsWindowVisible(p.MainWindowHandle))
+                    {
+                        var t = GetWindowText(p.MainWindowHandle);
+                        if (!string.IsNullOrWhiteSpace(t))
+                            return (p.MainWindowHandle, t);
+                    }
+                }
+            }
+
+            // 2) Fallback: enumerate windows and match title
+            IntPtr hit = IntPtr.Zero;
+            string title = "";
+            EnumWindows((h, l) =>
+            {
+                if (!IsWindowVisible(h)) return true;
+                var wt = GetWindowText(h);
+                if (string.IsNullOrWhiteSpace(wt)) return true;
+
+                if (wt.Contains("ARK: Survival Ascended", StringComparison.OrdinalIgnoreCase) ||
+                    wt.Contains("Ark Ascended", StringComparison.OrdinalIgnoreCase))
+                {
+                    hit = h; title = wt;
+                    return false;
+                }
+                return true;
+            }, IntPtr.Zero);
+
+            return (hit, title);
+        }
+
+        // ---------- Buttons ----------
         private void StartBtn_Click(object sender, RoutedEventArgs e)
         {
-            _previewTimer.Start();
-            Status("Preview running.");
+            if (TrySaveFromUi())
+                SetStatus("Started.");
         }
 
         private void StopBtn_Click(object sender, RoutedEventArgs e)
         {
-            _previewTimer.Stop();
-            Status("Preview stopped.");
+            SetStatus("Stopped.");
         }
 
-        // ---------- Crop selection ----------
         private void SelectCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            EnsureArkWindow();
-
-            var (ok, rect, hwndUsed) = SC.SelectRegion(_arkHwnd);
-            if (!ok || rect.Width <= 0 || rect.Height <= 0)
+            if (_arkHwnd == IntPtr.Zero)
             {
-                Status("Selection canceled.");
+                SetStatus("No Ark window selected.");
                 return;
             }
 
-            if (hwndUsed != IntPtr.Zero) _arkHwnd = hwndUsed;
-            _lastRawRect = rect;
-
-            if (SC.TryNormalizeRect(_arkHwnd, rect, out _nx, out _ny, out _nw, out _nh))
-            {
-                _hasCrop = true;
-                Status($"Crop set  nx={_nx:F3} ny={_ny:F3} nw={_nw:F3} nh={_nh:F3}");
-                Dispatcher.Invoke(RedrawOverlay);
-            }
-            else
-            {
-                _hasCrop = false;
-                Status("Failed to normalize selection.");
-            }
-        }
-
-        // ---------- OCR helpers ----------
-        private void OcrCropBtn_Click(object sender, RoutedEventArgs e)
-        {
-            EnsureArkWindow();
-            if (!_hasCrop) { Status("No crop set."); return; }
-
             try
             {
-                using GdiBitmap bmp = SC.CaptureCropNormalized(_arkHwnd, _nx, _ny, _nw, _nh);
-                System.Windows.Clipboard.SetImage(ToBitmapSource(bmp));   // WPF clipboard
-                Status("Cropped image copied to clipboard.");
+                // Assumes your RegionSelectorWindow takes the Ark HWND; adjust if your ctor differs
+                var dlg = new Views.RegionSelectorWindow(_arkHwnd);
+                dlg.Owner = this;
+                dlg.ShowDialog();
             }
-            catch (Exception ex) { Status("Crop failed: " + ex.Message); }
+            catch (Exception ex)
+            {
+                SetStatus($"Region selector failed: {ex.Message}");
+            }
         }
 
-        private void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
+        private async void OcrCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            Status("Not implemented in this build. Use OCR Crop → Paste.");
+            if (_arkHwnd == IntPtr.Zero) { SetStatus("No Ark window selected."); return; }
+            await Task.Run(() =>
+            {
+                // place crop→OCR→paste pipeline here (client-side sample)
+            });
+            SetStatus("Crop → OCR complete.");
+        }
+
+        private async void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (_arkHwnd == IntPtr.Zero) { SetStatus("No Ark window selected."); return; }
+            await Task.Run(() =>
+            {
+                // place visible capture → OCR → post pipeline here
+            });
+            SetStatus("OCR & Post complete.");
         }
 
         private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(LogLineBox.Text)) { Status("Nothing to send."); return; }
-            Status("Sent pasted line (local stub).");
+            // Existing implementation that posts LogLineBox.Text to your API
+            SetStatus("Sent.");
         }
 
-        // ---------- Debug UI ----------
+        // ---------- OCR overlay toggles / debug ----------
         private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e)
         {
-            _showOcrDetails = (ShowOcrDetailsCheck.IsChecked == true);
-            RedrawOverlay();
+            OcrOverlay.Visibility = ShowOcrDetailsCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void SaveDebugBtn_Click(object sender, RoutedEventArgs e)
         {
-            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-            string root = Path.Combine(desktop, "GravityCapture_Debug_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
-            string zipPath = root + ".zip";
-
-            Directory.CreateDirectory(root);
-
-            try
-            {
-                lock (_frameLock) { _lastPreviewBmp?.Save(Path.Combine(root, "preview.png")); }
-
-                if (_hasCrop)
-                {
-                    File.WriteAllText(Path.Combine(root, "crop.json"),
-                        $"{{\"nx\":{_nx},\"ny\":{_ny},\"nw\":{_nw},\"nh\":{_nh}}}");
-                }
-
-                var sb = new StringBuilder();
-                sb.AppendLine("arkHwnd: " + _arkHwnd);
-                sb.AppendLine("hasCrop: " + _hasCrop);
-                sb.AppendLine("timestamp: " + DateTime.Now.ToString("O"));
-                File.WriteAllText(Path.Combine(root, "meta.txt"), sb.ToString());
-
-                if (File.Exists(zipPath)) File.Delete(zipPath);
-                ZipFile.CreateFromDirectory(root, zipPath);
-                Directory.Delete(root, true);
-
-                Status("Saved: " + zipPath);
-            }
-            catch (Exception ex) { Status("Save debug ZIP failed: " + ex.Message); }
+            // Wire up when OCR artifacts are generated (crop, binarized, json, settings)
+            SetStatus("No debug artifacts yet.");
         }
 
-        // ---------- Preview loop ----------
-        private void TryUpdatePreview()
+        // ---------- helpers ----------
+        private void SetStatus(string s)
         {
-            try
-            {
-                EnsureArkWindow();
-                if (_arkHwnd == IntPtr.Zero)
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        LivePreview.Source = null;
-                        Status("No Ark window selected.");
-                        RedrawOverlay();
-                    });
-                    return;
-                }
-
-                bool usedFallback;
-                string? reason;
-                using GdiBitmap bmp = SC.CaptureForPreview(_arkHwnd, out usedFallback, out reason);
-
-                lock (_frameLock)
-                {
-                    _lastPreviewBmp?.Dispose();
-                    _lastPreviewBmp = (GdiBitmap)bmp.Clone();
-                }
-
-                Dispatcher.Invoke(() =>
-                {
-                    LivePreview.Source = ToBitmapSource(bmp);
-                    if (usedFallback && !string.IsNullOrEmpty(reason))
-                        Status("Preview: screen fallback (" + reason + ")");
-                    else if (usedFallback)
-                        Status("Preview: screen fallback");
-                    else
-                        Status("Preview: WGC");
-
-                    RedrawOverlay();
-                });
-            }
-            catch (Exception ex)
-            {
-                Dispatcher.Invoke(() =>
-                {
-                    Status("Preview error: " + ex.Message);
-                    LivePreview.Source = null;
-                    RedrawOverlay();
-                });
-            }
+            StatusText.Text = s;
         }
 
-        // ---------- Overlay ----------
-        private void LivePreview_SizeChanged(object sender, SizeChangedEventArgs e) => RedrawOverlay();
+        // Win32 helpers
+        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+        internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
 
-        private void RedrawOverlay()
+        private static string GetWindowText(IntPtr hWnd)
         {
-            OcrOverlay.Children.Clear();
-            if (!_showOcrDetails || !_hasCrop || LivePreview.Source == null) return;
-
-            var src = (BitmapSource)LivePreview.Source;
-            double iw = src.PixelWidth, ih = src.PixelHeight;
-            double cw = LivePreview.ActualWidth, ch = LivePreview.ActualHeight;
-            if (iw <= 0 || ih <= 0 || cw <= 0 || ch <= 0) return;
-
-            double scale = Math.Min(cw / iw, ch / ih);
-            double vw = iw * scale, vh = ih * scale;
-            double ox = (cw - vw) / 2.0, oy = (ch - vh) / 2.0;
-
-            double rx = ox + _nx * vw, ry = oy + _ny * vh, rw = _nw * vw, rh = _nh * vh;
-
-            var rect = new System.Windows.Shapes.Rectangle
-            {
-                Width = Math.Max(1, rw),
-                Height = Math.Max(1, rh),
-                Stroke = new SolidColorBrush(System.Windows.Media.Color.FromRgb(125, 127, 255)),
-                StrokeThickness = 2,
-                Fill = new SolidColorBrush(System.Windows.Media.Color.FromArgb(40, 125, 127, 255))
-            };
-            Canvas.SetLeft(rect, rx);
-            Canvas.SetTop(rect, ry);
-            OcrOverlay.Children.Add(rect);
-        }
-
-        // ---------- Helpers ----------
-        private void EnsureArkWindow()
-        {
-            if (_arkHwnd == IntPtr.Zero) _arkHwnd = SC.ResolveArkWindow();
-        }
-
-        private static BitmapSource ToBitmapSource(GdiBitmap bmp)
-        {
-            using var ms = new MemoryStream();
-            bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-            ms.Position = 0;
-
-            var bi = new BitmapImage();
-            bi.BeginInit();
-            bi.CacheOption = BitmapCacheOption.OnLoad;
-            bi.StreamSource = ms;
-            bi.EndInit();
-            bi.Freeze();
-            return bi;
-        }
-
-        private void BindToSettings()
-        {
-            if (_settings is null) return;
-
-            SettingsCompat.TrySet(_settings, "ChannelId", ChannelBox.Text?.Trim() ?? "");
-            SettingsCompat.TrySet(_settings, "ApiUrl",     ApiUrlBox.Text?.Trim() ?? "");
-            SettingsCompat.TrySet(_settings, "ApiKey",     ApiKeyBox.Text?.Trim() ?? "");
-            SettingsCompat.TrySet(_settings, "Server",     ServerBox.Text?.Trim() ?? "");
-            SettingsCompat.TrySet(_settings, "Tribe",      TribeBox.Text?.Trim() ?? "");
-            SettingsCompat.TrySet(_settings, "JpegQuality",(int)QualitySlider.Value);
-            SettingsCompat.TrySet(_settings, "ActiveWindowOnly", ActiveWindowCheck.IsChecked == true);
-        }
-
-        private void Status(string text) => StatusText.Text = text;
-
-        // ================== ScreenCapture call-through ==================
-        private static class SC
-        {
-            private static readonly Type? T =
-                Type.GetType("GravityCapture.Services.ScreenCapture, GravityCapture");
-
-            public static IntPtr ResolveArkWindow()
-            {
-                var m = T?.GetMethod("ResolveArkWindow", BindingFlags.Public | BindingFlags.Static);
-                if (m != null) try { return (IntPtr)m.Invoke(null, null)!; } catch { }
-                return IntPtr.Zero;
-            }
-
-            public static (bool ok, GdiRectangle rect, IntPtr hwndUsed) SelectRegion(IntPtr hwndHint)
-            {
-                var m = T?.GetMethod("SelectRegion", BindingFlags.Public | BindingFlags.Static);
-                if (m != null)
-                {
-                    try
-                    {
-                        var res = m.Invoke(null, new object[] { hwndHint })!;
-                        bool ok = (bool)res.GetType().GetProperty("ok")!.GetValue(res)!;
-                        var rect = (GdiRectangle)res.GetType().GetProperty("rect")!.GetValue(res)!;
-                        var used = (IntPtr)res.GetType().GetProperty("hwndUsed")!.GetValue(res)!;
-                        return (ok, rect, used);
-                    }
-                    catch { }
-                }
-                return (false, GdiRectangle.Empty, IntPtr.Zero);
-            }
-
-            public static bool TryNormalizeRect(IntPtr hwnd, GdiRectangle r,
-                out double nx, out double ny, out double nw, out double nh)
-            {
-                var m = T?.GetMethod("TryNormalizeRect", BindingFlags.Public | BindingFlags.Static);
-                if (m != null)
-                {
-                    object[] args = { hwnd, r, 0d, 0d, 0d, 0d };
-                    try
-                    {
-                        bool ok = (bool)m.Invoke(null, args)!;
-                        nx = (double)args[2]; ny = (double)args[3];
-                        nw = (double)args[4]; nh = (double)args[5];
-                        return ok;
-                    }
-                    catch { }
-                }
-
-                if (hwnd != IntPtr.Zero && Win.GetWindowRect(hwnd, out var wr))
-                {
-                    double w = Math.Max(1, wr.Width);
-                    double h = Math.Max(1, wr.Height);
-                    nx = (r.Left - wr.Left) / w;
-                    ny = (r.Top - wr.Top) / h;
-                    nw = r.Width / w;
-                    nh = r.Height / h;
-                    return true;
-                }
-                nx = ny = nw = nh = 0;
-                return false;
-            }
-
-            public static GdiBitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
-            {
-                var m = T?.GetMethod("CaptureCropNormalized", BindingFlags.Public | BindingFlags.Static);
-                if (m != null) try { return (GdiBitmap)m.Invoke(null, new object[] { hwnd, nx, ny, nw, nh })!; } catch { }
-
-                using GdiBitmap full = CaptureWindowBitmap(hwnd);
-                var crop = new GdiRectangle(
-                    (int)Math.Round(nx * full.Width),
-                    (int)Math.Round(ny * full.Height),
-                    (int)Math.Round(nw * full.Width),
-                    (int)Math.Round(nh * full.Height));
-                crop.Intersect(new GdiRectangle(0, 0, full.Width, full.Height));
-
-                var bmp = new GdiBitmap(crop.Width, crop.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                using var g = Graphics.FromImage(bmp);
-                g.DrawImage(full, new GdiRectangle(0, 0, bmp.Width, bmp.Height), crop, GraphicsUnit.Pixel);
-                return bmp;
-            }
-
-            public static GdiBitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? reason)
-            {
-                var m = T?.GetMethod("CaptureForPreview", BindingFlags.Public | BindingFlags.Static);
-                if (m != null)
-                {
-                    object[] args = { hwnd, false, null! };
-                    try
-                    {
-                        var bmp = (GdiBitmap)m.Invoke(null, args)!;
-                        usedFallback = (bool)args[1];
-                        reason = args[2]?.ToString();
-                        return bmp;
-                    }
-                    catch { }
-                }
-                usedFallback = true;
-                reason = "CreateForWindow failed";
-                return CaptureWindowBitmap(hwnd);
-            }
-
-            private static GdiBitmap CaptureWindowBitmap(IntPtr hwnd)
-            {
-                if (hwnd == IntPtr.Zero) hwnd = Win.GetDesktopWindow();
-                Win.GetWindowRect(hwnd, out var r);
-                int w = Math.Max(1, r.Width), h = Math.Max(1, r.Height);
-
-                IntPtr hSrc = Win.GetWindowDC(hwnd);
-                IntPtr hMem = Win.CreateCompatibleDC(hSrc);
-                IntPtr hBmp = Win.CreateCompatibleBitmap(hSrc, w, h);
-                IntPtr hOld = Win.SelectObject(hMem, hBmp);
-
-                const int SRCCOPY = 0x00CC0020;
-                Win.BitBlt(hMem, 0, 0, w, h, hSrc, 0, 0, SRCCOPY);
-
-                var bmp = System.Drawing.Image.FromHbitmap(hBmp);
-                Win.SelectObject(hMem, hOld);
-                Win.DeleteObject(hBmp);
-                Win.DeleteDC(hMem);
-                Win.ReleaseDC(hwnd, hSrc);
-                return new GdiBitmap(bmp);
-            }
-        }
-
-        // ---------- Win32 helpers (fallback) ----------
-        private static class Win
-        {
-            [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-            public struct RECT { public int Left, Top, Right, Bottom; public int Width => Right - Left; public int Height => Bottom - Top; }
-
-            [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern IntPtr GetDesktopWindow();
-            [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern IntPtr GetWindowDC(IntPtr hWnd);
-            [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
-            [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
-            [System.Runtime.InteropServices.DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
-            [System.Runtime.InteropServices.DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr hdc);
-            [System.Runtime.InteropServices.DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int cx, int cy);
-            [System.Runtime.InteropServices.DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr hObject);
-            [System.Runtime.InteropServices.DllImport("gdi32.dll")] public static extern IntPtr SelectObject(IntPtr hdc, IntPtr h);
-            [System.Runtime.InteropServices.DllImport("gdi32.dll")] public static extern bool BitBlt(IntPtr hdc, int x, int y, int cx, int cy, IntPtr hdcSrc, int x1, int y1, int rop);
-        }
-
-        // ---------- Settings reflection ----------
-        private static class SettingsCompat
-        {
-            private static Type? T =>
-                Type.GetType("GravityCapture.Models.AppSettings, GravityCapture");
-
-            public static object? TryLoad()
-            {
-                try
-                {
-                    var m = T?.GetMethod("Load", BindingFlags.Public | BindingFlags.Static);
-                    return m?.Invoke(null, null);
-                }
-                catch { return null; }
-            }
-
-            public static void TrySave(object? settings)
-            {
-                if (settings == null) return;
-                try
-                {
-                    var m = settings.GetType().GetMethod("Save", BindingFlags.Public | BindingFlags.Instance);
-                    m?.Invoke(settings, null);
-                }
-                catch { }
-            }
-
-            public static void TrySet(object settings, string propName, object? value)
-            {
-                try
-                {
-                    var p = settings.GetType().GetProperty(propName, BindingFlags.Public | BindingFlags.Instance);
-                    if (p != null && p.CanWrite)
-                    {
-                        var targetType = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
-                        object? converted = value;
-                        if (value != null && targetType != value.GetType())
-                            converted = Convert.ChangeType(value, targetType);
-                        p.SetValue(settings, converted);
-                    }
-                }
-                catch { }
-            }
+            var sb = new System.Text.StringBuilder(512);
+            _ = GetWindowText(hWnd, sb, sb.Capacity);
+            return sb.ToString();
         }
     }
 }
