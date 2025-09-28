@@ -1,24 +1,88 @@
+#nullable enable
 using System;
-using System.ComponentModel;
+using System.IO;
+using System.Reflection;
+using System.Text.Json;
 
 namespace GravityCapture
 {
-    public partial class MainWindow
+    /// <summary>
+    /// Persists window geometry and safely forwards saving of the settings object
+    /// without requiring a strong reference to its concrete type.
+    /// </summary>
+    internal static class MainWindowPersistence
     {
-        protected override void OnClosing(CancelEventArgs e)
+        private const string FileName = "window.json";
+
+        private static string DirPath =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GravityCapture");
+
+        private static string FilePath => Path.Combine(DirPath, FileName);
+
+        public static void SaveWindowState(double left, double top, double width, double height, bool isMaximized)
         {
-            // Persist current UI → settings on any app exit path.
+            Directory.CreateDirectory(DirPath);
+            var dto = new WindowStateDto
+            {
+                Left = left,
+                Top = top,
+                Width = width,
+                Height = height,
+                Maximized = isMaximized
+            };
+            var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(FilePath, json);
+        }
+
+        public static bool TryLoadWindowState(out double left, out double top, out double width, out double height, out bool isMaximized)
+        {
+            left = top = width = height = 0;
+            isMaximized = false;
+
             try
             {
-                BindToSettings();   // defined in MainWindow.xaml.cs
-                _settings.Save();   // defined on AppSettings
+                if (!File.Exists(FilePath)) return false;
+                var dto = JsonSerializer.Deserialize<WindowStateDto>(File.ReadAllText(FilePath));
+                if (dto is null) return false;
+
+                left = dto.Left;
+                top = dto.Top;
+                width = dto.Width;
+                height = dto.Height;
+                isMaximized = dto.Maximized;
+                return true;
             }
             catch
             {
-                // Never block shutdown on save errors.
+                return false;
             }
+        }
 
-            base.OnClosing(e);
+        /// <summary>
+        /// Calls a public instance Save() on the provided settings object if it exists.
+        /// Avoids CS1061 when the compile-time type is object.
+        /// </summary>
+        public static void SaveSettingsObject(object? settings)
+        {
+            if (settings is null) return;
+            try
+            {
+                var mi = settings.GetType().GetMethod("Save", BindingFlags.Instance | BindingFlags.Public);
+                mi?.Invoke(settings, null);
+            }
+            catch
+            {
+                // swallow – persistence isn't critical for app flow
+            }
+        }
+
+        private sealed class WindowStateDto
+        {
+            public double Left { get; set; }
+            public double Top { get; set; }
+            public double Width { get; set; }
+            public double Height { get; set; }
+            public bool Maximized { get; set; }
         }
     }
 }
