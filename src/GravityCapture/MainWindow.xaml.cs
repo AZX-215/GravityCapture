@@ -7,25 +7,29 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 using System.Windows;
-using System.Windows.Controls;                       // Canvas, Image
+using System.Windows.Controls;                       // Canvas, WPF Image
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+
+// --- Explicit aliases to avoid WPF/WinForms/GDI name clashes ---
+using WpfImage = System.Windows.Controls.Image;
+using GdiBitmap = System.Drawing.Bitmap;
+using GdiRectangle = System.Drawing.Rectangle;
 
 namespace GravityCapture
 {
     public partial class MainWindow : Window
     {
-        // ---------------- runtime state ----------------
-        private object? _settings;                   // loaded via reflection; may be null
+        private object? _settings;                 // loaded via reflection
         private IntPtr _arkHwnd = IntPtr.Zero;
 
         private bool _hasCrop;
-        private double _nx, _ny, _nw, _nh;           // normalized crop (0..1, window space)
-        private Rectangle _lastRawRect;
+        private double _nx, _ny, _nw, _nh;         // normalized crop (0..1)
+        private GdiRectangle _lastRawRect;
 
         private readonly System.Timers.Timer _previewTimer;
         private readonly object _frameLock = new();
-        private Bitmap? _lastPreviewBmp;
+        private GdiBitmap? _lastPreviewBmp;
 
         private bool _showOcrDetails;
 
@@ -33,10 +37,9 @@ namespace GravityCapture
         {
             InitializeComponent();
 
-            // try load settings dynamically (no compile-time dependency on property names)
             _settings = SettingsCompat.TryLoad();
 
-            _previewTimer = new System.Timers.Timer(1000.0 / 6.0); // ~6 FPS
+            _previewTimer = new System.Timers.Timer(1000.0 / 6.0);
             _previewTimer.Elapsed += (_, __) => TryUpdatePreview();
             _previewTimer.AutoReset = true;
 
@@ -44,7 +47,6 @@ namespace GravityCapture
             Closed += Window_Closed;
         }
 
-        // ---------------- lifecycle ----------------
         private void Window_Loaded(object? sender, RoutedEventArgs e)
         {
             _arkHwnd = SC.ResolveArkWindow();
@@ -62,13 +64,13 @@ namespace GravityCapture
             }
         }
 
-        // ---------------- top buttons ----------------
+        // ---------- Top buttons ----------
         private void SaveBtn_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                BindToSettings();           // push UI → settings via reflection
-                SettingsCompat.TrySave(_settings);
+                BindToSettings();
+                SettingsCompat.TrySave(_settings);          // explicit reflection-save
                 Status("Settings saved.");
             }
             catch (Exception ex) { Status("Save failed: " + ex.Message); }
@@ -86,12 +88,12 @@ namespace GravityCapture
             Status("Preview stopped.");
         }
 
-        // ---------------- crop selection ----------------
+        // ---------- Crop selection ----------
         private void SelectCropBtn_Click(object sender, RoutedEventArgs e)
         {
             EnsureArkWindow();
 
-            var (ok, rect, hwndUsed) = SC.SelectRegion(_arkHwnd);  // reflection or stub
+            var (ok, rect, hwndUsed) = SC.SelectRegion(_arkHwnd);
             if (!ok || rect.Width <= 0 || rect.Height <= 0)
             {
                 Status("Selection canceled.");
@@ -114,7 +116,7 @@ namespace GravityCapture
             }
         }
 
-        // ---------------- OCR helpers ----------------
+        // ---------- OCR helpers ----------
         private void OcrCropBtn_Click(object sender, RoutedEventArgs e)
         {
             EnsureArkWindow();
@@ -122,8 +124,8 @@ namespace GravityCapture
 
             try
             {
-                using Bitmap bmp = SC.CaptureCropNormalized(_arkHwnd, _nx, _ny, _nw, _nh);
-                System.Windows.Clipboard.SetImage(ToBitmapSource(bmp)); // WPF clipboard
+                using GdiBitmap bmp = SC.CaptureCropNormalized(_arkHwnd, _nx, _ny, _nw, _nh);
+                System.Windows.Clipboard.SetImage(ToBitmapSource(bmp));   // WPF clipboard
                 Status("Cropped image copied to clipboard.");
             }
             catch (Exception ex) { Status("Crop failed: " + ex.Message); }
@@ -137,11 +139,10 @@ namespace GravityCapture
         private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
         {
             if (string.IsNullOrWhiteSpace(LogLineBox.Text)) { Status("Nothing to send."); return; }
-            // Wire to your ingest client when ready
             Status("Sent pasted line (local stub).");
         }
 
-        // ---------------- debug UI ----------------
+        // ---------- Debug UI ----------
         private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e)
         {
             _showOcrDetails = (ShowOcrDetailsCheck.IsChecked == true);
@@ -151,18 +152,18 @@ namespace GravityCapture
         private void SaveDebugBtn_Click(object sender, RoutedEventArgs e)
         {
             string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-            string root = System.IO.Path.Combine(desktop, "GravityCapture_Debug_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+            string root = Path.Combine(desktop, "GravityCapture_Debug_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
             string zipPath = root + ".zip";
 
             Directory.CreateDirectory(root);
 
             try
             {
-                lock (_frameLock) { _lastPreviewBmp?.Save(System.IO.Path.Combine(root, "preview.png")); }
+                lock (_frameLock) { _lastPreviewBmp?.Save(Path.Combine(root, "preview.png")); }
 
                 if (_hasCrop)
                 {
-                    File.WriteAllText(System.IO.Path.Combine(root, "crop.json"),
+                    File.WriteAllText(Path.Combine(root, "crop.json"),
                         $"{{\"nx\":{_nx},\"ny\":{_ny},\"nw\":{_nw},\"nh\":{_nh}}}");
                 }
 
@@ -170,7 +171,7 @@ namespace GravityCapture
                 sb.AppendLine("arkHwnd: " + _arkHwnd);
                 sb.AppendLine("hasCrop: " + _hasCrop);
                 sb.AppendLine("timestamp: " + DateTime.Now.ToString("O"));
-                File.WriteAllText(System.IO.Path.Combine(root, "meta.txt"), sb.ToString());
+                File.WriteAllText(Path.Combine(root, "meta.txt"), sb.ToString());
 
                 if (File.Exists(zipPath)) File.Delete(zipPath);
                 ZipFile.CreateFromDirectory(root, zipPath);
@@ -181,7 +182,7 @@ namespace GravityCapture
             catch (Exception ex) { Status("Save debug ZIP failed: " + ex.Message); }
         }
 
-        // ---------------- preview loop ----------------
+        // ---------- Preview loop ----------
         private void TryUpdatePreview()
         {
             try
@@ -200,12 +201,12 @@ namespace GravityCapture
 
                 bool usedFallback;
                 string? reason;
-                using Bitmap bmp = SC.CaptureForPreview(_arkHwnd, out usedFallback, out reason);
+                using GdiBitmap bmp = SC.CaptureForPreview(_arkHwnd, out usedFallback, out reason);
 
                 lock (_frameLock)
                 {
                     _lastPreviewBmp?.Dispose();
-                    _lastPreviewBmp = (Bitmap)bmp.Clone();
+                    _lastPreviewBmp = (GdiBitmap)bmp.Clone();
                 }
 
                 Dispatcher.Invoke(() =>
@@ -232,7 +233,7 @@ namespace GravityCapture
             }
         }
 
-        // ---------------- overlay ----------------
+        // ---------- Overlay ----------
         private void LivePreview_SizeChanged(object sender, SizeChangedEventArgs e) => RedrawOverlay();
 
         private void RedrawOverlay()
@@ -264,13 +265,13 @@ namespace GravityCapture
             OcrOverlay.Children.Add(rect);
         }
 
-        // ---------------- helpers ----------------
+        // ---------- Helpers ----------
         private void EnsureArkWindow()
         {
             if (_arkHwnd == IntPtr.Zero) _arkHwnd = SC.ResolveArkWindow();
         }
 
-        private static BitmapSource ToBitmapSource(Bitmap bmp)
+        private static BitmapSource ToBitmapSource(GdiBitmap bmp)
         {
             using var ms = new MemoryStream();
             bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
@@ -287,7 +288,6 @@ namespace GravityCapture
 
         private void BindToSettings()
         {
-            // set only if properties exist; no compile-time coupling
             if (_settings is null) return;
 
             SettingsCompat.TrySet(_settings, "ChannelId", ChannelBox.Text?.Trim() ?? "");
@@ -301,26 +301,20 @@ namespace GravityCapture
 
         private void Status(string text) => StatusText.Text = text;
 
-        // ============================================================
-        //  Reflection-friendly call-through to Services.ScreenCapture
-        //  Falls back to a local BitBlt grab if the service is missing.
-        // ============================================================
+        // ================== ScreenCapture call-through ==================
         private static class SC
         {
             private static readonly Type? T =
                 Type.GetType("GravityCapture.Services.ScreenCapture, GravityCapture");
 
-            // ResolveArkWindow()
             public static IntPtr ResolveArkWindow()
             {
                 var m = T?.GetMethod("ResolveArkWindow", BindingFlags.Public | BindingFlags.Static);
                 if (m != null) try { return (IntPtr)m.Invoke(null, null)!; } catch { }
-                // fallback: try to find a window by class/title heuristics is risky; return zero
                 return IntPtr.Zero;
             }
 
-            // (bool ok, Rectangle rect, IntPtr hwndUsed) SelectRegion(IntPtr hwndHint)
-            public static (bool ok, Rectangle rect, IntPtr hwndUsed) SelectRegion(IntPtr hwndHint)
+            public static (bool ok, GdiRectangle rect, IntPtr hwndUsed) SelectRegion(IntPtr hwndHint)
             {
                 var m = T?.GetMethod("SelectRegion", BindingFlags.Public | BindingFlags.Static);
                 if (m != null)
@@ -328,19 +322,17 @@ namespace GravityCapture
                     try
                     {
                         var res = m.Invoke(null, new object[] { hwndHint })!;
-                        // deconstruct dynamic tuple
-                        var ok    = (bool)  res.GetType().GetProperty("ok")!.GetValue(res)!;
-                        var rect  = (Rectangle)res.GetType().GetProperty("rect")!.GetValue(res)!;
-                        var used  = (IntPtr)res.GetType().GetProperty("hwndUsed")!.GetValue(res)!;
+                        bool ok = (bool)res.GetType().GetProperty("ok")!.GetValue(res)!;
+                        var rect = (GdiRectangle)res.GetType().GetProperty("rect")!.GetValue(res)!;
+                        var used = (IntPtr)res.GetType().GetProperty("hwndUsed")!.GetValue(res)!;
                         return (ok, rect, used);
                     }
-                    catch { /* fall through */ }
+                    catch { }
                 }
-                return (false, Rectangle.Empty, IntPtr.Zero);
+                return (false, GdiRectangle.Empty, IntPtr.Zero);
             }
 
-            // bool TryNormalizeRect(IntPtr hwnd, Rectangle r, out double nx, out ny, out nw, out nh)
-            public static bool TryNormalizeRect(IntPtr hwnd, Rectangle r,
+            public static bool TryNormalizeRect(IntPtr hwnd, GdiRectangle r,
                 out double nx, out double ny, out double nw, out double nh)
             {
                 var m = T?.GetMethod("TryNormalizeRect", BindingFlags.Public | BindingFlags.Static);
@@ -354,10 +346,9 @@ namespace GravityCapture
                         nw = (double)args[4]; nh = (double)args[5];
                         return ok;
                     }
-                    catch { /* fall back */ }
+                    catch { }
                 }
 
-                // fallback: normalize using GetWindowRect
                 if (hwnd != IntPtr.Zero && Win.GetWindowRect(hwnd, out var wr))
                 {
                     double w = Math.Max(1, wr.Width);
@@ -372,28 +363,26 @@ namespace GravityCapture
                 return false;
             }
 
-            // Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, ny, nw, nh)
-            public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
+            public static GdiBitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
             {
                 var m = T?.GetMethod("CaptureCropNormalized", BindingFlags.Public | BindingFlags.Static);
-                if (m != null) try { return (Bitmap)m.Invoke(null, new object[] { hwnd, nx, ny, nw, nh })!; } catch { }
+                if (m != null) try { return (GdiBitmap)m.Invoke(null, new object[] { hwnd, nx, ny, nw, nh })!; } catch { }
 
-                // fallback: capture window → crop
-                using Bitmap full = CaptureWindowBitmap(hwnd);
-                Rectangle crop = new(
-                    x: (int)Math.Round(nx * full.Width),
-                    y: (int)Math.Round(ny * full.Height),
-                    width: (int)Math.Round(nw * full.Width),
-                    height: (int)Math.Round(nh * full.Height));
-                crop.Intersect(new Rectangle(0, 0, full.Width, full.Height));
-                var bmp = new Bitmap(crop.Width, crop.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                using GdiBitmap full = CaptureWindowBitmap(hwnd);
+                var crop = new GdiRectangle(
+                    (int)Math.Round(nx * full.Width),
+                    (int)Math.Round(ny * full.Height),
+                    (int)Math.Round(nw * full.Width),
+                    (int)Math.Round(nh * full.Height));
+                crop.Intersect(new GdiRectangle(0, 0, full.Width, full.Height));
+
+                var bmp = new GdiBitmap(crop.Width, crop.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                 using var g = Graphics.FromImage(bmp);
-                g.DrawImage(full, new Rectangle(0, 0, bmp.Width, bmp.Height), crop, GraphicsUnit.Pixel);
+                g.DrawImage(full, new GdiRectangle(0, 0, bmp.Width, bmp.Height), crop, GraphicsUnit.Pixel);
                 return bmp;
             }
 
-            // Bitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? reason)
-            public static Bitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? reason)
+            public static GdiBitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback, out string? reason)
             {
                 var m = T?.GetMethod("CaptureForPreview", BindingFlags.Public | BindingFlags.Static);
                 if (m != null)
@@ -401,20 +390,19 @@ namespace GravityCapture
                     object[] args = { hwnd, false, null! };
                     try
                     {
-                        var bmp = (Bitmap)m.Invoke(null, args)!;
+                        var bmp = (GdiBitmap)m.Invoke(null, args)!;
                         usedFallback = (bool)args[1];
                         reason = args[2]?.ToString();
                         return bmp;
                     }
-                    catch { /* continue to fallback */ }
+                    catch { }
                 }
                 usedFallback = true;
                 reason = "CreateForWindow failed";
                 return CaptureWindowBitmap(hwnd);
             }
 
-            // ---- local BitBlt fallback ----
-            private static Bitmap CaptureWindowBitmap(IntPtr hwnd)
+            private static GdiBitmap CaptureWindowBitmap(IntPtr hwnd)
             {
                 if (hwnd == IntPtr.Zero) hwnd = Win.GetDesktopWindow();
                 Win.GetWindowRect(hwnd, out var r);
@@ -428,18 +416,16 @@ namespace GravityCapture
                 const int SRCCOPY = 0x00CC0020;
                 Win.BitBlt(hMem, 0, 0, w, h, hSrc, 0, 0, SRCCOPY);
 
-                var bmp = Image.FromHbitmap(hBmp);
+                var bmp = System.Drawing.Image.FromHbitmap(hBmp);
                 Win.SelectObject(hMem, hOld);
                 Win.DeleteObject(hBmp);
                 Win.DeleteDC(hMem);
                 Win.ReleaseDC(hwnd, hSrc);
-                return new Bitmap(bmp);
+                return new GdiBitmap(bmp);
             }
         }
 
-        // ============================================================
-        //  Win32 helpers for fallback BitBlt path
-        // ============================================================
+        // ---------- Win32 helpers (fallback) ----------
         private static class Win
         {
             [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
@@ -458,9 +444,7 @@ namespace GravityCapture
             [System.Runtime.InteropServices.DllImport("gdi32.dll")] public static extern bool BitBlt(IntPtr hdc, int x, int y, int cx, int cy, IntPtr hdcSrc, int x1, int y1, int rop);
         }
 
-        // ============================================================
-        //  Settings reflection helpers (no hard dependency on property names)
-        // ============================================================
+        // ---------- Settings reflection ----------
         private static class SettingsCompat
         {
             private static Type? T =>
@@ -484,7 +468,7 @@ namespace GravityCapture
                     var m = settings.GetType().GetMethod("Save", BindingFlags.Public | BindingFlags.Instance);
                     m?.Invoke(settings, null);
                 }
-                catch { /* ignore */ }
+                catch { }
             }
 
             public static void TrySet(object settings, string propName, object? value)
@@ -501,7 +485,7 @@ namespace GravityCapture
                         p.SetValue(settings, converted);
                     }
                 }
-                catch { /* ignore */ }
+                catch { }
             }
         }
     }
