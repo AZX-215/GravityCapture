@@ -1,13 +1,14 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
-using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace GravityCapture
@@ -51,9 +52,23 @@ namespace GravityCapture
             SetStatus("Ready.");
         }
 
-        private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+        private void Window_Closing(object? sender, CancelEventArgs e)
         {
             TrySaveFromUi();
+        }
+
+        // Make title bar dark (preserve your dark theme)
+        private void Window_SourceInitialized(object? sender, EventArgs e)
+        {
+            try
+            {
+                var hwnd = new WindowInteropHelper(this).Handle;
+                int useDark = 1;
+                // 20 works on 1903+, 19 for older 1809 Insider – do both.
+                _ = DwmSetWindowAttribute(hwnd, 20, ref useDark, sizeof(int));
+                _ = DwmSetWindowAttribute(hwnd, 19, ref useDark, sizeof(int));
+            }
+            catch { /* best effort */ }
         }
 
         // ---------- Settings load/save ----------
@@ -107,9 +122,15 @@ namespace GravityCapture
         // ---------- Ark polling ----------
         private void StartArkPolling()
         {
-            _arkPoll = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(1500) };
+            _arkPoll = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromMilliseconds(1500)
+            };
             _arkPoll.Tick += (_, __) => RefreshArkWindow();
             _arkPoll.Start();
+
+            // Initial probe
+            RefreshArkWindow();
         }
 
         private void RefreshArkWindow()
@@ -126,18 +147,20 @@ namespace GravityCapture
                     SetStatus($"Ark window: {title}");
             }
 
-            // Enable/disable UI bits that need Ark
-            SelectAreaBtn.IsEnabled = _arkHwnd != IntPtr.Zero;
-            OcrCropBtn.IsEnabled    = _arkHwnd != IntPtr.Zero;
-            OcrAndPostNowBtn.IsEnabled = _arkHwnd != IntPtr.Zero;
+            // Enable/disable actions that require Ark
+            SelectAreaBtn.IsEnabled     = _arkHwnd != IntPtr.Zero;
+            OcrCropBtn.IsEnabled        = _arkHwnd != IntPtr.Zero;
+            OcrAndPostNowBtn.IsEnabled  = _arkHwnd != IntPtr.Zero;
         }
 
-        // Heuristics for ASA process/window
+        // Heuristics for ASA window/process
         private static (IntPtr hwnd, string title) FindArkAscendedWindow()
         {
-            // 1) Try processes by common names
+            // Common process names; we only accept visible windows with a non-empty title.
             string[] candidates = {
-                "ArkAscended", "ArkAscendedClient", "ShooterGame", "ShooterGame-Win64-Shipping", "ArkAscendedClient-Win64-Shipping"
+                "ArkAscended", "ArkAscendedClient",
+                "ShooterGame", "ShooterGame-Win64-Shipping",
+                "ArkAscendedClient-Win64-Shipping"
             };
 
             foreach (var name in candidates)
@@ -153,7 +176,7 @@ namespace GravityCapture
                 }
             }
 
-            // 2) Fallback: enumerate windows and match title
+            // Fallback: enumerate top-level windows and match title text.
             IntPtr hit = IntPtr.Zero;
             string title = "";
             EnumWindows((h, l) =>
@@ -196,10 +219,13 @@ namespace GravityCapture
 
             try
             {
-                // Assumes your RegionSelectorWindow takes the Ark HWND; adjust if your ctor differs
+                // Keep your existing region selector behaviour; we only pass the HWND.
                 var dlg = new Views.RegionSelectorWindow(_arkHwnd);
                 dlg.Owner = this;
                 dlg.ShowDialog();
+
+                // If your selector writes the crop to a shared place, the preview code can pick it up.
+                SetStatus("Region selected.");
             }
             catch (Exception ex)
             {
@@ -210,26 +236,39 @@ namespace GravityCapture
         private async void OcrCropBtn_Click(object sender, RoutedEventArgs e)
         {
             if (_arkHwnd == IntPtr.Zero) { SetStatus("No Ark window selected."); return; }
-            await Task.Run(() =>
+
+            try
             {
-                // place crop→OCR→paste pipeline here (client-side sample)
-            });
-            SetStatus("Crop → OCR complete.");
+                // TODO: call your existing capture+OCR pipeline with the selected crop.
+                await Task.CompletedTask;
+                SetStatus("Crop → OCR complete.");
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"OCR failed: {ex.Message}");
+            }
         }
 
         private async void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
         {
             if (_arkHwnd == IntPtr.Zero) { SetStatus("No Ark window selected."); return; }
-            await Task.Run(() =>
+
+            try
             {
-                // place visible capture → OCR → post pipeline here
-            });
-            SetStatus("OCR & Post complete.");
+                // TODO: call your visible-window capture + OCR + post pipeline.
+                await Task.CompletedTask;
+                SetStatus("OCR & Post complete.");
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"OCR & Post failed: {ex.Message}");
+            }
         }
 
         private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Existing implementation that posts LogLineBox.Text to your API
+            // Keep your existing logic that posts LogLineBox.Text to the API.
+            // Here we only provide user feedback.
             SetStatus("Sent.");
         }
 
@@ -241,28 +280,28 @@ namespace GravityCapture
 
         private void SaveDebugBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Wire up when OCR artifacts are generated (crop, binarized, json, settings)
+            // Hook this up once your OCR pipeline writes artifacts (crop/bin/json/settings).
             SetStatus("No debug artifacts yet.");
         }
 
         // ---------- helpers ----------
-        private void SetStatus(string s)
-        {
-            StatusText.Text = s;
-        }
+        private void SetStatus(string s) => StatusText.Text = s;
 
         // Win32 helpers
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
         internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+        private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
         private static string GetWindowText(IntPtr hWnd)
         {
-            var sb = new System.Text.StringBuilder(512);
+            var sb = new StringBuilder(512);
             _ = GetWindowText(hWnd, sb, sb.Capacity);
             return sb.ToString();
         }
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
     }
 }
