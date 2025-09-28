@@ -1,329 +1,326 @@
 #nullable enable
 using System;
+using System.Diagnostics;
+using System.Drawing;
 using System.IO;
-using System.Linq;
+using System.IO.Compression;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;                  // Canvas
-using System.Windows.Media;                     // WPF colors/brushes
+using System.Windows.Controls;                 // Canvas.*
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using GravityCapture.Models;
-using GravityCapture.Services;
+using GravityCapture.Services;                // ScreenCapture + WgcCapture (used indirectly)
 
 namespace GravityCapture
 {
     public partial class MainWindow : Window
     {
-        private readonly System.Windows.Threading.DispatcherTimer _previewTimer;
-        private AppSettings _settings = AppSettings.Load();
+        // --- runtime state ---
         private IntPtr _arkHwnd = IntPtr.Zero;
 
-        // last OCR result for overlay
-        private ExtractResponse? _lastOcr;
-        private BitmapSource? _lastPreview;
-        private readonly object _gate = new();
+        private bool _hasCrop;
+        private double _nx, _ny, _nw, _nh;      // normalized crop in window space
+        private Rectangle _lastRawRect;         // last raw selection
+
+        private readonly System.Timers.Timer _previewTimer;
+        private readonly object _frameLock = new();
+        private Bitmap? _lastPreviewBmp;
+
+        private bool _showOcrDetails;
 
         public MainWindow()
         {
             InitializeComponent();
 
-            LoadFromSettings();
-            _previewTimer = new System.Windows.Threading.DispatcherTimer(
-                System.Windows.Threading.DispatcherPriority.Background)
-            {
-                Interval = TimeSpan.FromMilliseconds(750)
-            };
-            _previewTimer.Tick += async (_, __) => await RefreshPreviewAsync();
+            // 6 FPS preview is enough. Keep UI responsive.
+            _previewTimer = new System.Timers.Timer(1000.0 / 6.0);
+            _previewTimer.Elapsed += (_, __) => TryUpdatePreview();
+            _previewTimer.AutoReset = true;
+        }
 
+        // --------- lifecycle ---------
+        private void Window_Loaded(object? sender, RoutedEventArgs e)
+        {
+            // Try to resolve ARK on load. Non-fatal if not found yet.
+            _arkHwnd = ScreenCapture.ResolveArkWindow();
+            Status("Ready" + (_arkHwnd == IntPtr.Zero ? " — No Ark window selected." : ""));
             _previewTimer.Start();
-            SetStatus("Idle.");
         }
 
-        // ---------------- bind helpers ----------------
-
-        private void LoadFromSettings()
+        private void Window_Closed(object? sender, EventArgs e)
         {
-            ChannelBox.Text          = _settings.ChannelId ?? "";
-            ApiUrlBox.Text           = _settings.ApiBaseUrl ?? "";
-            ApiKeyBox.Text           = _settings.ApiKey ?? "";
-            ServerBox.Text           = _settings.Server ?? "";
-            TribeBox.Text            = _settings.Tribe ?? "";
-            IntervalBox.Text         = (_settings.IntervalMinutes > 0 ? _settings.IntervalMinutes : 1).ToString();
-            QualitySlider.Value      = (_settings.JpegQuality > 0 ? _settings.JpegQuality : 85);
-            ActiveWindowCheck.IsChecked = _settings.ActiveWindowOnly;
-        }
-
-        private void BindToSettings()   // called by MainWindow.Persistence.cs on app close
-        {
-            _settings.ChannelId        = ChannelBox.Text.Trim();
-            _settings.ApiBaseUrl       = ApiUrlBox.Text.Trim();
-            _settings.ApiKey           = ApiKeyBox.Text.Trim();
-            _settings.Server           = ServerBox.Text.Trim();
-            _settings.Tribe            = TribeBox.Text.Trim();
-            _settings.ActiveWindowOnly = ActiveWindowCheck.IsChecked == true;
-
-            if (int.TryParse(IntervalBox.Text, out var mins) && mins > 0)
-                _settings.IntervalMinutes = mins;
-
-            _settings.JpegQuality = (int)Math.Round(QualitySlider.Value);
-        }
-
-        // ---------------- UI helpers ----------------
-
-        private void SetStatus(string msg) => StatusText.Text = msg;
-
-        private static BitmapSource ToBitmapSource(System.Drawing.Bitmap bmp)
-        {
-            using var ms = new MemoryStream();
-            bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-            ms.Position = 0;
-            var img = new BitmapImage();
-            img.BeginInit();
-            img.CacheOption = BitmapCacheOption.OnLoad;
-            img.StreamSource = ms;
-            img.EndInit();
-            img.Freeze();
-            return img;
-        }
-
-        private void DrawOcrOverlay()
-        {
-            OcrOverlay.Children.Clear();
-            if (ShowOcrDetailsCheck.IsChecked != true || _lastOcr == null || _lastPreview == null)
-                return;
-
-            double w = _lastPreview.PixelWidth;
-            double h = _lastPreview.PixelHeight;
-            if (w <= 0 || h <= 0) return;
-
-            double vw = LivePreview.ActualWidth;
-            double vh = LivePreview.ActualHeight;
-            if (vw <= 0 || vh <= 0) return;
-
-            double sx = vw / w;
-            double sy = vh / h;
-
-            foreach (var line in _lastOcr.Lines)
+            _previewTimer.Stop();
+            lock (_frameLock)
             {
-                if (line.Bbox == null || line.Bbox.Length != 4) continue;
-
-                double x  = line.Bbox[0] * sx;
-                double y  = line.Bbox[1] * sy;
-                double rw = line.Bbox[2] * sx;
-                double rh = line.Bbox[3] * sy;
-
-                var rect = new System.Windows.Shapes.Rectangle
-                {
-                    Stroke = System.Windows.Media.Brushes.Lime,
-                    StrokeThickness = 1.2,
-                    Fill = new SolidColorBrush(System.Windows.Media.Color.FromArgb(32, 0, 255, 0)),
-                    Width = Math.Max(1, rw),
-                    Height = Math.Max(1, rh),
-                    IsHitTestVisible = false
-                };
-                Canvas.SetLeft(rect, x);
-                Canvas.SetTop(rect, y);
-                OcrOverlay.Children.Add(rect);
+                _lastPreviewBmp?.Dispose();
+                _lastPreviewBmp = null;
             }
         }
 
-        // ---------------- Buttons ----------------
-
-        private void SaveBtn_Click(object sender, RoutedEventArgs e)
+        // --------- UI: Start/Stop ---------
+        private void StartBtn_Click(object sender, RoutedEventArgs e)
         {
-            BindToSettings();
-            _settings.Save();
-            SetStatus("Saved.");
-        }
-
-        private async void StartBtn_Click(object sender, RoutedEventArgs e)
-        {
-            await RefreshPreviewAsync();
             _previewTimer.Start();
-            SetStatus("Preview started.");
+            Status("Preview running.");
         }
 
         private void StopBtn_Click(object sender, RoutedEventArgs e)
         {
             _previewTimer.Stop();
-            SetStatus("Preview stopped.");
+            Status("Preview stopped.");
         }
 
+        // --------- UI: Select log area (opens overlay) ---------
         private void SelectCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            _arkHwnd = WindowUtil.FindBestWindowByTitleHint("Ark");
-            if (_arkHwnd == IntPtr.Zero)
+            EnsureArkWindow();
+
+            var (ok, rect, hwndUsed) = ScreenCapture.SelectRegion(_arkHwnd);
+            if (!ok || rect.Width <= 0 || rect.Height <= 0)
             {
-                SetStatus("Ark window not found. Put Ark in windowed/borderless and try again.");
+                Status("Selection canceled.");
                 return;
             }
-            SetStatus($"Selected window: {WindowUtil.GetWindowDebugName(_arkHwnd)}");
+
+            // If the selector locked a different window, honor it.
+            if (hwndUsed != IntPtr.Zero)
+                _arkHwnd = hwndUsed;
+
+            _lastRawRect = rect;
+
+            if (ScreenCapture.TryNormalizeRect(_arkHwnd, rect, out _nx, out _ny, out _nw, out _nh))
+            {
+                _hasCrop = true;
+                Status($"Crop set  nx={_nx:F3} ny={_ny:F3} nw={_nw:F3} nh={_nh:F3}");
+                // Draw overlay next frame
+                Dispatcher.Invoke(() => RedrawOverlay());
+            }
+            else
+            {
+                _hasCrop = false;
+                Status("Failed to normalize selection for the target window.");
+            }
         }
 
-        private async void OcrCropBtn_Click(object sender, RoutedEventArgs e)
+        // --------- UI: OCR helpers (client-side only stubs here) ---------
+        private void OcrCropBtn_Click(object sender, RoutedEventArgs e)
         {
+            EnsureArkWindow();
+            if (!_hasCrop)
+            {
+                Status("No crop set.");
+                return;
+            }
+
             try
             {
-                var hwnd = EnsureArkHwnd();
-                if (hwnd == IntPtr.Zero) { SetStatus("No Ark window selected."); return; }
-
-                using var bmp = _settings.UseCrop
-                    ? ScreenCapture.CaptureCropNormalized(hwnd, _settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH)
-                    : ScreenCapture.Capture(hwnd);
-
-                using var ms = new MemoryStream();
-                bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-                ms.Position = 0;
-
-                var remote = new RemoteOcrService(_settings);
-                var res = await remote.ExtractAsync(ms, CancellationToken.None).ConfigureAwait(true);
-                _lastOcr = res;
-
-                var sb = new StringBuilder();
-                foreach (var ln in res.Lines.Where(l => !string.IsNullOrWhiteSpace(l.Text)))
-                    sb.AppendLine(ln.Text!.Trim());
-                LogLineBox.Text = sb.ToString();
-
-                SetStatus($"OCR lines: {res.Lines.Count}  conf: {res.Conf:0.###}");
-                DrawOcrOverlay();
+                Bitmap bmp = ScreenCapture.CaptureCropNormalized(_arkHwnd, _nx, _ny, _nw, _nh);
+                // Hand off to your OCR pipeline here if desired.
+                // For now just copy the PNG to clipboard for quick checks.
+                Clipboard.SetImage(ToBitmapSource(bmp));
+                bmp.Dispose();
+                Status("Cropped image copied to clipboard.");
             }
             catch (Exception ex)
             {
-                SetStatus($"OCR error: {ex.Message}");
+                Status("Crop failed: " + ex.Message);
             }
         }
 
-        private async void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
+        private void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                var hwnd = EnsureArkHwnd();
-                if (hwnd == IntPtr.Zero) { SetStatus("No Ark window selected."); return; }
-
-                var ingestor = new OcrIngestor();
-                await ingestor.ScanAndPostAsync(
-                    hwnd,
-                    _settings,
-                    _settings.Server ?? "",
-                    _settings.Tribe ?? "",
-                    s => Dispatcher.Invoke(() => SetStatus(s))
-                ).ConfigureAwait(true);
-            }
-            catch (Exception ex)
-            {
-                SetStatus($"OCR/Post error: {ex.Message}");
-            }
+            // Keep the button—wire into your Remote OCR client if needed.
+            Status("Not implemented in this build. Use OCR Crop → Paste for now.");
         }
 
-        private async void SendParsedBtn_Click(object sender, RoutedEventArgs e)
+        private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
         {
-            var text = (LogLineBox.Text ?? "").Trim();
-            if (string.IsNullOrEmpty(text)) { SetStatus("Nothing to send."); return; }
-
-            try
+            // Keep as-is; wire to your ingest client if needed.
+            if (string.IsNullOrWhiteSpace(LogLineBox.Text))
             {
-                // LogIngestClient is static in your repo; call the static method.
-                await LogIngestClient.SendParsedAsync(
-                    text,
-                    _settings.Server ?? "",
-                    _settings.Tribe ?? "",
-                    _settings,                       // carries API base/key
-                    CancellationToken.None
-                ).ConfigureAwait(true);
-
-                SetStatus("Sent.");
+                Status("Nothing to send.");
+                return;
             }
-            catch (Exception ex)
-            {
-                SetStatus($"Send failed: {ex.Message}");
-            }
+            Status("Sent pasted line (local stub).");
         }
 
-        private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e) => DrawOcrOverlay();
-        private void LivePreview_SizeChanged(object sender, SizeChangedEventArgs e)    => DrawOcrOverlay();
-
-        private async void SaveDebugBtn_Click(object sender, RoutedEventArgs e)
+        // --------- UI: debug switches ---------
+        private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e)
         {
+            _showOcrDetails = (ShowOcrDetailsCheck.IsChecked == true);
+            RedrawOverlay();
+        }
+
+        private void SaveDebugBtn_Click(object sender, RoutedEventArgs e)
+        {
+            // Save last preview + selection + simple info to a ZIP on Desktop
+            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            string root = Path.Combine(desktop, "GravityCapture_Debug_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+            string zipPath = root + ".zip";
+
+            Directory.CreateDirectory(root);
+
             try
             {
-                var stamp  = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
-                var baseDir = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-                    $"gc_debug_{stamp}");
-                Directory.CreateDirectory(baseDir);
-
-                lock (_gate)
+                lock (_frameLock)
                 {
-                    if (_lastPreview != null)
+                    if (_lastPreviewBmp != null)
                     {
-                        var enc = new PngBitmapEncoder();
-                        enc.Frames.Add(BitmapFrame.Create(_lastPreview));
-                        using var fs = File.Create(System.IO.Path.Combine(baseDir, "preview.png"));
-                        enc.Save(fs);
+                        _lastPreviewBmp.Save(Path.Combine(root, "preview.png"));
                     }
                 }
 
-                if (_lastOcr != null)
+                if (_hasCrop)
                 {
-                    await File.WriteAllTextAsync(
-                        System.IO.Path.Combine(baseDir, "ocr.json"),
-                        System.Text.Json.JsonSerializer.Serialize(_lastOcr, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                    File.WriteAllText(Path.Combine(root, "crop.json"),
+                        $"{{\"nx\":{_nx},\"ny\":{_ny},\"nw\":{_nw},\"nh\":{_nh}}}");
                 }
 
-                await File.WriteAllTextAsync(
-                    System.IO.Path.Combine(baseDir, "appsettings.json"),
-                    System.Text.Json.JsonSerializer.Serialize(_settings, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                var sb = new StringBuilder();
+                sb.AppendLine("arkHwnd: " + _arkHwnd);
+                sb.AppendLine("hasCrop: " + _hasCrop);
+                sb.AppendLine("timestamp: " + DateTime.Now.ToString("O"));
+                File.WriteAllText(Path.Combine(root, "meta.txt"), sb.ToString());
 
-                SetStatus($"Saved debug to {baseDir}");
+                if (File.Exists(zipPath)) File.Delete(zipPath);
+                ZipFile.CreateFromDirectory(root, zipPath);
+                Directory.Delete(root, true);
+
+                Status("Saved: " + zipPath);
             }
             catch (Exception ex)
             {
-                SetStatus($"Save debug failed: {ex.Message}");
+                Status("Save debug ZIP failed: " + ex.Message);
             }
         }
 
-        // ---------------- Preview loop ----------------
-
-        private async Task RefreshPreviewAsync()
+        // --------- preview loop ---------
+        private void TryUpdatePreview()
         {
             try
             {
-                var hwnd = EnsureArkHwnd();
-                if (hwnd == IntPtr.Zero)
+                EnsureArkWindow();
+                if (_arkHwnd == IntPtr.Zero)
                 {
-                    LivePreview.Source = null;
-                    _lastPreview = null;
-                    SetStatus("No Ark window selected.");
+                    Dispatcher.Invoke(() =>
+                    {
+                        LivePreview.Source = null;
+                        Status("No Ark window selected.");
+                        RedrawOverlay(); // clears
+                    });
                     return;
                 }
 
-                using var bmp = ScreenCapture.Capture(hwnd);
-                var src = ToBitmapSource(bmp);
+                bool usedFallback;
+                string? reason;
+                Bitmap bmp = ScreenCapture.CaptureForPreview(_arkHwnd, out usedFallback, out reason);
 
-                lock (_gate) _lastPreview = src;
-                LivePreview.Source = src;
+                lock (_frameLock)
+                {
+                    _lastPreviewBmp?.Dispose();
+                    _lastPreviewBmp = (Bitmap)bmp.Clone();
+                }
 
-                if (ShowOcrDetailsCheck.IsChecked == true)
-                    DrawOcrOverlay();
+                Dispatcher.Invoke(() =>
+                {
+                    LivePreview.Source = ToBitmapSource(bmp);
+                    if (usedFallback && !string.IsNullOrEmpty(reason))
+                        Status("Preview: screen fallback (" + reason + ")");
+                    else if (usedFallback)
+                        Status("Preview: screen fallback");
+                    else
+                        Status("Preview: WGC");
+
+                    RedrawOverlay();
+                });
+
+                bmp.Dispose();
             }
             catch (Exception ex)
             {
-                SetStatus($"Preview error: {ex.Message}");
-                await Task.Delay(1000);
+                Dispatcher.Invoke(() =>
+                {
+                    Status("Preview error: " + ex.Message);
+                    LivePreview.Source = null;
+                    RedrawOverlay();
+                });
             }
         }
 
-        private IntPtr EnsureArkHwnd()
+        // --------- overlay drawing ---------
+        private void LivePreview_SizeChanged(object sender, SizeChangedEventArgs e) => RedrawOverlay();
+
+        private void RedrawOverlay()
         {
-            if (_settings.ActiveWindowOnly == true)
-                _arkHwnd = WindowUtil.GetForegroundWindow();
+            OcrOverlay.Children.Clear();
+            if (!_showOcrDetails || !_hasCrop || LivePreview.Source == null)
+                return;
 
+            // Determine how the image is currently letterboxed inside the Image control
+            var src = (BitmapSource)LivePreview.Source;
+            double iw = src.PixelWidth;
+            double ih = src.PixelHeight;
+
+            double cw = LivePreview.ActualWidth;
+            double ch = LivePreview.ActualHeight;
+
+            if (iw <= 0 || ih <= 0 || cw <= 0 || ch <= 0)
+                return;
+
+            double scale = Math.Min(cw / iw, ch / ih);
+            double vw = iw * scale;
+            double vh = ih * scale;
+
+            double ox = (cw - vw) / 2.0;   // horizontal letterboxing
+            double oy = (ch - vh) / 2.0;   // vertical letterboxing
+
+            // Convert normalized crop (relative to window) into displayed image space
+            double rx = ox + _nx * vw;
+            double ry = oy + _ny * vh;
+            double rw = _nw * vw;
+            double rh = _nh * vh;
+
+            var rect = new System.Windows.Shapes.Rectangle
+            {
+                Width = Math.Max(1, rw),
+                Height = Math.Max(1, rh),
+                Stroke = new SolidColorBrush(Color.FromRgb(125, 127, 255)),
+                StrokeThickness = 2,
+                Fill = new SolidColorBrush(Color.FromArgb(40, 125, 127, 255))
+            };
+
+            Canvas.SetLeft(rect, rx);
+            Canvas.SetTop(rect, ry);
+            OcrOverlay.Children.Add(rect);
+        }
+
+        // --------- helpers ---------
+        private void EnsureArkWindow()
+        {
             if (_arkHwnd == IntPtr.Zero)
-                _arkHwnd = WindowUtil.FindBestWindowByTitleHint("Ark");
+                _arkHwnd = ScreenCapture.ResolveArkWindow();
+        }
 
-            return _arkHwnd;
+        private static BitmapSource ToBitmapSource(Bitmap bmp)
+        {
+            using var ms = new MemoryStream();
+            bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            ms.Position = 0;
+
+            var bi = new BitmapImage();
+            bi.BeginInit();
+            bi.CacheOption = BitmapCacheOption.OnLoad;
+            bi.StreamSource = ms;
+            bi.EndInit();
+            bi.Freeze();
+            return bi;
+        }
+
+        private void Status(string text)
+        {
+            // Keep last status visible at the bottom.
+            StatusText.Text = text;
         }
     }
 }
