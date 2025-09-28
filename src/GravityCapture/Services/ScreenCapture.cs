@@ -7,6 +7,7 @@ namespace GravityCapture.Services
 {
     /// <summary>
     /// Pure GDI capture. Works without Windows.Graphics.Capture.
+    /// Provides: BitBlt/PrintWindow capture for preview and full desktop.
     /// </summary>
     public static class ScreenCapture
     {
@@ -18,8 +19,9 @@ namespace GravityCapture.Services
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
         [DllImport("user32.dll")] private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
 
-        [DllImport("gdi32.dll")] private static extern bool BitBlt(IntPtr hdc, int x, int y, int cx, int cy,
-                                                                   IntPtr hdcSrc, int x1, int y1, int rop);
+        [DllImport("gdi32.dll")] private static extern bool BitBlt(
+            IntPtr hdc, int x, int y, int cx, int cy, IntPtr hdcSrc, int x1, int y1, int rop);
+
         [DllImport("gdi32.dll")] private static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int nWidth, int nHeight);
         [DllImport("gdi32.dll")] private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
         [DllImport("gdi32.dll")] private static extern bool DeleteDC(IntPtr hdc);
@@ -29,7 +31,7 @@ namespace GravityCapture.Services
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT { public int Left, Top, Right, Bottom; }
 
-        /// <summary>Capture full primary desktop.</summary>
+        /// <summary>Capture the full primary desktop.</summary>
         public static Bitmap CaptureDesktopFull()
         {
             var bounds = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
@@ -53,7 +55,10 @@ namespace GravityCapture.Services
             }
         }
 
-        /// <summary>Capture a specific window. Tries PrintWindow then BitBlt fallback.</summary>
+        /// <summary>
+        /// Capture a specific window for preview. Tries PrintWindow first, then falls back to BitBlt.
+        /// Returns the captured bitmap and tells whether the fallback path was used.
+        /// </summary>
         public static Bitmap CaptureForPreview(IntPtr hwnd, out bool usedFallback)
         {
             usedFallback = false;
@@ -61,7 +66,7 @@ namespace GravityCapture.Services
             if (hwnd == IntPtr.Zero) return CaptureDesktopFull();
             if (!GetWindowRect(hwnd, out var r)) return CaptureDesktopFull();
 
-            int w = Math.Max(1, r.Right - r.Left);
+            int w = Math.Max(1, r.Right  - r.Left);
             int h = Math.Max(1, r.Bottom - r.Top);
 
             var hSrc  = GetWindowDC(hwnd);
@@ -90,7 +95,7 @@ namespace GravityCapture.Services
             }
         }
 
-        // Back-compat shims
+        // Back-compat shims to match older callers
         public static Bitmap Capture()                                   => CaptureDesktopFull();
         public static Bitmap Capture(IntPtr hwnd)                        => CaptureForPreview(hwnd, out _);
         public static Bitmap Capture(IntPtr hwnd, out bool usedFallback) => CaptureForPreview(hwnd, out usedFallback);
