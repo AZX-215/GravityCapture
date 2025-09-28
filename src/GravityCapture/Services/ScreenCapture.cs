@@ -1,13 +1,14 @@
 // src/GravityCapture/Services/ScreenCapture.cs
 using System;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 
 namespace GravityCapture.Services
 {
     /// <summary>
-    /// Pure GDI capture. Works without Windows.Graphics.Capture.
-    /// Provides: BitBlt/PrintWindow capture for preview and full desktop.
+    /// Pure GDI capture (no WGC). Provides PrintWindow/BitBlt capture for a window
+    /// plus helpers for full-desktop and normalized crop.
     /// </summary>
     public static class ScreenCapture
     {
@@ -31,10 +32,13 @@ namespace GravityCapture.Services
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT { public int Left, Top, Right, Bottom; }
 
+        private static int Clamp(int v, int lo, int hi) => v < lo ? lo : (v > hi ? hi : v);
+
         /// <summary>Capture the full primary desktop.</summary>
         public static Bitmap CaptureDesktopFull()
         {
-            var bounds = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+            // PrimaryScreen is effectively non-null in WinForms; use ! to silence nullable warnings.
+            var bounds = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
 
             var hSrc  = GetWindowDC(IntPtr.Zero);
             var hDest = CreateCompatibleDC(hSrc);
@@ -93,6 +97,25 @@ namespace GravityCapture.Services
                 DeleteDC(hDest);
                 ReleaseDC(hwnd, hSrc);
             }
+        }
+
+        /// <summary>
+        /// Capture a window and crop by normalized rectangle (0..1) relative to the captured image.
+        /// </summary>
+        public static Bitmap CaptureCropNormalized(IntPtr hwnd, double nx, double ny, double nw, double nh)
+        {
+            using var full = CaptureForPreview(hwnd, out _);
+
+            int W = Math.Max(1, full.Width);
+            int H = Math.Max(1, full.Height);
+
+            int x = Clamp((int)Math.Round(nx * W), 0, W - 1);
+            int y = Clamp((int)Math.Round(ny * H), 0, H - 1);
+            int w = Clamp((int)Math.Round(nw * W), 1, W - x);
+            int h = Clamp((int)Math.Round(nh * H), 1, H - y);
+
+            var rect = new Rectangle(x, y, w, h);
+            return full.Clone(rect, full.PixelFormat);
         }
 
         // Back-compat shims to match older callers
