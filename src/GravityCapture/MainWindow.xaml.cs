@@ -5,23 +5,27 @@ using System.Drawing;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
-using System.Threading;
 using System.Windows;
-using System.Windows.Controls;                 // Canvas.*
+using System.Windows.Controls;            // Canvas
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using GravityCapture.Services;                // ScreenCapture + WgcCapture (used indirectly)
+
+using GravityCapture.Models;              // AppSettings
+using GravityCapture.Services;            // ScreenCapture
 
 namespace GravityCapture
 {
     public partial class MainWindow : Window
     {
-        // --- runtime state ---
+        // Settings persisted by the partial in MainWindow.Persistence.cs
+        private readonly AppSettings _settings = AppSettings.Load();
+
+        // runtime state
         private IntPtr _arkHwnd = IntPtr.Zero;
 
         private bool _hasCrop;
-        private double _nx, _ny, _nw, _nh;      // normalized crop in window space
-        private Rectangle _lastRawRect;         // last raw selection
+        private double _nx, _ny, _nw, _nh;    // normalized crop (0..1, window space)
+        private Rectangle _lastRawRect;
 
         private readonly System.Timers.Timer _previewTimer;
         private readonly object _frameLock = new();
@@ -33,16 +37,17 @@ namespace GravityCapture
         {
             InitializeComponent();
 
-            // 6 FPS preview is enough. Keep UI responsive.
-            _previewTimer = new System.Timers.Timer(1000.0 / 6.0);
+            _previewTimer = new System.Timers.Timer(1000.0 / 6.0); // ~6 FPS
             _previewTimer.Elapsed += (_, __) => TryUpdatePreview();
             _previewTimer.AutoReset = true;
+
+            Loaded  += Window_Loaded;
+            Closed  += Window_Closed;
         }
 
-        // --------- lifecycle ---------
+        // ---------- lifecycle ----------
         private void Window_Loaded(object? sender, RoutedEventArgs e)
         {
-            // Try to resolve ARK on load. Non-fatal if not found yet.
             _arkHwnd = ScreenCapture.ResolveArkWindow();
             Status("Ready" + (_arkHwnd == IntPtr.Zero ? " — No Ark window selected." : ""));
             _previewTimer.Start();
@@ -58,7 +63,21 @@ namespace GravityCapture
             }
         }
 
-        // --------- UI: Start/Stop ---------
+        // ---------- top buttons ----------
+        private void SaveBtn_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                BindToSettings();
+                _settings.Save();
+                Status("Settings saved.");
+            }
+            catch (Exception ex)
+            {
+                Status("Save failed: " + ex.Message);
+            }
+        }
+
         private void StartBtn_Click(object sender, RoutedEventArgs e)
         {
             _previewTimer.Start();
@@ -71,11 +90,12 @@ namespace GravityCapture
             Status("Preview stopped.");
         }
 
-        // --------- UI: Select log area (opens overlay) ---------
+        // ---------- crop selection ----------
         private void SelectCropBtn_Click(object sender, RoutedEventArgs e)
         {
             EnsureArkWindow();
 
+            // Simple, robust selector (stubbed if the overlay is not present)
             var (ok, rect, hwndUsed) = ScreenCapture.SelectRegion(_arkHwnd);
             if (!ok || rect.Width <= 0 || rect.Height <= 0)
             {
@@ -83,7 +103,6 @@ namespace GravityCapture
                 return;
             }
 
-            // If the selector locked a different window, honor it.
             if (hwndUsed != IntPtr.Zero)
                 _arkHwnd = hwndUsed;
 
@@ -93,17 +112,16 @@ namespace GravityCapture
             {
                 _hasCrop = true;
                 Status($"Crop set  nx={_nx:F3} ny={_ny:F3} nw={_nw:F3} nh={_nh:F3}");
-                // Draw overlay next frame
-                Dispatcher.Invoke(() => RedrawOverlay());
+                Dispatcher.Invoke(RedrawOverlay);
             }
             else
             {
                 _hasCrop = false;
-                Status("Failed to normalize selection for the target window.");
+                Status("Failed to normalize selection.");
             }
         }
 
-        // --------- UI: OCR helpers (client-side only stubs here) ---------
+        // ---------- OCR helpers ----------
         private void OcrCropBtn_Click(object sender, RoutedEventArgs e)
         {
             EnsureArkWindow();
@@ -115,11 +133,9 @@ namespace GravityCapture
 
             try
             {
-                Bitmap bmp = ScreenCapture.CaptureCropNormalized(_arkHwnd, _nx, _ny, _nw, _nh);
-                // Hand off to your OCR pipeline here if desired.
-                // For now just copy the PNG to clipboard for quick checks.
-                Clipboard.SetImage(ToBitmapSource(bmp));
-                bmp.Dispose();
+                using Bitmap bmp = ScreenCapture.CaptureCropNormalized(_arkHwnd, _nx, _ny, _nw, _nh);
+                // For quick testing copy to clipboard
+                System.Windows.Clipboard.SetImage(ToBitmapSource(bmp)); // disambiguate WPF vs WinForms
                 Status("Cropped image copied to clipboard.");
             }
             catch (Exception ex)
@@ -130,22 +146,22 @@ namespace GravityCapture
 
         private void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Keep the button—wire into your Remote OCR client if needed.
-            Status("Not implemented in this build. Use OCR Crop → Paste for now.");
+            Status("Not implemented in this build. Use OCR Crop → Paste.");
         }
 
         private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Keep as-is; wire to your ingest client if needed.
             if (string.IsNullOrWhiteSpace(LogLineBox.Text))
             {
                 Status("Nothing to send.");
                 return;
             }
+
+            // Wire to your ingest client if needed.
             Status("Sent pasted line (local stub).");
         }
 
-        // --------- UI: debug switches ---------
+        // ---------- debug UI ----------
         private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e)
         {
             _showOcrDetails = (ShowOcrDetailsCheck.IsChecked == true);
@@ -154,9 +170,8 @@ namespace GravityCapture
 
         private void SaveDebugBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Save last preview + selection + simple info to a ZIP on Desktop
             string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-            string root = Path.Combine(desktop, "GravityCapture_Debug_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+            string root = System.IO.Path.Combine(desktop, "GravityCapture_Debug_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
             string zipPath = root + ".zip";
 
             Directory.CreateDirectory(root);
@@ -165,15 +180,12 @@ namespace GravityCapture
             {
                 lock (_frameLock)
                 {
-                    if (_lastPreviewBmp != null)
-                    {
-                        _lastPreviewBmp.Save(Path.Combine(root, "preview.png"));
-                    }
+                    _lastPreviewBmp?.Save(System.IO.Path.Combine(root, "preview.png"));
                 }
 
                 if (_hasCrop)
                 {
-                    File.WriteAllText(Path.Combine(root, "crop.json"),
+                    File.WriteAllText(System.IO.Path.Combine(root, "crop.json"),
                         $"{{\"nx\":{_nx},\"ny\":{_ny},\"nw\":{_nw},\"nh\":{_nh}}}");
                 }
 
@@ -181,7 +193,7 @@ namespace GravityCapture
                 sb.AppendLine("arkHwnd: " + _arkHwnd);
                 sb.AppendLine("hasCrop: " + _hasCrop);
                 sb.AppendLine("timestamp: " + DateTime.Now.ToString("O"));
-                File.WriteAllText(Path.Combine(root, "meta.txt"), sb.ToString());
+                File.WriteAllText(System.IO.Path.Combine(root, "meta.txt"), sb.ToString());
 
                 if (File.Exists(zipPath)) File.Delete(zipPath);
                 ZipFile.CreateFromDirectory(root, zipPath);
@@ -195,7 +207,7 @@ namespace GravityCapture
             }
         }
 
-        // --------- preview loop ---------
+        // ---------- preview loop ----------
         private void TryUpdatePreview()
         {
             try
@@ -214,7 +226,7 @@ namespace GravityCapture
 
                 bool usedFallback;
                 string? reason;
-                Bitmap bmp = ScreenCapture.CaptureForPreview(_arkHwnd, out usedFallback, out reason);
+                using Bitmap bmp = ScreenCapture.CaptureForPreview(_arkHwnd, out usedFallback, out reason);
 
                 lock (_frameLock)
                 {
@@ -234,8 +246,6 @@ namespace GravityCapture
 
                     RedrawOverlay();
                 });
-
-                bmp.Dispose();
             }
             catch (Exception ex)
             {
@@ -248,7 +258,7 @@ namespace GravityCapture
             }
         }
 
-        // --------- overlay drawing ---------
+        // ---------- overlay ----------
         private void LivePreview_SizeChanged(object sender, SizeChangedEventArgs e) => RedrawOverlay();
 
         private void RedrawOverlay()
@@ -257,7 +267,6 @@ namespace GravityCapture
             if (!_showOcrDetails || !_hasCrop || LivePreview.Source == null)
                 return;
 
-            // Determine how the image is currently letterboxed inside the Image control
             var src = (BitmapSource)LivePreview.Source;
             double iw = src.PixelWidth;
             double ih = src.PixelHeight;
@@ -272,10 +281,9 @@ namespace GravityCapture
             double vw = iw * scale;
             double vh = ih * scale;
 
-            double ox = (cw - vw) / 2.0;   // horizontal letterboxing
-            double oy = (ch - vh) / 2.0;   // vertical letterboxing
+            double ox = (cw - vw) / 2.0;
+            double oy = (ch - vh) / 2.0;
 
-            // Convert normalized crop (relative to window) into displayed image space
             double rx = ox + _nx * vw;
             double ry = oy + _ny * vh;
             double rw = _nw * vw;
@@ -285,9 +293,9 @@ namespace GravityCapture
             {
                 Width = Math.Max(1, rw),
                 Height = Math.Max(1, rh),
-                Stroke = new SolidColorBrush(Color.FromRgb(125, 127, 255)),
+                Stroke = new SolidColorBrush(System.Windows.Media.Color.FromRgb(125, 127, 255)),
                 StrokeThickness = 2,
-                Fill = new SolidColorBrush(Color.FromArgb(40, 125, 127, 255))
+                Fill = new SolidColorBrush(System.Windows.Media.Color.FromArgb(40, 125, 127, 255))
             };
 
             Canvas.SetLeft(rect, rx);
@@ -295,7 +303,7 @@ namespace GravityCapture
             OcrOverlay.Children.Add(rect);
         }
 
-        // --------- helpers ---------
+        // ---------- helpers ----------
         private void EnsureArkWindow()
         {
             if (_arkHwnd == IntPtr.Zero)
@@ -317,10 +325,18 @@ namespace GravityCapture
             return bi;
         }
 
-        private void Status(string text)
+        // Persist current inputs → settings (minimal; extend as needed)
+        private void BindToSettings()
         {
-            // Keep last status visible at the bottom.
-            StatusText.Text = text;
+            _settings.ChannelId   = ChannelBox.Text?.Trim() ?? "";
+            _settings.ApiUrl      = ApiUrlBox.Text?.Trim() ?? "";
+            _settings.ApiKey      = ApiKeyBox.Text?.Trim() ?? "";
+            _settings.Server      = ServerBox.Text?.Trim() ?? "";
+            _settings.Tribe       = TribeBox.Text?.Trim() ?? "";
+            _settings.JpegQuality = (int)QualitySlider.Value;
+            _settings.ActiveWindowOnly = ActiveWindowCheck.IsChecked == true;
         }
+
+        private void Status(string text) => StatusText.Text = text;
     }
 }
