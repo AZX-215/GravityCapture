@@ -5,19 +5,23 @@ using System.Text.Json;
 
 namespace GravityCapture.Models
 {
+    /// <summary>
+    /// Single persisted settings object (global.json in %LOCALAPPDATA%\GravityCapture).
+    /// Seeds from appsettings.Stage.json (if present) then overlays with persisted values.
+    /// </summary>
     public partial class AppSettings
     {
         public string? ApiBaseUrl { get; set; }
-        public AuthSettings? Auth { get; set; }
-        public ImageSettings? Image { get; set; }
-        public CaptureSettings? Capture { get; set; }
+        public AuthSettings Auth { get; set; } = new();
+        public ImageSettings Image { get; set; } = new();
+        public CaptureSettings Capture { get; set; } = new();
 
         public string? TribeName { get; set; }
         public int IntervalMinutes { get; set; } = 1;
         public bool AutoOcrEnabled { get; set; } = false;
         public bool PostOnlyCritical { get; set; } = false;
 
-        // crop
+        // Crop selection (normalized pixels in screen coordinates)
         public bool UseCrop { get; set; } = false;
         public double CropX { get; set; }
         public double CropY { get; set; }
@@ -27,14 +31,23 @@ namespace GravityCapture.Models
         public sealed class AuthSettings
         {
             public string? ApiKey { get; set; }
-            public string? SharedKey { get; set; } // backward compat
+            // legacy name we still accept if ApiKey is empty
+            public string? SharedKey { get; set; }
         }
 
         public sealed class ImageSettings
         {
             public string? ChannelId { get; set; }
-            public int JpegQuality { get; set; } = 90;
+
+            /// <summary>
+            /// Always saved as 100 now; kept only for backward compatibility with older JSON.
+            /// </summary>
+            public int JpegQuality { get; set; } = 100;
+
+            /// <summary>Window title hint used to locate ARK. Example: "ARK" or "ArkAscended".</summary>
             public string? TargetWindowHint { get; set; } = "ARK";
+
+            // Filter toggles
             public bool FilterTameDeath { get; set; }
             public bool FilterStructureDestroyed { get; set; }
             public bool FilterTribeMateDeath { get; set; }
@@ -42,7 +55,12 @@ namespace GravityCapture.Models
 
         public sealed class CaptureSettings
         {
+            /// <summary>
+            /// Backward-compat only. UI no longer exposes this. We still read/write to avoid
+            /// breaking existing global.json files.
+            /// </summary>
             public bool ActiveWindow { get; set; } = true;
+
             public string? ServerName { get; set; }
         }
 
@@ -58,80 +76,71 @@ namespace GravityCapture.Models
             {
                 Directory.CreateDirectory(ConfigDir);
 
-                // seed from appsettings.Stage.json (if present)
+                // 1) Optional seed (repo-side defaults)
                 var exeDir = AppContext.BaseDirectory;
                 var seedPath = Path.Combine(exeDir, "appsettings.Stage.json");
-                AppSettings seed = new();
-                if (File.Exists(seedPath))
-                {
-                    var seedJson = File.ReadAllText(seedPath);
-                    seed = JsonSerializer.Deserialize<AppSettings>(seedJson) ?? new AppSettings();
-                }
+                var result = File.Exists(seedPath)
+                    ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(seedPath)) ?? new AppSettings()
+                    : new AppSettings();
 
-                // overlay with persisted global.json
+                // 2) Overlay with persisted global.json (user overrides)
                 if (File.Exists(GlobalPath))
                 {
-                    var gj = File.ReadAllText(GlobalPath);
-                    var persisted = JsonSerializer.Deserialize<AppSettings>(gj);
-                    if (persisted != null) seed = Merge(seed, persisted);
+                    var persisted = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(GlobalPath));
+                    if (persisted != null) result = Merge(result, persisted);
                 }
 
-                seed.Auth ??= new AuthSettings();
-                seed.Image ??= new ImageSettings();
-                seed.Capture ??= new CaptureSettings();
-
-                if (string.IsNullOrWhiteSpace(seed.Auth.ApiKey) && !string.IsNullOrWhiteSpace(seed.Auth.SharedKey))
-                    seed.Auth.ApiKey = seed.Auth.SharedKey;
-
-                return seed;
+                // 3) Migrate legacy fields / sanitize
+                MigrateAndSanitize(result);
+                return result;
             }
             catch
             {
-                return new AppSettings
-                {
-                    Auth = new AuthSettings(),
-                    Image = new ImageSettings(),
-                    Capture = new CaptureSettings()
-                };
+                // Fail-safe: return a valid object so the app keeps running
+                var safe = new AppSettings();
+                MigrateAndSanitize(safe);
+                return safe;
             }
         }
 
         public void Save()
         {
+            // enforce new invariants on write
+            MigrateAndSanitize(this);
             Directory.CreateDirectory(ConfigDir);
-            var json = JsonSerializer.Serialize(this, JOpts);
-            File.WriteAllText(GlobalPath, json);
+            File.WriteAllText(GlobalPath, JsonSerializer.Serialize(this, JOpts));
         }
 
-        // shallow merge: persisted overrides seed
+        // shallow merge: b overrides a
         private static AppSettings Merge(AppSettings a, AppSettings b)
         {
-            a.ApiBaseUrl = FirstNonEmpty(b.ApiBaseUrl, a.ApiBaseUrl);
+            a.ApiBaseUrl = First(b.ApiBaseUrl, a.ApiBaseUrl);
+
             a.Auth ??= new AuthSettings();
             b.Auth ??= new AuthSettings();
-            a.Auth.ApiKey = FirstNonEmpty(b.Auth.ApiKey, a.Auth.ApiKey);
-            a.Auth.SharedKey = FirstNonEmpty(b.Auth.SharedKey, a.Auth.SharedKey);
+            a.Auth.ApiKey    = First(b.Auth.ApiKey, a.Auth.ApiKey);
+            a.Auth.SharedKey = First(b.Auth.SharedKey, a.Auth.SharedKey);
 
             a.Image ??= new ImageSettings();
             b.Image ??= new ImageSettings();
-            a.Image.ChannelId = FirstNonEmpty(b.Image.ChannelId, a.Image.ChannelId);
+            a.Image.ChannelId = First(b.Image.ChannelId, a.Image.ChannelId);
             a.Image.JpegQuality = b.Image.JpegQuality != 0 ? b.Image.JpegQuality : a.Image.JpegQuality;
-            a.Image.TargetWindowHint = FirstNonEmpty(b.Image.TargetWindowHint, a.Image.TargetWindowHint);
-            a.Image.FilterTameDeath = b.Image.FilterTameDeath || a.Image.FilterTameDeath;
-            a.Image.FilterStructureDestroyed = b.Image.FilterStructureDestroyed || a.Image.FilterStructureDestroyed;
-            a.Image.FilterTribeMateDeath = b.Image.FilterTribeMateDeath || a.Image.FilterTribeMateDeath;
+            a.Image.TargetWindowHint = First(b.Image.TargetWindowHint, a.Image.TargetWindowHint);
+            a.Image.FilterTameDeath |= b.Image.FilterTameDeath;
+            a.Image.FilterStructureDestroyed |= b.Image.FilterStructureDestroyed;
+            a.Image.FilterTribeMateDeath |= b.Image.FilterTribeMateDeath;
 
             a.Capture ??= new CaptureSettings();
             b.Capture ??= new CaptureSettings();
-            a.Capture.ActiveWindow = b.Capture.ActiveWindow || a.Capture.ActiveWindow;
-            a.Capture.ServerName = FirstNonEmpty(b.Capture.ServerName, a.Capture.ServerName);
+            a.Capture.ActiveWindow |= b.Capture.ActiveWindow;
+            a.Capture.ServerName = First(b.Capture.ServerName, a.Capture.ServerName);
 
-            a.TribeName = FirstNonEmpty(b.TribeName, a.TribeName);
+            a.TribeName = First(b.TribeName, a.TribeName);
             a.IntervalMinutes = b.IntervalMinutes != 0 ? b.IntervalMinutes : a.IntervalMinutes;
-            a.AutoOcrEnabled = b.AutoOcrEnabled || a.AutoOcrEnabled;
-            a.PostOnlyCritical = b.PostOnlyCritical || a.PostOnlyCritical;
+            a.AutoOcrEnabled |= b.AutoOcrEnabled;
+            a.PostOnlyCritical |= b.PostOnlyCritical;
 
-            a.UseCrop = b.UseCrop || a.UseCrop;
+            a.UseCrop |= b.UseCrop;
             a.CropX = b.CropX != 0 ? b.CropX : a.CropX;
             a.CropY = b.CropY != 0 ? b.CropY : a.CropY;
             a.CropW = b.CropW != 0 ? b.CropW : a.CropW;
@@ -140,7 +149,27 @@ namespace GravityCapture.Models
             return a;
         }
 
-        private static string FirstNonEmpty(string? x, string? y) =>
+        private static void MigrateAndSanitize(AppSettings s)
+        {
+            // Legacy: if ApiKey missing but SharedKey present, promote it.
+            if (string.IsNullOrWhiteSpace(s.Auth.ApiKey) && !string.IsNullOrWhiteSpace(s.Auth.SharedKey))
+                s.Auth.ApiKey = s.Auth.SharedKey;
+
+            // Always keep JPEG quality at 100 moving forward.
+            s.Image.JpegQuality = 100;
+
+            // Normalize API base URL (no trailing slash)
+            if (!string.IsNullOrWhiteSpace(s.ApiBaseUrl))
+                s.ApiBaseUrl = s.ApiBaseUrl!.Trim().TrimEnd('/');
+
+            // Clamp crop values to non-negative
+            s.CropX = Math.Max(0, s.CropX);
+            s.CropY = Math.Max(0, s.CropY);
+            s.CropW = Math.Max(0, s.CropW);
+            s.CropH = Math.Max(0, s.CropH);
+        }
+
+        private static string First(string? x, string? y) =>
             !string.IsNullOrWhiteSpace(x) ? x! : (y ?? "");
     }
 }
