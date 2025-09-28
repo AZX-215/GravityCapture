@@ -6,7 +6,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Windows;
-using System.Windows.Controls;            // Canvas
+using System.Windows.Controls;            // Canvas, Image
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -135,7 +135,7 @@ namespace GravityCapture
             {
                 using Bitmap bmp = ScreenCapture.CaptureCropNormalized(_arkHwnd, _nx, _ny, _nw, _nh);
                 // For quick testing copy to clipboard
-                System.Windows.Clipboard.SetImage(ToBitmapSource(bmp)); // disambiguate WPF vs WinForms
+                System.Windows.Clipboard.SetImage(ToBitmapSource(bmp)); // WPF clipboard
                 Status("Cropped image copied to clipboard.");
             }
             catch (Exception ex)
