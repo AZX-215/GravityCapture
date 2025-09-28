@@ -4,18 +4,21 @@ using GravityCapture.Services;
 
 namespace GravityCapture
 {
-    // WPF entry point
-    public partial class App : System.Windows.Application
+    public partial class App : Application
     {
         protected override void OnStartup(StartupEventArgs e)
         {
-            // Initialize OCR profile system early.
-            // Supports --profile=hdr|sdr and GC_PROFILE / GC_ENV env vars.
             ProfileManager.Initialize(Environment.GetCommandLineArgs());
-
             base.OnStartup(e);
-            // If you’re not using StartupUri in App.xaml, you could show MainWindow here:
-            // new MainWindow().Show();
+
+            // Force dark title bars for every window as it loads.
+            EventManager.RegisterClassHandler(
+                typeof(Window),
+                Window.LoadedEvent,
+                new RoutedEventHandler((s, _) =>
+                {
+                    if (s is Window w) WindowTheme.ApplyDark(w);
+                }));
         }
     }
 }
