@@ -1,3 +1,4 @@
+// src/GravityCapture/Services/ScreenCapture.cs
 using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
@@ -28,8 +29,6 @@ namespace GravityCapture.Services
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT { public int Left, Top, Right, Bottom; }
 
-        // ---- Public API ----
-
         /// <summary>Capture full primary desktop.</summary>
         public static Bitmap CaptureDesktopFull()
         {
@@ -42,7 +41,6 @@ namespace GravityCapture.Services
 
             try
             {
-                // copy the screen
                 BitBlt(hDest, 0, 0, bounds.Width, bounds.Height, hSrc, bounds.Left, bounds.Top, SRCCOPY);
                 return Image.FromHbitmap(hBmp);
             }
@@ -93,8 +91,8 @@ namespace GravityCapture.Services
         }
 
         // Back-compat shims
-        public static Bitmap Capture()                                  => CaptureDesktopFull();
-        public static Bitmap Capture(IntPtr hwnd)                       => CaptureForPreview(hwnd, out _);
+        public static Bitmap Capture()                                   => CaptureDesktopFull();
+        public static Bitmap Capture(IntPtr hwnd)                        => CaptureForPreview(hwnd, out _);
         public static Bitmap Capture(IntPtr hwnd, out bool usedFallback) => CaptureForPreview(hwnd, out usedFallback);
     }
 }
