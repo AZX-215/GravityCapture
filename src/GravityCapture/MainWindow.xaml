@@ -5,7 +5,9 @@
         Background="{DynamicResource BgBrush}"
         FontFamily="Segoe UI"
         Foreground="{DynamicResource TextSecondaryBrush}"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        Loaded="Window_Loaded"
+        Closing="Window_Closing">
 
   <Grid Margin="12">
     <Grid.RowDefinitions>
@@ -34,8 +36,6 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
 
           <StackPanel Orientation="Horizontal" Grid.Row="0">
@@ -51,18 +51,6 @@
           <StackPanel Orientation="Horizontal" Grid.Row="2">
             <TextBlock Text="API Key:" Margin="2,2,8,2"/>
             <TextBox x:Name="ApiKeyBox" Width="360"/>
-          </StackPanel>
-
-          <StackPanel Orientation="Horizontal" Grid.Row="3">
-            <TextBlock Text="Interval (min):" Margin="2,2,8,2"/>
-            <TextBox x:Name="IntervalBox" Width="60" TextAlignment="Center"/>
-            <CheckBox x:Name="ActiveWindowCheck" Content="Capture active window only" Margin="16,0,0,0"/>
-          </StackPanel>
-
-          <StackPanel Orientation="Horizontal" Grid.Row="4" VerticalAlignment="Center">
-            <TextBlock Text="JPEG Quality:" Margin="2,2,8,2"/>
-            <Slider x:Name="QualitySlider" Minimum="50" Maximum="100" Width="180" Value="85"/>
-            <TextBlock x:Name="QualityLabel" Text="85" Margin="8,0,0,0"/>
           </StackPanel>
         </Grid>
 
@@ -127,7 +115,6 @@
         <ColumnDefinition Width="3*"/>
       </Grid.ColumnDefinitions>
 
-      <!-- Live preview with OCR overlay + debug -->
       <Border Grid.Column="0"
               Background="{DynamicResource CardBrush}"
               BorderBrush="{DynamicResource InputBorderBrush}"
@@ -147,14 +134,13 @@
 
           <Border Background="#121316" BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" CornerRadius="6">
             <Grid>
-              <Image x:Name="LivePreview" Stretch="Uniform" SizeChanged="LivePreview_SizeChanged"/>
+              <Image x:Name="LivePreview" Stretch="Uniform" />
               <Canvas x:Name="OcrOverlay" IsHitTestVisible="False"/>
             </Grid>
           </Border>
         </DockPanel>
       </Border>
 
-      <!-- Paste box -->
       <Border Grid.Column="1"
               Background="{DynamicResource CardBrush}"
               BorderBrush="{DynamicResource InputBorderBrush}"
