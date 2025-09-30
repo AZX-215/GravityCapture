@@ -1,83 +1,108 @@
+using System;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
+using GravityCapture.Models;
 
 namespace GravityCapture.Services
 {
-    public class ApiClient
+    public sealed class ApiClient : IDisposable
     {
-        private static readonly bool DebugHttp =
-            (Environment.GetEnvironmentVariable("GC_DEBUG_HTTP") ?? "0") == "1";
+        private readonly HttpClient _http;
+        private readonly AppSettings _s;
 
-        private readonly HttpClient _http = new HttpClient();
-        private readonly string _apiUrl;
-        private readonly string _apiKey;
-
-        public ApiClient(string apiUrl, string apiKey)
+        public ApiClient(AppSettings settings, HttpClient? http = null)
         {
-            _apiUrl = (apiUrl ?? "").TrimEnd('/');
-            _apiKey = apiKey ?? "";
+            _s = settings;
+            _http = http ?? new HttpClient();
+            _http.Timeout = TimeSpan.FromSeconds(20);
+
+            // Auth headers. Send both to be tolerant.
+            var key = _s.Auth?.ApiKey ?? string.Empty;
+            var chan = _s.Image?.ChannelId ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                if (!_http.DefaultRequestHeaders.Contains("X-GL-Key"))
+                    _http.DefaultRequestHeaders.Add("X-GL-Key", key);
+                if (!_http.DefaultRequestHeaders.Contains("x-api-key"))
+                    _http.DefaultRequestHeaders.Add("x-api-key", key);
+            }
+            if (!string.IsNullOrWhiteSpace(chan))
+            {
+                if (!_http.DefaultRequestHeaders.Contains("X-GL-Channel"))
+                    _http.DefaultRequestHeaders.Add("X-GL-Channel", chan);
+            }
         }
 
-        public async Task<bool> SendScreenshotAsync(
-            byte[] jpegBytes,
-            string fileName,
-            ulong channelId,
-            string? caption = null)
+        private string Combine(string path)
         {
-            if (string.IsNullOrWhiteSpace(_apiUrl))
+            var root = _s.ApiBaseUrl ?? "";
+            if (string.IsNullOrWhiteSpace(root)) return path;
+            root = root.TrimEnd('/');
+            path = path.TrimStart('/');
+            return $"{root}/{path}";
+        }
+
+        public async Task<(bool ok, string body)> PostScreenshotAsync(byte[] jpegBytes, bool postVisible)
+        {
+            var url = Combine("/ingest/screenshot");
+            using var content = new MultipartFormDataContent();
+            var img = new ByteArrayContent(jpegBytes);
+            img.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+            content.Add(img, "file", "visible.jpg");
+
+            content.Add(new StringContent(_s.Capture?.ServerName ?? _s.ServerName ?? string.Empty), "server");
+            content.Add(new StringContent(_s.TribeName ?? string.Empty), "tribe");
+            content.Add(new StringContent(postVisible ? "1" : "0"), "post_visible");
+
+            using var res = await _http.PostAsync(url, content).ConfigureAwait(false);
+            var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            return (res.IsSuccessStatusCode, body);
+        }
+
+        public async Task<(bool ok, string body)> OcrOnlyAsync(byte[] jpegBytes)
+        {
+            // Try /ocr then fallback /extract
+            foreach (var path in new[] { "/ocr", "/extract" })
             {
-                Console.WriteLine("[GC] ApiClient: missing API URL.");
-                return false;
-            }
-            if (string.IsNullOrWhiteSpace(_apiKey))
-            {
-                Console.WriteLine("[GC] ApiClient: missing API key.");
-                return false;
-            }
-
-            using var form = new MultipartFormDataContent();
-
-            var file = new ByteArrayContent(jpegBytes);
-            file.Headers.ContentType = MediaTypeHeaderValue.Parse("image/jpeg");
-            // If your ingest expects Discord-style "files[0]" instead of "file", change the next line.
-            form.Add(file, "file", string.IsNullOrWhiteSpace(fileName) ? "capture.jpg" : fileName);
-
-            if (channelId != 0)
-                form.Add(new StringContent(channelId.ToString()), "channel_id");
-
-            form.Add(new StringContent(((DateTimeOffset)DateTimeOffset.Now).ToUnixTimeSeconds().ToString()), "ts");
-
-            if (!string.IsNullOrWhiteSpace(caption))
-                form.Add(new StringContent(caption), "caption");
-
-            var url = _apiUrl + "/screenshots";
-            using var req = new HttpRequestMessage(HttpMethod.Post, url);
-            req.Headers.Add("X-GL-Key", _apiKey);
-            req.Content = form;
-
-            Console.WriteLine($"[HTTP ➜] POST {url}");
-            if (DebugHttp)
-                Console.WriteLine($"[HTTP ➜] multipart: file=jpg ({jpegBytes?.Length ?? 0} bytes), channel_id={(channelId==0?"<none>":channelId)}, caption={(caption ?? "<none>")}");
-
-            try
-            {
-                using var res = await _http.SendAsync(req);
-                var ok = res.IsSuccessStatusCode;
-                Console.WriteLine($"[HTTP ⇦] {(int)res.StatusCode} {res.ReasonPhrase}");
-
-                if (!ok)
+                try
                 {
-                    var body = await res.Content.ReadAsStringAsync();
-                    Console.WriteLine($"[HTTP ⇦] error body ({body.Length}): {body}");
-                }
+                    var url = Combine(path);
+                    using var content = new MultipartFormDataContent();
+                    var img = new ByteArrayContent(jpegBytes);
+                    img.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+                    content.Add(img, "file", "crop.jpg");
 
-                return ok;
+                    content.Add(new StringContent(_s.Capture?.ServerName ?? _s.ServerName ?? string.Empty), "server");
+                    content.Add(new StringContent(_s.TribeName ?? string.Empty), "tribe");
+
+                    using var res = await _http.PostAsync(url, content).ConfigureAwait(false);
+                    var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (res.IsSuccessStatusCode) return (true, body);
+                }
+                catch { /* try next */ }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine("[HTTP ✖] " + ex.Message);
-                return false;
-            }
+
+            return (false, "{\"error\":\"OCR failed\"}");
         }
+
+        public async Task<(bool ok, string body)> SendPastedLineAsync(string line)
+        {
+            var url = Combine("/ingest/log-line");
+            var payload = new
+            {
+                line,
+                server = _s.Capture?.ServerName ?? _s.ServerName ?? string.Empty,
+                tribe = _s.TribeName ?? string.Empty
+            };
+            var json = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+            using var res = await _http.PostAsync(url, json).ConfigureAwait(false);
+            var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            return (res.IsSuccessStatusCode, body);
+        }
+
+        public void Dispose() => _http.Dispose();
     }
 }
