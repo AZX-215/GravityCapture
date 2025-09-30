@@ -21,12 +21,21 @@
     <SolidColorBrush x:Key="InputBgBrush" Color="{DynamicResource InputBgColor}"/>
     <SolidColorBrush x:Key="InputBorderBrush" Color="{DynamicResource InputBorderColor}"/>
 
-    <!-- Misc -->
-    <sys:Double x:Key="CardRadius">12</sys:Double>
+    <!-- Shared values -->
+    <CornerRadius x:Key="CardRadius">12</CornerRadius>
     <Thickness x:Key="DefaultPadding">10</Thickness>
 
     <!-- TextBox -->
     <Style TargetType="TextBox">
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource InputBgBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="10"/>
+    </Style>
+
+    <!-- PasswordBox -->
+    <Style TargetType="PasswordBox">
       <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
       <Setter Property="Background" Value="{DynamicResource InputBgBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
@@ -43,6 +52,8 @@
     <Style TargetType="GroupBox">
       <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="10"/>
     </Style>
 
     <!-- Primary button -->
@@ -56,7 +67,7 @@
         <Setter.Value>
           <ControlTemplate TargetType="Button">
             <Border Background="{TemplateBinding Background}"
-                    CornerRadius="12"
+                    CornerRadius="{DynamicResource CardRadius}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
