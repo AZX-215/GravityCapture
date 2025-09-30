@@ -1,52 +1,44 @@
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using GravityCapture.Models;
+using GravityCapture.Services;
+using GravityCapture.Views;
 
 namespace GravityCapture
 {
     public partial class MainWindow : Window
     {
-        // ---------------- Settings store ----------------
-        private sealed class AppSettings
-        {
-            public string? ChannelId { get; set; }
-            public string? ApiUrl    { get; set; }
-            public string? ApiKey    { get; set; }
-            public string? Server    { get; set; }
-            public string? Tribe     { get; set; }
-        }
+        private readonly JsonSerializerOptions _json = new() { WriteIndented = true };
+        private readonly string SettingsDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GravityCapture");
+        private readonly string SettingsFile;
 
-        private static readonly string SettingsDir  =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GravityCapture");
-        private static readonly string SettingsFile = Path.Combine(SettingsDir, "settings.json");
-
-        private readonly JsonSerializerOptions _json =
-            new() { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
-
-        private AppSettings _settings = new();
-
-        // ---------------- Ark detection ----------------
-        private DispatcherTimer? _arkPoll;
+        private AppSettings _settings = AppSettings.Load();
+        private DispatcherTimer? _timer;
+        private System.Drawing.Rectangle? _selectedScreenRect;
         private IntPtr _arkHwnd = IntPtr.Zero;
-        private string _arkTitle = "";
 
         public MainWindow()
         {
             InitializeComponent();
+            SettingsFile = Path.Combine(SettingsDir, "global.json");
         }
 
         // ---------- lifecycle ----------
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
+            ProfileManager.Initialize(Environment.GetCommandLineArgs());
             LoadSettingsIntoUi();
             StartArkPolling();
             SetStatus("Ready.");
@@ -64,43 +56,41 @@ namespace GravityCapture
             {
                 var hwnd = new WindowInteropHelper(this).Handle;
                 int useDark = 1;
-                // 20 works on 1903+, 19 for older 1809 Insider – do both.
                 _ = DwmSetWindowAttribute(hwnd, 20, ref useDark, sizeof(int));
                 _ = DwmSetWindowAttribute(hwnd, 19, ref useDark, sizeof(int));
             }
-            catch { /* best effort */ }
+            catch { /* ignore */ }
         }
 
-        // ---------- Settings load/save ----------
+        // ---------- settings ----------
         private void LoadSettingsIntoUi()
         {
-            try
-            {
-                Directory.CreateDirectory(SettingsDir);
-                if (File.Exists(SettingsFile))
-                {
-                    var json = File.ReadAllText(SettingsFile);
-                    _settings = JsonSerializer.Deserialize<AppSettings>(json, _json) ?? new AppSettings();
-                }
-            }
-            catch { /* keep defaults */ }
+            ChannelBox.Text = _settings.Image?.ChannelId ?? "";
+            ApiUrlBox.Text  = _settings.ApiBaseUrl ?? "";
+            ApiKeyBox.Password  = _settings.Auth?.ApiKey ?? "";
+            ServerBox.Text  = _settings.Capture?.ServerName ?? _settings.ServerName ?? "";
+            TribeBox.Text   = _settings.TribeName ?? "";
 
-            ChannelBox.Text = _settings.ChannelId ?? "";
-            ApiUrlBox.Text  = _settings.ApiUrl   ?? "";
-            ApiKeyBox.Text  = _settings.ApiKey   ?? "";
-            ServerBox.Text  = _settings.Server   ?? "";
-            TribeBox.Text   = _settings.Tribe    ?? "";
+            // load persisted crop if any
+            if (_settings.UseCrop && _settings.CropW > 0 && _settings.CropH > 0)
+            {
+                _selectedScreenRect = new System.Drawing.Rectangle(_settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
+            }
         }
 
         private bool TrySaveFromUi()
         {
             try
             {
-                _settings.ChannelId = ChannelBox.Text?.Trim();
-                _settings.ApiUrl    = ApiUrlBox.Text?.Trim();
-                _settings.ApiKey    = ApiKeyBox.Text?.Trim();
-                _settings.Server    = ServerBox.Text?.Trim();
-                _settings.Tribe     = TribeBox.Text?.Trim();
+                _settings.Image ??= new AppSettings.ImageSettings();
+                _settings.Auth  ??= new AppSettings.AuthSettings();
+                _settings.Capture ??= new AppSettings.CaptureSettings();
+
+                _settings.Image.ChannelId = ChannelBox.Text?.Trim();
+                _settings.ApiBaseUrl      = ApiUrlBox.Text?.Trim();
+                _settings.Auth.ApiKey     = ApiKeyBox.Password?.Trim();
+                _settings.Capture.ServerName = string.IsNullOrWhiteSpace(ServerBox.Text) ? null : ServerBox.Text.Trim();
+                _settings.TribeName       = string.IsNullOrWhiteSpace(TribeBox.Text) ? null : TribeBox.Text.Trim();
 
                 Directory.CreateDirectory(SettingsDir);
                 File.WriteAllText(SettingsFile, JsonSerializer.Serialize(_settings, _json));
@@ -116,178 +106,226 @@ namespace GravityCapture
         private void SaveBtn_Click(object sender, RoutedEventArgs e)
         {
             if (TrySaveFromUi())
-                SetStatus("Settings saved.");
+                SetStatus("Saved.");
         }
 
-        // ---------- Ark polling ----------
+        // ---------- ARK window polling for title ----------
         private void StartArkPolling()
         {
-            _arkPoll = new DispatcherTimer(DispatcherPriority.Background)
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            timer.Tick += (_, __) =>
             {
-                Interval = TimeSpan.FromMilliseconds(1500)
+                (_arkHwnd, var title) = FindArkWindow();
+                if (_arkHwnd != IntPtr.Zero)
+                    StatusText.Text = $"ARK window: {title}";
             };
-            _arkPoll.Tick += (_, __) => RefreshArkWindow();
-            _arkPoll.Start();
-
-            // Initial probe
-            RefreshArkWindow();
+            timer.Start();
         }
 
-        private void RefreshArkWindow()
+        private (IntPtr hwnd, string title) FindArkWindow()
         {
-            var (hwnd, title) = FindArkAscendedWindow();
-            if (hwnd != _arkHwnd)
-            {
-                _arkHwnd = hwnd;
-                _arkTitle = title;
-
-                if (_arkHwnd == IntPtr.Zero)
-                    SetStatus("No Ark window selected.");
-                else
-                    SetStatus($"Ark window: {title}");
-            }
-
-            // Enable/disable actions that require Ark
-            SelectAreaBtn.IsEnabled     = _arkHwnd != IntPtr.Zero;
-            OcrCropBtn.IsEnabled        = _arkHwnd != IntPtr.Zero;
-            OcrAndPostNowBtn.IsEnabled  = _arkHwnd != IntPtr.Zero;
-        }
-
-        // Heuristics for ASA window/process
-        private static (IntPtr hwnd, string title) FindArkAscendedWindow()
-        {
-            // Common process names; we only accept visible windows with a non-empty title.
-            string[] candidates = {
-                "ArkAscended", "ArkAscendedClient",
-                "ShooterGame", "ShooterGame-Win64-Shipping",
-                "ArkAscendedClient-Win64-Shipping"
-            };
-
-            foreach (var name in candidates)
-            {
-                foreach (var p in Process.GetProcessesByName(name))
-                {
-                    if (p.MainWindowHandle != IntPtr.Zero && IsWindowVisible(p.MainWindowHandle))
-                    {
-                        var t = GetWindowText(p.MainWindowHandle);
-                        if (!string.IsNullOrWhiteSpace(t))
-                            return (p.MainWindowHandle, t);
-                    }
-                }
-            }
-
-            // Fallback: enumerate top-level windows and match title text.
-            IntPtr hit = IntPtr.Zero;
+            IntPtr found = IntPtr.Zero;
             string title = "";
+            var target = _settings?.Capture?.ActiveWindow == true ? (_settings.Capture.TargetWindowHint ?? "ARK") : (_settings.TargetWindowHint ?? "ARK");
+
             EnumWindows((h, l) =>
             {
                 if (!IsWindowVisible(h)) return true;
-                var wt = GetWindowText(h);
-                if (string.IsNullOrWhiteSpace(wt)) return true;
-
-                if (wt.Contains("ARK: Survival Ascended", StringComparison.OrdinalIgnoreCase) ||
-                    wt.Contains("Ark Ascended", StringComparison.OrdinalIgnoreCase))
+                var t = GetWindowText(h);
+                if (!string.IsNullOrWhiteSpace(t) && t.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    hit = h; title = wt;
+                    found = h;
+                    title = t;
                     return false;
                 }
                 return true;
             }, IntPtr.Zero);
 
-            return (hit, title);
+            return (found, title);
         }
 
         // ---------- Buttons ----------
         private void StartBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (TrySaveFromUi())
-                SetStatus("Started.");
+            if (_selectedScreenRect == null)
+            {
+                SetStatus("Select log area first.");
+                return;
+            }
+
+            // 2.5s default tick if IntervalMinutes not set
+            var ms = (_settings.IntervalMinutes > 0 ? _settings.IntervalMinutes * 60_000 : 2500);
+            _timer ??= new DispatcherTimer();
+            _timer.Interval = TimeSpan.FromMilliseconds(ms);
+            _timer.Tick -= OnPreviewTick;
+            _timer.Tick += OnPreviewTick;
+            _timer.Start();
+            SetStatus("Started.");
         }
 
         private void StopBtn_Click(object sender, RoutedEventArgs e)
         {
+            _timer?.Stop();
             SetStatus("Stopped.");
         }
 
         private void SelectCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (_arkHwnd == IntPtr.Zero)
+            var overlay = new RegionSelectorWindow(_arkHwnd);
+            if (overlay.ShowDialog() == true)
             {
-                SetStatus("No Ark window selected.");
-                return;
-            }
+                _selectedScreenRect = overlay.SelectedRect;
 
-            try
-            {
-                // Keep your existing region selector behaviour; we only pass the HWND.
-                var dlg = new Views.RegionSelectorWindow(_arkHwnd);
-                dlg.Owner = this;
-                dlg.ShowDialog();
+                // persist crop
+                _settings.UseCrop = true;
+                _settings.CropX = _selectedScreenRect.Value.X;
+                _settings.CropY = _selectedScreenRect.Value.Y;
+                _settings.CropW = _selectedScreenRect.Value.Width;
+                _settings.CropH = _selectedScreenRect.Value.Height;
+                TrySaveFromUi();
 
-                // If your selector writes the crop to a shared place, the preview code can pick it up.
-                SetStatus("Region selected.");
-            }
-            catch (Exception ex)
-            {
-                SetStatus($"Region selector failed: {ex.Message}");
+                SetStatus($"Area set: {_selectedScreenRect.Value.Width}×{_selectedScreenRect.Value.Height} @ {_selectedScreenRect.Value.X},{_selectedScreenRect.Value.Y}");
             }
         }
 
         private async void OcrCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (_arkHwnd == IntPtr.Zero) { SetStatus("No Ark window selected."); return; }
-
+            if (_selectedScreenRect == null) { SetStatus("Select log area first."); return; }
             try
             {
-                // TODO: call your existing capture+OCR pipeline with the selected crop.
-                await Task.CompletedTask;
-                SetStatus("Crop → OCR complete.");
+                using var bmp = CaptureScreenRect(_selectedScreenRect.Value);
+                LivePreview.Source = BmpToSource(bmp);
+
+                var jpeg = EncodeJpeg(bmp, 100);
+                using var api = new ApiClient(_settings);
+                var (ok, body) = await api.OcrOnlyAsync(jpeg);
+                ApiEchoText.Text = body;
+
+                string text = TryExtractText(body);
+                if (!string.IsNullOrWhiteSpace(text))
+                    LogLineBox.Text = text;
+
+                SetStatus(ok ? "OCR returned" : "OCR call failed");
             }
             catch (Exception ex)
             {
-                SetStatus($"OCR failed: {ex.Message}");
+                SetStatus("OCR error: " + ex.Message);
             }
         }
 
         private async void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (_arkHwnd == IntPtr.Zero) { SetStatus("No Ark window selected."); return; }
-
+            if (_selectedScreenRect == null) { SetStatus("Select log area first."); return; }
             try
             {
-                // TODO: call your visible-window capture + OCR + post pipeline.
-                await Task.CompletedTask;
-                SetStatus("OCR & Post complete.");
+                using var bmp = CaptureScreenRect(_selectedScreenRect.Value);
+                LivePreview.Source = BmpToSource(bmp);
+
+                var jpeg = EncodeJpeg(bmp, 100);
+                using var api = new ApiClient(_settings);
+                var (ok, body) = await api.PostScreenshotAsync(jpeg, postVisible: true);
+                ApiEchoText.Text = body;
+                SetStatus(ok ? "Posted screenshot" : "Post failed");
             }
             catch (Exception ex)
             {
-                SetStatus($"OCR & Post failed: {ex.Message}");
+                SetStatus("Post error: " + ex.Message);
             }
         }
 
-        private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
+        private async void SendParsedBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Keep your existing logic that posts LogLineBox.Text to the API.
-            // Here we only provide user feedback.
-            SetStatus("Sent.");
+            var line = LogLineBox.Text?.Trim();
+            if (string.IsNullOrEmpty(line)) { SetStatus("No text to send."); return; }
+            try
+            {
+                using var api = new ApiClient(_settings);
+                var (ok, body) = await api.SendPastedLineAsync(line);
+                ApiEchoText.Text = body;
+                SetStatus(ok ? "Pasted line sent" : "Send failed");
+            }
+            catch (Exception ex)
+            {
+                SetStatus("Send error: " + ex.Message);
+            }
         }
 
-        // ---------- OCR overlay toggles / debug ----------
-        private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e)
+        // ---------- preview loop ----------
+        private void OnPreviewTick(object? sender, EventArgs e)
         {
-            OcrOverlay.Visibility = ShowOcrDetailsCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        private void SaveDebugBtn_Click(object sender, RoutedEventArgs e)
-        {
-            // Hook this up once your OCR pipeline writes artifacts (crop/bin/json/settings).
-            SetStatus("No debug artifacts yet.");
+            if (_selectedScreenRect == null) return;
+            try
+            {
+                using var bmp = CaptureScreenRect(_selectedScreenRect.Value);
+                LivePreview.Source = BmpToSource(bmp);
+            }
+            catch (Exception ex)
+            {
+                SetStatus("Preview error: " + ex.Message);
+            }
         }
 
         // ---------- helpers ----------
+        private static Bitmap CaptureScreenRect(System.Drawing.Rectangle r)
+        {
+            var bmp = new Bitmap(Math.Max(1, r.Width), Math.Max(1, r.Height), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            using var g = Graphics.FromImage(bmp);
+            g.CopyFromScreen(new System.Drawing.Point(r.X, r.Y), System.Drawing.Point.Empty, r.Size, System.Drawing.CopyPixelOperation.SourceCopy);
+            return bmp;
+        }
+
+        private static byte[] EncodeJpeg(Bitmap bmp, int quality)
+        {
+            using var ms = new MemoryStream();
+            var encoder = GetJpegEncoder();
+            var eps = new System.Drawing.Imaging.EncoderParameters(1);
+            eps.Param[0] = new System.Drawing.Imaging.EncoderParameter(System.Drawing.Imaging.Encoder.Quality, Math.Clamp(quality, 1, 100));
+            bmp.Save(ms, encoder, eps);
+            return ms.ToArray();
+        }
+
+        private static System.Drawing.Imaging.ImageCodecInfo GetJpegEncoder()
+        {
+            foreach (var c in System.Drawing.Imaging.ImageCodecInfo.GetImageEncoders())
+                if (c.MimeType == "image/jpeg") return c;
+            throw new InvalidOperationException("JPEG encoder not found");
+        }
+
+        private static BitmapSource BmpToSource(Bitmap bmp)
+        {
+            using var ms = new MemoryStream();
+            bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            ms.Position = 0;
+            var img = new BitmapImage();
+            img.BeginInit();
+            img.CacheOption = BitmapCacheOption.OnLoad;
+            img.StreamSource = ms;
+            img.EndInit();
+            img.Freeze();
+            return img;
+        }
+
+        private static string TryExtractText(string body)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("text", out var t)) return t.GetString() ?? body;
+                if (doc.RootElement.TryGetProperty("lines", out var lines) && lines.ValueKind == JsonValueKind.Array)
+                {
+                    var sb = new StringBuilder();
+                    foreach (var ln in lines.EnumerateArray())
+                        if (ln.TryGetProperty("text", out var lt)) sb.AppendLine(lt.GetString());
+                    return sb.ToString().Trim();
+                }
+            }
+            catch { }
+            return body;
+        }
+
         private void SetStatus(string s) => StatusText.Text = s;
 
-        // Win32 helpers
+        // ---------- Win32 ----------
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
         internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
@@ -302,6 +340,7 @@ namespace GravityCapture
         }
 
         [DllImport("dwmapi.dll")]
-        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+        private static extern int DwmSetWindowAttribute(
+            IntPtr hwnd, int attr, ref int attrValue, int attrSize);
     }
 }
