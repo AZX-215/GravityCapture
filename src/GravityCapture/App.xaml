@@ -1,162 +1,84 @@
-<Window x:Class="GravityCapture.MainWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Gravity Capture"
-        Height="720" Width="1060"
-        Background="{DynamicResource BgBrush}"
-        Foreground="{DynamicResource TextSecondaryBrush}"
-        FontFamily="Segoe UI"
-        WindowStartupLocation="CenterScreen"
-        Loaded="Window_Loaded"
-        Closing="Window_Closing"
-        SourceInitialized="Window_SourceInitialized">
+<Application x:Class="GravityCapture.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
+  <Application.Resources>
+    <!-- Palette -->
+    <Color x:Key="BgColor">#0B0B0C</Color>
+    <Color x:Key="CardColor">#141519</Color>
+    <Color x:Key="AccentColor">#7D7FFF</Color>
+    <Color x:Key="TextPrimaryColor">#B0B3BA</Color>
+    <Color x:Key="TextSecondaryColor">#E4E6EB</Color>
+    <Color x:Key="InputBgColor">#1B1D22</Color>
+    <Color x:Key="InputBorderColor">#2A2D36</Color>
 
-  <Grid Margin="12">
-    <Grid.RowDefinitions>
-      <RowDefinition Height="*"/>
-      <RowDefinition Height="Auto"/>
-    </Grid.RowDefinitions>
+    <!-- Brushes -->
+    <SolidColorBrush x:Key="BgBrush" Color="{DynamicResource BgColor}"/>
+    <SolidColorBrush x:Key="CardBrush" Color="{DynamicResource CardColor}"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="{DynamicResource AccentColor}"/>
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="{DynamicResource TextPrimaryColor}"/>
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="{DynamicResource TextSecondaryColor}"/>
+    <SolidColorBrush x:Key="InputBgBrush" Color="{DynamicResource InputBgColor}"/>
+    <SolidColorBrush x:Key="InputBorderBrush" Color="{DynamicResource InputBorderColor}"/>
 
-    <TabControl Grid.Row="0">
-      <!-- Capture tab -->
-      <TabItem Header="Capture">
-        <Grid Margin="6">
-          <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-          </Grid.RowDefinitions>
+    <!-- Misc -->
+    <sys:Double x:Key="CardRadius">12</sys:Double>
+    <Thickness x:Key="DefaultPadding">10</Thickness>
 
-          <!-- Controls -->
-          <Border Grid.Row="0"
-                  Background="{DynamicResource CardBrush}"
-                  BorderBrush="{DynamicResource InputBorderBrush}"
-                  BorderThickness="1"
-                  CornerRadius="{DynamicResource CardRadius}"
-                  Padding="10">
-            <Grid>
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
+    <!-- TextBox -->
+    <Style TargetType="TextBox">
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource InputBgBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="10"/>
+    </Style>
 
-              <!-- Column 1 -->
-              <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
-                <TextBlock Text="Server:" Margin="2,2,0,2"/>
-                <TextBox x:Name="ServerBox" Width="260"/>
-                <TextBlock Text="Tribe:" Margin="16,2,0,2"/>
-                <TextBox x:Name="TribeBox" Width="220"/>
-                <Button x:Name="StartBtn" Content="Start" Click="StartBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="16,0,0,0"/>
-                <Button x:Name="StopBtn" Content="Stop" Click="StopBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0"/>
-                <Button x:Name="SelectCropBtn" Content="Select Log Area…" Click="SelectCropBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0"/>
-              </StackPanel>
+    <!-- CheckBox -->
+    <Style TargetType="CheckBox">
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+    </Style>
 
-              <!-- Column 2 -->
-              <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8" HorizontalAlignment="Right">
-                <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click" Style="{DynamicResource SecondaryButton}"/>
-                <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0"/>
-                <Button x:Name="SendParsedBtn" Content="Send Pasted Log Line" Click="SendParsedBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0"/>
-              </StackPanel>
-            </Grid>
-          </Border>
+    <!-- GroupBox -->
+    <Style TargetType="GroupBox">
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
+    </Style>
 
-          <!-- Filters -->
-          <Border Grid.Row="1" Margin="0,10,0,0"
-                  Background="{DynamicResource CardBrush}"
-                  BorderBrush="{DynamicResource InputBorderBrush}"
-                  BorderThickness="1"
-                  CornerRadius="{DynamicResource CardRadius}"
-                  Padding="10">
-            <StackPanel Orientation="Horizontal" Spacing="16">
-              <TextBlock Text="Filters (session only):" Margin="0,2,0,2"/>
-              <CheckBox x:Name="FilterTameDeaths" Content="Tame deaths"/>
-              <CheckBox x:Name="FilterTamesStarving" Content="Tames starving to death"/>
-              <CheckBox x:Name="FilterStructDestroyed" Content="Structures destroyed"/>
-              <CheckBox x:Name="FilterStructAutoDecay" Content="Structures auto decay"/>
-              <CheckBox x:Name="FilterTribeMateDeaths" Content="Tribemate deaths"/>
-              <CheckBox x:Name="FilterTribeKillsEnemyTames" Content="Tribe kills enemy tames"/>
-              <CheckBox x:Name="FilterEnemyPlayerKills" Content="Enemy player kills"/>
-              <CheckBox x:Name="FilterTribeDemolish" Content="Tribemates demolishing structures"/>
-              <CheckBox x:Name="FilterTribeFreezeTames" Content="Tribemates freezing tames"/>
-            </StackPanel>
-          </Border>
-
-          <!-- Live preview + paste -->
-          <Grid Grid.Row="2" Margin="0,10,0,0">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="2*"/>
-              <ColumnDefinition Width="3*"/>
-            </Grid.ColumnDefinitions>
-
-            <!-- Preview -->
-            <Border Grid.Column="0"
-                    Background="{DynamicResource CardBrush}"
-                    BorderBrush="{DynamicResource InputBorderBrush}"
-                    BorderThickness="1"
-                    CornerRadius="{DynamicResource CardRadius}"
-                    Padding="10">
-              <Grid>
-                <Image x:Name="LivePreview" Stretch="Uniform"/>
-              </Grid>
+    <!-- Primary button -->
+    <Style x:Key="PrimaryButton" TargetType="Button">
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="8,6"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border Background="{TemplateBinding Background}"
+                    CornerRadius="12"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Opacity" Value="0.9"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
 
-            <!-- Paste box -->
-            <Border Grid.Column="1" Margin="10,0,0,0"
-                    Background="{DynamicResource CardBrush}"
-                    BorderBrush="{DynamicResource InputBorderBrush}"
-                    BorderThickness="1"
-                    CornerRadius="{DynamicResource CardRadius}"
-                    Padding="10">
-              <DockPanel>
-                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
-                  <TextBlock Text="API echo:"/>
-                  <TextBlock x:Name="ApiEchoText" Foreground="#9ECFFF"/>
-                </StackPanel>
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                  <TextBox x:Name="LogLineBox" AcceptsReturn="True" FontFamily="Consolas"
-                           Foreground="#EEEEEE" Background="#111214" BorderThickness="0"
-                           HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"/>
-                </ScrollViewer>
-              </DockPanel>
-            </Border>
-          </Grid>
-        </Grid>
-      </TabItem>
-
-      <!-- Settings tab -->
-      <TabItem Header="Settings">
-        <Grid Margin="10">
-          <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-          </Grid.RowDefinitions>
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="Auto"/>
-          </Grid.ColumnDefinitions>
-
-          <TextBlock Grid.Row="0" Grid.ColumnSpan="3" Text="API credentials" FontWeight="Bold" Margin="0,0,0,8"/>
-          <TextBlock Grid.Row="1" Grid.Column="0" Text="Channel ID:" Margin="0,2,8,2"/>
-          <TextBox   Grid.Row="1" Grid.Column="1" x:Name="ChannelBox" Width="320"/>
-          <TextBlock Grid.Row="2" Grid.Column="0" Text="API URL:" Margin="0,2,8,2"/>
-          <TextBox   Grid.Row="2" Grid.Column="1" x:Name="ApiUrlBox" Width="420"/>
-          <TextBlock Grid.Row="3" Grid.Column="0" Text="API Key:" Margin="0,2,8,2"/>
-          <PasswordBox Grid.Row="3" Grid.Column="1" x:Name="ApiKeyBox" Width="420"/>
-
-          <StackPanel Grid.Row="3" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Bottom">
-            <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" Style="{DynamicResource SecondaryButton}"/>
-          </StackPanel>
-        </Grid>
-      </TabItem>
-    </TabControl>
-
-    <!-- STATUS -->
-    <DockPanel Grid.Row="1" Margin="0,10,0,0">
-      <TextBlock x:Name="StatusText" Foreground="#9ECFFF"/>
-    </DockPanel>
-  </Grid>
-</Window>
-
+    <!-- Secondary button -->
+    <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+      <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+    </Style>
+  </Application.Resources>
+</Application>
