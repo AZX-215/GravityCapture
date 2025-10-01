@@ -12,7 +12,8 @@
 
   <DockPanel>
     <!-- Status -->
-    <Border DockPanel.Dock="Bottom" Padding="6,4" BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1,1,1,0">
+    <Border DockPanel.Dock="Bottom" Padding="6,4"
+            BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1,1,1,0">
       <TextBlock x:Name="StatusText" Foreground="{DynamicResource TextMutedBrush}"/>
     </Border>
 
@@ -27,31 +28,35 @@
             </Grid.RowDefinitions>
 
             <!-- Top controls -->
-            <Border Padding="10" CornerRadius="{DynamicResource CardRadius}" BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+            <Border Padding="10" CornerRadius="{DynamicResource CardRadius}"
+                    BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1">
+              <DockPanel LastChildFill="True">
+                <!-- Right commands wrap instead of clipping -->
+                <WrapPanel DockPanel.Dock="Right" HorizontalAlignment="Right" ItemHeight="32">
+                  <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click"
+                          Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
+                  <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click"
+                          Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
+                  <Button x:Name="SendParsedBtn" Content="Send Pasted Log Line" Click="SendParsedBtn_Click"
+                          Style="{DynamicResource SecondaryButton}"/>
+                </WrapPanel>
 
-                <WrapPanel Grid.Column="0" ItemHeight="32" ItemWidth="Auto">
+                <!-- Left controls wrap on small widths -->
+                <WrapPanel ItemHeight="32" ItemWidth="Auto">
                   <TextBlock Text="Server" Margin="0,4,6,0" VerticalAlignment="Center"/>
                   <TextBox x:Name="ServerBox" Width="300" Margin="0,0,10,0"/>
                   <TextBlock Text="Tribe" Margin="0,4,6,0" VerticalAlignment="Center"/>
                   <TextBox x:Name="TribeBox" Width="200" Margin="0,0,10,0"/>
-                  <Button x:Name="StartBtn" Content="Start" Click="StartBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
-                  <Button x:Name="StopBtn" Content="Stop" Click="StopBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
-                  <Button x:Name="SelectCropBtn" Content="Select Log Area…" Click="SelectCropBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
+                  <Button x:Name="StartBtn" Content="Start" Click="StartBtn_Click"
+                          Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
+                  <Button x:Name="StopBtn" Content="Stop" Click="StopBtn_Click"
+                          Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
+                  <Button x:Name="SelectCropBtn" Content="Select Log Area…" Click="SelectCropBtn_Click"
+                          Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
                   <CheckBox x:Name="ShowOcrDetailsCheck" Content="Show OCR details" Margin="8,6,0,0"
                             Checked="ShowOcrDetailsCheck_Changed" Unchecked="ShowOcrDetailsCheck_Changed"/>
                 </WrapPanel>
-
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                  <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
-                  <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
-                  <Button x:Name="SendParsedBtn" Content="Send Pasted Log Line" Click="SendParsedBtn_Click" Style="{DynamicResource SecondaryButton}"/>
-                </StackPanel>
-              </Grid>
+              </DockPanel>
             </Border>
 
             <!-- Preview + paste -->
@@ -61,22 +66,27 @@
                 <ColumnDefinition Width="3*"/>
               </Grid.ColumnDefinitions>
 
-              <Border CornerRadius="{DynamicResource CardRadius}" BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" Padding="10">
-                <Grid>
-                  <Image x:Name="LivePreview" Stretch="Uniform"/>
-                  <Border x:Name="OcrDetailsOverlay" Background="#66000000" Visibility="Collapsed" CornerRadius="8" Margin="6">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                      <TextBlock x:Name="OcrDetailsText" FontFamily="Consolas" TextWrapping="Wrap"/>
-                    </ScrollViewer>
-                  </Border>
-                </Grid>
+              <Border CornerRadius="{DynamicResource CardRadius}"
+                      BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" Padding="10">
+                <!-- Viewbox ensures scaling to fit at all sizes -->
+                <Viewbox Stretch="Uniform">
+                  <Grid>
+                    <Image x:Name="LivePreview" Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                    <Border x:Name="OcrDetailsOverlay" Background="#66000000" Visibility="Collapsed" CornerRadius="8" Margin="6">
+                      <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <TextBlock x:Name="OcrDetailsText" FontFamily="Consolas" TextWrapping="Wrap"/>
+                      </ScrollViewer>
+                    </Border>
+                  </Grid>
+                </Viewbox>
               </Border>
 
               <Border Grid.Column="1" Margin="10,0,0,0" CornerRadius="{DynamicResource CardRadius}"
                       BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" Padding="10">
                 <DockPanel>
                   <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                    <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="0,0,12,0"/>
+                    <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click"
+                            Style="{DynamicResource SecondaryButton}" Margin="0,0,12,0"/>
                     <TextBlock Text="API echo:" Margin="0,6,6,0" Foreground="{DynamicResource TextMutedBrush}"/>
                     <TextBlock x:Name="ApiEchoText" Foreground="{DynamicResource TextBrush}" Margin="0,6,0,0"/>
                   </StackPanel>
@@ -123,6 +133,7 @@
 
             <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="Filters" FontWeight="Bold" Margin="0,16,0,6"/>
 
+            <!-- Persistent vertical list -->
             <StackPanel Grid.Row="5" Grid.ColumnSpan="2" Orientation="Vertical">
               <CheckBox x:Name="FilterTameDeathsBox" Content="Tame deaths"/>
               <CheckBox x:Name="FilterTamesStarvingBox" Content="Tames starving to death"/>
