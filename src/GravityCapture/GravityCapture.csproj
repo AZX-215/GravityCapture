@@ -1,61 +1,27 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- Windows 10 (2004) or newer so Windows.Graphics.Capture is available -->
+    <!-- Windows 10 API surface; matches your build path -->
     <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
-
     <UseWPF>true</UseWPF>
-    <UseWindowsForms>true</UseWindowsForms>
+    <!-- Leave WinForms off to avoid pulling in Forms types unless you need them -->
+    <UseWindowsForms>false</UseWindowsForms>
 
-    <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- Good to keep while targeting windows-specific APIs -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
 
-    <!-- Silence cross-platform System.Drawing warnings we already gate to Windows -->
-    <NoWarn>$(NoWarn);CA1416</NoWarn>
-
-    <!-- Needed for Buffer.MemoryCopy in WGC readback -->
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-
-    <!-- Disable SDK-generated AssemblyInfo to avoid duplicate attributes -->
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AssemblyName>GravityCapture</AssemblyName>
+    <RootNamespace>GravityCapture</RootNamespace>
+    <Platforms>AnyCPU</Platforms>
   </PropertyGroup>
 
-  <!-- Copy runtime settings/assets -->
+  <!-- Only add what you actually use. System.Drawing is available on Windows by default in .NET 9. -->
+  <!-- If you explicitly need it, uncomment:
   <ItemGroup>
-    <Content Include="appsettings*.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-
-    <None Update="tessdata\eng.traineddata">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </None>
-
-    <Resource Include="Assets\Gravity_Logs_Background.png" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
   </ItemGroup>
-
-  <!-- Seed OCR profiles on first run -->
-  <ItemGroup>
-    <Content Include="Config\default.profiles.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-  </ItemGroup>
-
-  <!-- WinRT + Win32 interop for Windows.Graphics.Capture + P/Invokes -->
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.*" />
-    <!-- Existing dependency -->
-    <PackageReference Include="Tesseract" Version="5.2.0" />
-    <PackageReference Include="Vortice.Direct3D11" Version="2.*" />
-    <PackageReference Include="Vortice.DXGI" Version="2.*" />
-    <!-- WGC capture dependencies -->
-  </ItemGroup>
-
-  <!-- Tell CsWin32 which APIs to generate -->
-  <ItemGroup>
-    <AdditionalFiles Include="NativeMethods.txt" />
-  </ItemGroup>
+  -->
 </Project>
