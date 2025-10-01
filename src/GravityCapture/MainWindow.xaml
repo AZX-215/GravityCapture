@@ -11,14 +11,14 @@
         SizeChanged="Window_SizeChanged">
 
   <DockPanel Background="{DynamicResource BgBrush}">
-    <!-- Status -->
+    <!-- Status bar -->
     <Border DockPanel.Dock="Bottom" Padding="6,4"
             BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1,1,1,0">
       <TextBlock x:Name="StatusText" Foreground="{DynamicResource TextMutedBrush}"/>
     </Border>
 
     <TabControl>
-      <!-- Capture -->
+      <!-- ================== Capture tab ================== -->
       <TabItem Header="Capture">
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="{DynamicResource BgBrush}">
           <Grid Margin="10">
@@ -27,7 +27,7 @@
               <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- Top controls: two-row responsive toolbar -->
+            <!-- Top controls -->
             <Border Padding="10" CornerRadius="{DynamicResource CardRadius}"
                     BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1">
               <StackPanel Orientation="Vertical" Background="{DynamicResource CardBrush}">
@@ -68,14 +68,15 @@
                 <ColumnDefinition Width="3*"/>
               </Grid.ColumnDefinitions>
 
+              <!-- Live preview (auto scales down at min sizes) -->
               <Border CornerRadius="{DynamicResource CardRadius}"
                       BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" Padding="10"
                       ClipToBounds="True">
-                <!-- Viewbox forces shrink-to-fit at any size -->
                 <Viewbox Stretch="Uniform" StretchDirection="DownOnly">
                   <Grid Background="{DynamicResource CardBrush}">
                     <Image x:Name="LivePreview"
-                           Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Stretch="Uniform"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
                            SnapsToDevicePixels="True" UseLayoutRounding="True"/>
                     <Border x:Name="OcrDetailsOverlay" Background="#66000000" Visibility="Collapsed" CornerRadius="8" Margin="6">
                       <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -86,6 +87,7 @@
                 </Viewbox>
               </Border>
 
+              <!-- OCR text / API echo -->
               <Border Grid.Column="1" Margin="10,0,0,0" CornerRadius="{DynamicResource CardRadius}"
                       BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" Padding="10">
                 <DockPanel>
@@ -107,7 +109,7 @@
         </ScrollViewer>
       </TabItem>
 
-      <!-- Settings -->
+      <!-- ================== Settings tab ================== -->
       <TabItem Header="Settings">
         <ScrollViewer VerticalScrollBarVisibility="Auto" Background="{DynamicResource BgBrush}">
           <Grid Margin="12">
@@ -149,7 +151,21 @@
             <TextBlock Grid.Row="7" Grid.Column="0" Text="Log-line ingest path:" Margin="0,6,8,6"/>
             <TextBox   Grid.Row="7" Grid.Column="1" x:Name="LogLinePathBox" ToolTip="e.g. /api/ingest/log-line"/>
 
-            <StackPanel Grid.Row="8" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <!-- Filters -->
+            <TextBlock Grid.Row="8" Grid.ColumnSpan="2" Text="Filters" FontWeight="Bold" Margin="0,16,0,6"/>
+            <StackPanel Grid.Row="9" Grid.ColumnSpan="2" Orientation="Vertical">
+              <CheckBox x:Name="FilterTameDeathsBox" Content="Tame deaths"/>
+              <CheckBox x:Name="FilterTamesStarvingBox" Content="Tames starving to death"/>
+              <CheckBox x:Name="FilterStructDestroyedBox" Content="Structures destroyed"/>
+              <CheckBox x:Name="FilterStructAutoDecayBox" Content="Structures auto decay"/>
+              <CheckBox x:Name="FilterTribeMateDeathsBox" Content="Tribemate deaths"/>
+              <CheckBox x:Name="FilterTribeKillsEnemyTamesBox" Content="Tribe kills enemy tames"/>
+              <CheckBox x:Name="FilterEnemyPlayerKillsBox" Content="Enemy player kills"/>
+              <CheckBox x:Name="FilterTribeDemolishBox" Content="Tribemates demolishing structures"/>
+              <CheckBox x:Name="FilterTribeFreezeTamesBox" Content="Tribemates freezing tames"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="10" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
               <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" Style="{DynamicResource PrimaryButton}"/>
             </StackPanel>
           </Grid>
