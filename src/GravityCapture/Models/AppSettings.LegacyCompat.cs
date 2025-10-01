@@ -1,37 +1,19 @@
-using System.Collections.Generic;
-using System.Drawing;
-using GravityCapture.Models;
-
-namespace GravityCapture.Services
+// src/GravityCapture/Models/AppSettings.LegacyCompat.cs
+namespace GravityCapture.Models
 {
-    public sealed partial class OcrIngestor
+    public partial class AppSettings
     {
-        /// <summary>
-        /// Map API response to legacy OcrLine list.
-        /// </summary>
-        public static IReadOnlyList<OcrLine> FromExtractResponse(ExtractResponse resp)
+        // Legacy alias so older code that read _settings.TargetWindowHint still compiles.
+        public string? TargetWindowHint
         {
-            var result = new List<OcrLine>(resp?.Lines?.Count ?? 0);
-            if (resp?.Lines == null) return result;
-
-            foreach (var l in resp.Lines)
+            get => Capture?.TargetWindowHint ?? Image?.TargetWindowHint;
+            set
             {
-                Rectangle box = Rectangle.Empty;
-                if (l.Bbox is { Length: 4 })
-                {
-                    int x1 = l.Bbox[0], y1 = l.Bbox[1], x2 = l.Bbox[2], y2 = l.Bbox[3];
-                    box = new Rectangle(x1, y1, x2 - x1, y2 - y1);
-                }
-
-                // OcrLine now expects bbox as IReadOnlyList<int>
-                result.Add(new OcrLine(
-                    l.Text ?? string.Empty,
-                    (float)l.Conf,
-                    new[] { box.Left, box.Top, box.Right, box.Bottom }
-                ));
+                Capture ??= new CaptureSettings();
+                Image ??= new ImageSettings();
+                Capture.TargetWindowHint = value;
+                Image.TargetWindowHint = value;
             }
-
-            return result;
         }
     }
 }
