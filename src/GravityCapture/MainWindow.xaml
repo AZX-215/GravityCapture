@@ -17,9 +17,9 @@
       <TextBlock x:Name="StatusText" Foreground="{DynamicResource TextMutedBrush}"/>
     </Border>
 
-    <TabControl Background="{DynamicResource BgBrush}">
+    <TabControl>
       <!-- Capture -->
-      <TabItem Header="Capture" Background="{DynamicResource BgBrush}">
+      <TabItem Header="Capture">
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="{DynamicResource BgBrush}">
           <Grid Margin="10">
             <Grid.RowDefinitions>
@@ -69,18 +69,21 @@
               </Grid.ColumnDefinitions>
 
               <Border CornerRadius="{DynamicResource CardRadius}"
-                      BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" Padding="10">
-                <!-- Fill available space and scale -->
-                <Grid>
-                  <Image x:Name="LivePreview"
-                         Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                         SnapsToDevicePixels="True" UseLayoutRounding="True" />
-                  <Border x:Name="OcrDetailsOverlay" Background="#66000000" Visibility="Collapsed" CornerRadius="8" Margin="6">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                      <TextBlock x:Name="OcrDetailsText" FontFamily="Consolas" TextWrapping="Wrap"/>
-                    </ScrollViewer>
-                  </Border>
-                </Grid>
+                      BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" Padding="10"
+                      ClipToBounds="True">
+                <!-- Viewbox forces shrink-to-fit at any size -->
+                <Viewbox Stretch="Uniform" StretchDirection="DownOnly">
+                  <Grid Background="{DynamicResource CardBrush}">
+                    <Image x:Name="LivePreview"
+                           Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                           SnapsToDevicePixels="True" UseLayoutRounding="True"/>
+                    <Border x:Name="OcrDetailsOverlay" Background="#66000000" Visibility="Collapsed" CornerRadius="8" Margin="6">
+                      <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <TextBlock x:Name="OcrDetailsText" FontFamily="Consolas" TextWrapping="Wrap"/>
+                      </ScrollViewer>
+                    </Border>
+                  </Grid>
+                </Viewbox>
               </Border>
 
               <Border Grid.Column="1" Margin="10,0,0,0" CornerRadius="{DynamicResource CardRadius}"
@@ -105,10 +108,12 @@
       </TabItem>
 
       <!-- Settings -->
-      <TabItem Header="Settings" Background="{DynamicResource BgBrush}">
+      <TabItem Header="Settings">
         <ScrollViewer VerticalScrollBarVisibility="Auto" Background="{DynamicResource BgBrush}">
           <Grid Margin="12">
             <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
@@ -127,27 +132,24 @@
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Channel ID:" Margin="0,6,8,6"/>
             <TextBox   Grid.Row="1" Grid.Column="1" x:Name="ChannelBox" Width="360"/>
 
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="API URL:" Margin="0,6,8,6"/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="API Base URL:" Margin="0,6,8,6"/>
             <TextBox   Grid.Row="2" Grid.Column="1" x:Name="ApiUrlBox"/>
 
             <TextBlock Grid.Row="3" Grid.Column="0" Text="API Key:" Margin="0,6,8,6"/>
             <PasswordBox Grid.Row="3" Grid.Column="1" x:Name="ApiKeyBox"/>
 
-            <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="Filters" FontWeight="Bold" Margin="0,16,0,6"/>
+            <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="Endpoint paths" FontWeight="Bold" Margin="0,16,0,6"/>
 
-            <StackPanel Grid.Row="5" Grid.ColumnSpan="2" Orientation="Vertical">
-              <CheckBox x:Name="FilterTameDeathsBox" Content="Tame deaths"/>
-              <CheckBox x:Name="FilterTamesStarvingBox" Content="Tames starving to death"/>
-              <CheckBox x:Name="FilterStructDestroyedBox" Content="Structures destroyed"/>
-              <CheckBox x:Name="FilterStructAutoDecayBox" Content="Structures auto decay"/>
-              <CheckBox x:Name="FilterTribeMateDeathsBox" Content="Tribemate deaths"/>
-              <CheckBox x:Name="FilterTribeKillsEnemyTamesBox" Content="Tribe kills enemy tames"/>
-              <CheckBox x:Name="FilterEnemyPlayerKillsBox" Content="Enemy player kills"/>
-              <CheckBox x:Name="FilterTribeDemolishBox" Content="Tribemates demolishing structures"/>
-              <CheckBox x:Name="FilterTribeFreezeTamesBox" Content="Tribemates freezing tames"/>
-            </StackPanel>
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="OCR path:" Margin="0,6,8,6"/>
+            <TextBox   Grid.Row="5" Grid.Column="1" x:Name="OcrPathBox" ToolTip="e.g. /api/extract"/>
 
-            <StackPanel Grid.Row="6" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <TextBlock Grid.Row="6" Grid.Column="0" Text="Screenshot ingest path:" Margin="0,6,8,6"/>
+            <TextBox   Grid.Row="6" Grid.Column="1" x:Name="ScreenshotPathBox" ToolTip="e.g. /api/ingest/screenshot"/>
+
+            <TextBlock Grid.Row="7" Grid.Column="0" Text="Log-line ingest path:" Margin="0,6,8,6"/>
+            <TextBox   Grid.Row="7" Grid.Column="1" x:Name="LogLinePathBox" ToolTip="e.g. /api/ingest/log-line"/>
+
+            <StackPanel Grid.Row="8" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
               <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" Style="{DynamicResource PrimaryButton}"/>
             </StackPanel>
           </Grid>
