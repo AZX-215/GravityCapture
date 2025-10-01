@@ -87,7 +87,7 @@ namespace GravityCapture.Services
                 }
                 catch (Exception ex)
                 {
-                    return (false, ex.ToString());
+                    return (false, Flatten(ex));
                 }
             }
             return (false, "{\"error\":\"OCR endpoint not found\"}");
@@ -110,7 +110,7 @@ namespace GravityCapture.Services
                 var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
                 return (res.IsSuccessStatusCode, body);
             }
-            catch (Exception ex) { return (false, ex.ToString()); }
+            catch (Exception ex) { return (false, Flatten(ex)); }
         }
 
         public async Task<(bool ok, string body)> SendPastedLineAsync(string line)
@@ -129,9 +129,12 @@ namespace GravityCapture.Services
                 var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
                 return (res.IsSuccessStatusCode, body);
             }
-            catch (Exception ex) { return (false, ex.ToString()); }
+            catch (Exception ex) { return (false, Flatten(ex)); }
         }
 
         public void Dispose() => _http.Dispose();
+
+        private static string Flatten(Exception ex)
+            => ex.Message + (ex.InnerException != null ? " | " + ex.InnerException.Message : "");
     }
 }
