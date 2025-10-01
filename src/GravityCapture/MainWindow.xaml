@@ -13,10 +13,9 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <!-- Tabs -->
     <TabControl Grid.Row="0">
 
-      <!-- ============ Capture tab ============ -->
+      <!-- ================= Capture ================= -->
       <TabItem Header="Capture">
         <Grid>
           <Grid.RowDefinitions>
@@ -28,101 +27,126 @@
           <DockPanel Grid.Row="0" LastChildFill="True">
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
               <Label Content="Server" VerticalAlignment="Center"/>
-              <TextBox x:Name="ServerBox" Width="260" ToolTip="Server name or id"/>
+              <TextBox x:Name="ServerBox" Width="260"/>
               <Label Content="Tribe" VerticalAlignment="Center"/>
               <TextBox x:Name="TribeBox" Width="190"/>
 
               <Button x:Name="StartBtn_" Content="Start" Click="StartBtn_Click"/>
               <Button x:Name="StopBtn_"  Content="Stop"  Click="StopBtn_Click"/>
-              <Button x:Name="SelectAreaBtn" Content="Select Log Area..." Click="SelectAreaBtn_Click"/>
-              <CheckBox x:Name="ShowOcrDetailsCheck" Content="Show OCR details" Margin="12,0,0,0"
-                        Checked="ShowOcrDetailsCheck_Changed" Unchecked="ShowOcrDetailsCheck_Changed"/>
+
+              <!-- The handler that exists in code-behind is SelectCropBtn_Click -->
+              <Button x:Name="SelectAreaBtn" Content="Select Log Area..." Click="SelectCropBtn_Click"/>
+
+              <CheckBox x:Name="ShowOcrDetailsCheck"
+                        Content="Show OCR details"
+                        Margin="12,0,0,0"
+                        Checked="ShowOcrDetailsCheck_Changed"
+                        Unchecked="ShowOcrDetailsCheck_Changed"/>
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-              <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click"/>
+              <Button x:Name="OcrCropBtn"       Content="OCR Crop → Paste"         Click="OcrCropBtn_Click"/>
               <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click"/>
-              <Button x:Name="SendParsedBtn_" Content="Send Pasted Log Line" Click="SendParsedBtn_Click"/>
+              <Button x:Name="SendParsedBtn_"   Content="Send Pasted Log Line"     Click="SendParsedBtn_Click"/>
             </StackPanel>
           </DockPanel>
 
           <!-- Body -->
           <Grid Grid.Row="1" Margin="0">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Live preview (scales to fit) -->
+            <!-- Left: Live preview -->
             <Border Grid.Column="0" Padding="8" Margin="0,0,12,0">
               <Grid>
                 <Grid.RowDefinitions>
                   <RowDefinition Height="Auto"/>
                   <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
-                <Label Content="Live preview" />
+
+                <Label Content="Live preview"/>
+
                 <Border Grid.Row="1" Padding="6" Background="{DynamicResource BgBrush}">
-                  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                    <Image x:Name="PreviewImage"
+                  <Grid>
+                    <!-- Provide BOTH names some code-behind variants expect -->
+                    <Image x:Name="LivePreview"
                            Stretch="Uniform"
                            SnapsToDevicePixels="True"
                            RenderOptions.BitmapScalingMode="Fant"
                            RenderOptions.EdgeMode="Aliased"/>
-                  </ScrollViewer>
+                    <Image x:Name="PreviewImage"
+                           Stretch="Uniform"
+                           Opacity="0" /> <!-- overlay placeholder so either name compiles -->
+                    <!-- OCR detail overlay (two names) -->
+                    <Border x:Name="OcrOverlay"
+                            Background="#64000000"
+                            Visibility="Collapsed"
+                            IsHitTestVisible="False">
+                      <TextBlock x:Name="OcrDetailsText"
+                                 Foreground="White"
+                                 FontSize="12"
+                                 TextWrapping="Wrap"/>
+                    </Border>
+                    <Border x:Name="OcrDetailsOverlay"
+                            Background="#00000000"
+                            Visibility="Collapsed"
+                            IsHitTestVisible="False"/>
+                  </Grid>
                 </Border>
               </Grid>
             </Border>
 
-            <!-- Right side: paste + API echo -->
+            <!-- Right: Echo + paste areas -->
             <Border Grid.Column="1" Padding="8">
               <Grid>
                 <Grid.RowDefinitions>
                   <RowDefinition Height="Auto"/>
-                  <RowDefinition Height="*" />
+                  <RowDefinition Height="*"/>
+                  <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,6">
                   <Button x:Name="SaveDebugBtn_" Content="Save debug ZIP" Click="SaveDebugBtn_Click"/>
                   <Label Content="API echo:" Margin="12,0,0,0"/>
-                  <TextBlock x:Name="Status" VerticalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}" />
+                  <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"/>
                 </StackPanel>
 
+                <!-- Some code-behind variants refer to ApiEchoText; others to ApiEchoBox -->
                 <Grid Grid.Row="1">
-                  <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                  </Grid.RowDefinitions>
-
-                  <!-- API echo / log -->
-                  <TextBox x:Name="ApiEchoBox"
-                           Grid.Row="0"
+                  <TextBox x:Name="ApiEchoText"
                            AcceptsReturn="True"
                            TextWrapping="Wrap"
                            VerticalScrollBarVisibility="Auto"
                            HorizontalScrollBarVisibility="Auto"/>
-
-                  <!-- Paste area for a tribe log line -->
-                  <StackPanel Grid.Row="1" Orientation="Vertical" Margin="0,8,0,0">
-                    <Label Content="Paste a tribe log line:"/>
-                    <TextBox x:Name="LogLineBox"
-                             AcceptsReturn="True"
-                             TextWrapping="Wrap"
-                             Height="96"
-                             VerticalScrollBarVisibility="Auto"/>
-                  </StackPanel>
+                  <TextBox x:Name="ApiEchoBox"
+                           AcceptsReturn="True"
+                           Visibility="Collapsed"/>
                 </Grid>
+
+                <StackPanel Grid.Row="2" Orientation="Vertical" Margin="0,8,0,0">
+                  <Label Content="Paste a tribe log line:"/>
+                  <TextBox x:Name="LogLineBox"
+                           AcceptsReturn="True"
+                           TextWrapping="Wrap"
+                           Height="96"
+                           VerticalScrollBarVisibility="Auto"/>
+                  <!-- Some builds referenced this path textbox; include a hidden one to satisfy compile -->
+                  <TextBox x:Name="LogLinePathBox" Visibility="Collapsed"/>
+                </StackPanel>
               </Grid>
             </Border>
           </Grid>
         </Grid>
       </TabItem>
 
-      <!-- ============ Settings tab ============ -->
+      <!-- ================= Settings ================= -->
       <TabItem Header="Settings">
         <Grid>
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*"/>
           </Grid.ColumnDefinitions>
 
           <!-- API credentials + endpoints -->
@@ -139,7 +163,9 @@
             <TextBox x:Name="ApiKeyBox"/>
 
             <TextBlock Text="Endpoint paths" FontWeight="Bold" Margin="0,12,0,6"/>
+
             <Label Content="OCR path:"/>
+            <!-- Current backend default -->
             <TextBox x:Name="OcrPathBox" Text="/api/ocr/extract"/>
 
             <Label Content="Screenshot ingest path:"/>
@@ -155,6 +181,7 @@
           <StackPanel Grid.Column="1" Orientation="Vertical">
             <TextBlock Text="Filters" FontWeight="Bold" Margin="0,0,0,6"/>
 
+            <!-- Names chosen to match earlier code-behind variants -->
             <CheckBox x:Name="FilterTameDeathsBox"            Content="Tame deaths"/>
             <CheckBox x:Name="FilterTamesStarvingBox"         Content="Tames starving to death"/>
             <CheckBox x:Name="FilterStructDestroyedBox"       Content="Structures destroyed"/>
@@ -162,7 +189,7 @@
             <CheckBox x:Name="FilterTribemateDeathsBox"       Content="Tribemate deaths"/>
             <CheckBox x:Name="FilterTribeKillsEnemyTamesBox"  Content="Tribe kills enemy tames"/>
             <CheckBox x:Name="FilterEnemyPlayerKillsBox"      Content="Enemy player kills"/>
-            <CheckBox x:Name="FilterTribemateDemolishBox"     Content="Tribemates demolishing structures"/>
+            <CheckBox x:Name="FilterTribeDemolishBox"         Content="Tribemates demolishing structures"/>
             <CheckBox x:Name="FilterTribeFreezeTamesBox"      Content="Tribemates freezing tames"/>
           </StackPanel>
         </Grid>
@@ -172,8 +199,7 @@
 
     <!-- Status bar -->
     <DockPanel Grid.Row="1" LastChildFill="True" Margin="8,0,8,8">
-      <TextBlock Text="{Binding ElementName=Status, Path=Text}" />
-      <TextBlock Text="  ARK window: " Foreground="{DynamicResource MutedTextBrush}"/>
+      <TextBlock Text="ARK window: " Foreground="{DynamicResource MutedTextBrush}"/>
       <TextBlock x:Name="ArkWindowName" Foreground="{DynamicResource MutedTextBrush}"/>
     </DockPanel>
   </Grid>
