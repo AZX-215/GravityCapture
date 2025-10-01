@@ -2,225 +2,216 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Gravity Capture"
-        MinWidth="960" MinHeight="600"
-        Loaded="Window_Loaded"
-        Closing="Window_Closing"
-        SourceInitialized="Window_SourceInitialized"
-        SizeChanged="Window_SizeChanged">
+        MinWidth="1040" MinHeight="640"
+        Width="1200" Height="760">
 
-    <DockPanel LastChildFill="True">
-
-        <!-- Status bar -->
-        <Border DockPanel.Dock="Bottom" BorderThickness="1,1,1,0" Padding="6">
-            <TextBlock x:Name="StatusText" Text="Ready."/>
-        </Border>
-
+    <Grid>
         <TabControl>
             <!-- ===================== CAPTURE TAB ===================== -->
             <TabItem Header="Capture">
-                <Grid Margin="4">
+                <Grid Background="{StaticResource BgBrush}">
                     <Grid.RowDefinitions>
-                        <!-- Header controls -->
                         <RowDefinition Height="Auto"/>
-                        <!-- Content -->
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Header: server / tribe / actions -->
-                    <Grid Grid.Row="0" Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="220"/>
-                            <ColumnDefinition Width="16"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="220"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
+                    <!-- Top controls -->
+                    <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" CornerRadius="10" Margin="10" Padding="8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="220"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="260"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
 
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="Server" Margin="0,0,6,0"/>
-                        <TextBox   Grid.Column="1" x:Name="ServerBox"/>
+                            <TextBlock Grid.Column="0" Margin="6,6,4,0" VerticalAlignment="Center" Text="Server"/>
+                            <TextBox   Grid.Column="1" Name="ServerBox"/>
 
-                        <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="Tribe"  Margin="8,0,6,0"/>
-                        <TextBox   Grid.Column="4" x:Name="TribeBox"/>
+                            <TextBlock Grid.Column="2" Margin="16,6,4,0" VerticalAlignment="Center" Text="Tribe"/>
+                            <TextBox   Grid.Column="3" Name="TribeBox"/>
 
-                        <StackPanel Grid.Column="6" Orientation="Horizontal" HorizontalAlignment="Left">
-                            <Button x:Name="StartBtn" Content="Start" Click="StartBtn_Click"/>
-                            <Button x:Name="StopBtn"  Content="Stop"  Click="StopBtn_Click"/>
-                            <Button x:Name="SelectCropBtn" Content="Select Log Area…" Click="SelectCropBtn_Click"/>
-                        </StackPanel>
-
-                        <CheckBox Grid.Column="9" x:Name="ShowOcrDetailsCheck"
-                                  Content="Show OCR details"
-                                  VerticalAlignment="Center"
-                                  Margin="12,0,0,0"
-                                  Checked="ShowOcrDetailsCheck_Changed"
-                                  Unchecked="ShowOcrDetailsCheck_Changed"/>
-                    </Grid>
-
-                    <!-- Main content -->
-                    <Grid Grid.Row="1">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="12"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <!-- LEFT: Live preview + OCR action buttons close by -->
-                        <Grid Grid.Column="0">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-
-                            <!-- OCR buttons placed next to the preview -->
-                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,6">
-                                <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click"/>
-                                <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click"/>
-                                <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click"/>
+                            <StackPanel Grid.Column="5" Orientation="Horizontal">
+                                <Button Name="StartBtn" Content="Start" Click="StartBtn_Click"/>
+                                <Button Name="StopBtn" Content="Stop" Click="StopBtn_Click"/>
+                                <Button Name="SelectAreaBtn" Content="Select Log Area…" Click="SelectAreaBtn_Click"/>
                             </StackPanel>
-
-                            <!-- Live preview with optional overlay -->
-                            <Border Grid.Row="1" Background="{DynamicResource CardColor}" BorderThickness="1" Padding="8">
-                                <Grid>
-                                    <Image x:Name="LivePreview" Stretch="Uniform"/>
-                                    <Border x:Name="OcrDetailsOverlay"
-                                            Background="#66000000"
-                                            BorderBrush="{DynamicResource BorderBrush}"
-                                            BorderThickness="1"
-                                            Padding="8"
-                                            Visibility="Collapsed">
-                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                            <TextBlock x:Name="OcrDetailsText"
-                                                       FontFamily="Consolas"
-                                                       FontSize="12"/>
-                                        </ScrollViewer>
-                                    </Border>
-                                </Grid>
-                            </Border>
                         </Grid>
+                    </Border>
 
-                        <!-- RIGHT: API echo + paste/send -->
-                        <Grid Grid.Column="2">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="160"/>
-                            </Grid.RowDefinitions>
+                    <!-- Action buttons row -->
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="10,0,10,6">
+                        <Button Name="OcrCropPasteBtn" Content="OCR Crop → Paste" Click="OcrCropPasteBtn_Click"/>
+                        <Button Name="OcrPostVisibleBtn" Content="OCR &amp; Post Visible Now" Click="OcrPostVisibleBtn_Click"/>
+                        <Button Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click"/>
+                        <Button Name="SendPastedLogLineBtn" Content="Send Pasted Log Line" Click="SendPastedLogLineBtn_Click"/>
+                    </StackPanel>
 
-                            <GroupBox Grid.Row="0" Header="API echo">
-                                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                    <TextBox x:Name="ApiEchoText"
-                                             FontFamily="Consolas"
-                                             TextWrapping="Wrap"
-                                             AcceptsReturn="True"
-                                             BorderThickness="0"
-                                             Background="{DynamicResource CardColor}"/>
-                                </ScrollViewer>
-                            </GroupBox>
+                    <!-- Main two-pane area -->
+                    <Grid Grid.Row="2" Margin="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
 
-                            <TextBlock Grid.Row="1" Text="Paste a tribe log line:" Margin="8,4,8,4"/>
-
-                            <Grid Grid.Row="2">
+                        <!-- Live preview card -->
+                        <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}" CornerRadius="10" Padding="8">
+                            <Grid>
                                 <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Text="Live preview" FontWeight="Bold" Margin="2,0,0,6"/>
+
+                                <Border Grid.Row="1" BorderBrush="{StaticResource BorderBrushDark}" BorderThickness="1" CornerRadius="8">
+                                    <Grid>
+                                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                                            <Image Name="LivePreview" Stretch="Uniform" />
+                                        </ScrollViewer>
+
+                                        <!-- Optional OCR overlay surface (kept for code-behind) -->
+                                        <Canvas Name="OcrDetailsOverlay" IsHitTestVisible="False"/>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </Border>
+
+                        <!-- Spacer -->
+                        <Border Grid.Column="1" Background="{StaticResource BgBrush}"/>
+
+                        <!-- Right side: API echo + paste box -->
+                        <Border Grid.Column="2" Background="{StaticResource SurfaceBrush}" CornerRadius="10" Padding="8">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="170"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
 
-                                <Border Grid.Row="0" Background="{DynamicResource CardColor}" BorderThickness="1" Padding="6">
-                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                        <TextBox x:Name="LogLineBox"
-                                                 FontFamily="Consolas"
-                                                 AcceptsReturn="True"
-                                                 TextWrapping="Wrap"
-                                                 Background="{DynamicResource CardColor}"
-                                                 BorderThickness="0"/>
-                                    </ScrollViewer>
-                                </Border>
+                                <TextBlock Text="API echo" FontWeight="Bold" Margin="2,0,0,6"/>
+                                <TextBox x:Name="ApiEchoText"
+                                         Grid.Row="1"
+                                         AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Auto"
+                                         HorizontalScrollBarVisibility="Auto"
+                                         TextWrapping="NoWrap"/>
 
-                                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
-                                    <Button x:Name="SendParsedBtn" Content="Send Pasted Log Line" Click="SendParsedBtn_Click"/>
-                                </StackPanel>
+                                <TextBlock Grid.Row="2" Text="Paste a tribe log line:" Margin="0,10,0,4"/>
+
+                                <TextBox x:Name="LogLineInBox"
+                                         Grid.Row="3"
+                                         AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Auto"
+                                         HorizontalScrollBarVisibility="Auto"
+                                         TextWrapping="Wrap"/>
+                                <!-- legacy hidden elements referenced by code-behind -->
+                                <TextBox x:Name="LogLinePathBox" Grid.Row="3" Visibility="Collapsed"/>
                             </Grid>
-                        </Grid>
+                        </Border>
                     </Grid>
+
+                    <!-- Status bar -->
+                    <DockPanel Grid.Row="3" LastChildFill="True" Margin="10,0,10,10">
+                        <TextBlock x:Name="StatusText" DockPanel.Dock="Left" Opacity="0.85" Text="ARK window:"/>
+                    </DockPanel>
                 </Grid>
             </TabItem>
 
             <!-- ===================== SETTINGS TAB ===================== -->
             <TabItem Header="Settings">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="8">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Background="{StaticResource BgBrush}">
+                    <StackPanel Margin="10">
 
+                        <!-- API credentials -->
                         <GroupBox Header="API credentials">
                             <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="180"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
 
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Channel ID:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                <TextBox   Grid.Row="0" Grid.Column="1" x:Name="ChannelBox"/>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Channel ID"  VerticalAlignment="Center" Margin="0,6"/>
+                                <TextBox   Grid.Row="0" Grid.Column="1" Name="ChannelIdBox"/>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="API Base URL:" VerticalAlignment="Center" Margin="0,6,6,0"/>
-                                <TextBox   Grid.Row="1" Grid.Column="1" x:Name="ApiUrlBox" Margin="0,6,0,0"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="API Base URL" VerticalAlignment="Center" Margin="0,6"/>
+                                <TextBox   Grid.Row="1" Grid.Column="1" Name="ApiUrlBox"/>
 
-                                <TextBlock   Grid.Row="2" Grid.Column="0" Text="API Key:" VerticalAlignment="Center" Margin="0,6,6,0"/>
-                                <PasswordBox Grid.Row="2" Grid.Column="1" x:Name="ApiKeyBox" Margin="0,6,0,0"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="API Key" VerticalAlignment="Center" Margin="0,6"/>
+                                <TextBox   Grid.Row="2" Grid.Column="1" Name="ApiKeyBox"/>
                             </Grid>
                         </GroupBox>
 
+                        <!-- Endpoint paths -->
                         <GroupBox Header="Endpoint paths">
                             <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="180"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
 
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="OCR path:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                <TextBox   Grid.Row="0" Grid.Column="1" x:Name="OcrPathBox" Text="/ocr/extract"/>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="OCR path" VerticalAlignment="Center" Margin="0,6"/>
+                                <TextBox   Grid.Row="0" Grid.Column="1" Name="OcrPathBox" Text="/extract"/>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Screenshot ingest path:" VerticalAlignment="Center" Margin="0,6,6,0"/>
-                                <TextBox   Grid.Row="1" Grid.Column="1" x:Name="ScreenshotPathBox" Margin="0,6,0,0" Text="/ingest/screenshot"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Screenshot ingest path" VerticalAlignment="Center" Margin="0,6"/>
+                                <TextBox   Grid.Row="1" Grid.Column="1" Name="IngestScreenshotPathBox" Text="/ingest/screenshot"/>
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Log-line ingest path:" VerticalAlignment="Center" Margin="0,6,6,0"/>
-                                <TextBox   Grid.Row="2" Grid.Column="1" x:Name="LogLinePathBox" Margin="0,6,0,0" Text="/ingest/log-line"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Log-line ingest path" VerticalAlignment="Center" Margin="0,6"/>
+                                <TextBox   Grid.Row="2" Grid.Column="1" Name="IngestLogLinePathBox" Text="/ingest/log-line"/>
                             </Grid>
                         </GroupBox>
 
+                        <!-- Filters -->
                         <GroupBox Header="Filters">
                             <UniformGrid Columns="2">
                                 <CheckBox x:Name="FilterTameDeathsBox"            Content="Tame deaths"/>
-                                <CheckBox x:Name="FilterTamesStarvingBox"         Content="Tames starving to death"/>
+                                <CheckBox x:Name="FilterTameStarvingBox"          Content="Tames starving to death"/>
                                 <CheckBox x:Name="FilterStructDestroyedBox"       Content="Structures destroyed"/>
                                 <CheckBox x:Name="FilterStructAutoDecayBox"       Content="Structures auto decay"/>
                                 <CheckBox x:Name="FilterTribeMateDeathsBox"       Content="Tribemate deaths"/>
                                 <CheckBox x:Name="FilterTribeKillsEnemyTamesBox"  Content="Tribe kills enemy tames"/>
                                 <CheckBox x:Name="FilterEnemyPlayerKillsBox"      Content="Enemy player kills"/>
                                 <CheckBox x:Name="FilterTribeDemolishBox"         Content="Tribemates demolishing structures"/>
-                                <CheckBox x:Name="FilterTribeFreezeTamesBox"      Content="Tribemates freezing tames"/>
+                                <CheckBox x:Name="FilterFreezeTamesBox"           Content="Tribemates freezing tames"/>
                             </UniformGrid>
                         </GroupBox>
 
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,8,8">
+                        <!-- Misc -->
+                        <GroupBox Header="Display & diagnostics">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- moved from Capture -->
+                                <CheckBox x:Name="ShowOcrDetailsCheck"
+                                          Content="Show OCR details"
+                                          Checked="ShowOcrDetailsCheck_Changed"
+                                          Unchecked="ShowOcrDetailsCheck_Changed"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,12">
                             <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click"/>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
         </TabControl>
-    </DockPanel>
+    </Grid>
 </Window>
