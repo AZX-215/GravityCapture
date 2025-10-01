@@ -3,23 +3,30 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Gravity Capture"
         MinWidth="1040" MinHeight="650"
-        Height="720" Width="1060"
+        Width="1060" Height="720"
         WindowStartupLocation="CenterScreen"
         Loaded="Window_Loaded"
         Closing="Window_Closing"
         SourceInitialized="Window_SourceInitialized"
-        SizeChanged="Window_SizeChanged">
+        SizeChanged="Window_SizeChanged"
+        Background="{DynamicResource BgBrush}"
+        Foreground="{DynamicResource TextBrush}">
 
-  <DockPanel Background="{DynamicResource BgBrush}">
+  <DockPanel>
     <!-- Status bar -->
     <Border DockPanel.Dock="Bottom" Padding="6,4"
-            BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1,1,1,0">
+            BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1,1,1,0"
+            Background="{DynamicResource CardBrush}">
       <TextBlock x:Name="StatusText" Foreground="{DynamicResource TextMutedBrush}"/>
     </Border>
 
-    <TabControl>
-      <!-- ================== Capture tab ================== -->
-      <TabItem Header="Capture">
+    <!-- Tabs -->
+    <TabControl Background="{DynamicResource BgBrush}"
+                BorderBrush="{DynamicResource BgBrush}"
+                BorderThickness="0">
+
+      <!-- ================== Capture ================== -->
+      <TabItem Header="Capture" Background="{DynamicResource BgBrush}">
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="{DynamicResource BgBrush}">
           <Grid Margin="10">
             <Grid.RowDefinitions>
@@ -27,24 +34,28 @@
               <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- Top controls -->
+            <!-- Toolbar -->
             <Border Padding="10" CornerRadius="{DynamicResource CardRadius}"
-                    BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1">
-              <StackPanel Orientation="Vertical" Background="{DynamicResource CardBrush}">
+                    BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1"
+                    Background="{DynamicResource CardBrush}">
+              <StackPanel Orientation="Vertical">
                 <!-- Row 1 -->
-                <WrapPanel ItemHeight="32" ItemWidth="Auto">
+                <WrapPanel ItemHeight="32">
                   <TextBlock Text="Server" Margin="0,4,6,0" VerticalAlignment="Center"/>
                   <TextBox x:Name="ServerBox" Width="300" Margin="0,0,10,0"/>
                   <TextBlock Text="Tribe" Margin="0,4,6,0" VerticalAlignment="Center"/>
                   <TextBox x:Name="TribeBox" Width="200" Margin="0,0,10,0"/>
+
                   <Button x:Name="StartBtn" Content="Start" Click="StartBtn_Click"
                           Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
                   <Button x:Name="StopBtn" Content="Stop" Click="StopBtn_Click"
                           Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
                   <Button x:Name="SelectCropBtn" Content="Select Log Area…" Click="SelectCropBtn_Click"
                           Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
+
                   <CheckBox x:Name="ShowOcrDetailsCheck" Content="Show OCR details" Margin="8,6,0,0"
-                            Checked="ShowOcrDetailsCheck_Changed" Unchecked="ShowOcrDetailsCheck_Changed"/>
+                            Checked="ShowOcrDetailsCheck_Changed"
+                            Unchecked="ShowOcrDetailsCheck_Changed"/>
                 </WrapPanel>
 
                 <!-- Row 2 -->
@@ -68,17 +79,18 @@
                 <ColumnDefinition Width="3*"/>
               </Grid.ColumnDefinitions>
 
-              <!-- Live preview (auto scales down at min sizes) -->
+              <!-- Live preview (shrinks to fit) -->
               <Border CornerRadius="{DynamicResource CardRadius}"
                       BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" Padding="10"
-                      ClipToBounds="True">
+                      Background="{DynamicResource CardBrush}" ClipToBounds="True">
                 <Viewbox Stretch="Uniform" StretchDirection="DownOnly">
-                  <Grid Background="{DynamicResource CardBrush}">
+                  <Grid>
                     <Image x:Name="LivePreview"
                            Stretch="Uniform"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            SnapsToDevicePixels="True" UseLayoutRounding="True"/>
-                    <Border x:Name="OcrDetailsOverlay" Background="#66000000" Visibility="Collapsed" CornerRadius="8" Margin="6">
+                    <Border x:Name="OcrDetailsOverlay" Background="#66000000"
+                            Visibility="Collapsed" CornerRadius="8" Margin="6">
                       <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <TextBlock x:Name="OcrDetailsText" FontFamily="Consolas" TextWrapping="Wrap"/>
                       </ScrollViewer>
@@ -89,7 +101,8 @@
 
               <!-- OCR text / API echo -->
               <Border Grid.Column="1" Margin="10,0,0,0" CornerRadius="{DynamicResource CardRadius}"
-                      BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" Padding="10">
+                      BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" Padding="10"
+                      Background="{DynamicResource CardBrush}">
                 <DockPanel>
                   <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                     <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click"
@@ -109,11 +122,14 @@
         </ScrollViewer>
       </TabItem>
 
-      <!-- ================== Settings tab ================== -->
-      <TabItem Header="Settings">
+      <!-- ================== Settings ================== -->
+      <TabItem Header="Settings" Background="{DynamicResource BgBrush}">
         <ScrollViewer VerticalScrollBarVisibility="Auto" Background="{DynamicResource BgBrush}">
           <Grid Margin="12">
+            <!-- rows 0..10 -->
             <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
@@ -129,8 +145,9 @@
               <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="API credentials" FontWeight="Bold" Margin="0,0,0,8"/>
-
+            <!-- Credentials -->
+            <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="API credentials"
+                       FontWeight="Bold" Margin="0,0,0,8"/>
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Channel ID:" Margin="0,6,8,6"/>
             <TextBox   Grid.Row="1" Grid.Column="1" x:Name="ChannelBox" Width="360"/>
 
@@ -140,8 +157,9 @@
             <TextBlock Grid.Row="3" Grid.Column="0" Text="API Key:" Margin="0,6,8,6"/>
             <PasswordBox Grid.Row="3" Grid.Column="1" x:Name="ApiKeyBox"/>
 
-            <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="Endpoint paths" FontWeight="Bold" Margin="0,16,0,6"/>
-
+            <!-- Paths -->
+            <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="Endpoint paths"
+                       FontWeight="Bold" Margin="0,16,0,6"/>
             <TextBlock Grid.Row="5" Grid.Column="0" Text="OCR path:" Margin="0,6,8,6"/>
             <TextBox   Grid.Row="5" Grid.Column="1" x:Name="OcrPathBox" ToolTip="e.g. /api/extract"/>
 
@@ -152,7 +170,8 @@
             <TextBox   Grid.Row="7" Grid.Column="1" x:Name="LogLinePathBox" ToolTip="e.g. /api/ingest/log-line"/>
 
             <!-- Filters -->
-            <TextBlock Grid.Row="8" Grid.ColumnSpan="2" Text="Filters" FontWeight="Bold" Margin="0,16,0,6"/>
+            <TextBlock Grid.Row="8" Grid.ColumnSpan="2" Text="Filters"
+                       FontWeight="Bold" Margin="0,16,0,6"/>
             <StackPanel Grid.Row="9" Grid.ColumnSpan="2" Orientation="Vertical">
               <CheckBox x:Name="FilterTameDeathsBox" Content="Tame deaths"/>
               <CheckBox x:Name="FilterTamesStarvingBox" Content="Tames starving to death"/>
@@ -165,12 +184,16 @@
               <CheckBox x:Name="FilterTribeFreezeTamesBox" Content="Tribemates freezing tames"/>
             </StackPanel>
 
-            <StackPanel Grid.Row="10" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-              <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" Style="{DynamicResource PrimaryButton}"/>
+            <!-- Save -->
+            <StackPanel Grid.Row="10" Grid.ColumnSpan="2" Orientation="Horizontal"
+                        HorizontalAlignment="Right" Margin="0,12,0,0">
+              <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click"
+                      Style="{DynamicResource PrimaryButton}"/>
             </StackPanel>
           </Grid>
         </ScrollViewer>
       </TabItem>
+
     </TabControl>
   </DockPanel>
 </Window>
