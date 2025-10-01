@@ -29,6 +29,10 @@ namespace GravityCapture.Services
                 DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
             };
 
+            // Added: avoid 100-continue stalls and keep-alive issues
+            _http.DefaultRequestHeaders.ExpectContinue = false;
+            _http.DefaultRequestHeaders.ConnectionClose = true;
+
             var key = _s.Auth?.ApiKey ?? "";
             if (!string.IsNullOrWhiteSpace(key))
             {
