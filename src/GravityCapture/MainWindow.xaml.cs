@@ -1,19 +1,18 @@
 using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using GravityCapture.Models;
 using GravityCapture.Services;
-using GravityCapture.Views;
 
 namespace GravityCapture
 {
@@ -28,6 +27,7 @@ namespace GravityCapture
         private DispatcherTimer? _timer;
         private System.Drawing.Rectangle? _selectedScreenRect;
         private IntPtr _arkHwnd = IntPtr.Zero;
+        private bool _showOcrOverlay;
 
         public MainWindow()
         {
@@ -35,21 +35,15 @@ namespace GravityCapture
             SettingsFile = Path.Combine(SettingsDir, "global.json");
         }
 
-        // ---------- lifecycle ----------
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            ProfileManager.Initialize(Environment.GetCommandLineArgs());
             LoadSettingsIntoUi();
             StartArkPolling();
             SetStatus("Ready.");
         }
 
-        private void Window_Closing(object? sender, CancelEventArgs e)
-        {
-            TrySaveFromUi();
-        }
+        private void Window_Closing(object? sender, CancelEventArgs e) => TrySaveFromUi();
 
-        // Make title bar dark (preserve your dark theme)
         private void Window_SourceInitialized(object? sender, EventArgs e)
         {
             try
@@ -59,7 +53,7 @@ namespace GravityCapture
                 _ = DwmSetWindowAttribute(hwnd, 20, ref useDark, sizeof(int));
                 _ = DwmSetWindowAttribute(hwnd, 19, ref useDark, sizeof(int));
             }
-            catch { /* ignore */ }
+            catch { }
         }
 
         // ---------- settings ----------
@@ -71,11 +65,8 @@ namespace GravityCapture
             ServerBox.Text  = _settings.Capture?.ServerName ?? _settings.ServerName ?? "";
             TribeBox.Text   = _settings.TribeName ?? "";
 
-            // load persisted crop if any
             if (_settings.UseCrop && _settings.CropW > 0 && _settings.CropH > 0)
-            {
                 _selectedScreenRect = new System.Drawing.Rectangle(_settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
-            }
         }
 
         private bool TrySaveFromUi()
@@ -109,7 +100,7 @@ namespace GravityCapture
                 SetStatus("Saved.");
         }
 
-        // ---------- ARK window polling for title ----------
+        // ---------- ARK window polling ----------
         private void StartArkPolling()
         {
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -126,7 +117,7 @@ namespace GravityCapture
         {
             IntPtr found = IntPtr.Zero;
             string title = "";
-            var target = _settings?.Capture?.ActiveWindow == true ? (_settings.Capture.TargetWindowHint ?? "ARK") : (_settings.TargetWindowHint ?? "ARK");
+            var target = _settings.TargetWindowHint ?? "ARK";
 
             EnumWindows((h, l) =>
             {
@@ -147,16 +138,10 @@ namespace GravityCapture
         // ---------- Buttons ----------
         private void StartBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (_selectedScreenRect == null)
-            {
-                SetStatus("Select log area first.");
-                return;
-            }
+            if (_selectedScreenRect == null) { SetStatus("Select log area first."); return; }
 
-            // 2.5s default tick if IntervalMinutes not set
-            var ms = (_settings.IntervalMinutes > 0 ? _settings.IntervalMinutes * 60_000 : 2500);
             _timer ??= new DispatcherTimer();
-            _timer.Interval = TimeSpan.FromMilliseconds(ms);
+            _timer.Interval = TimeSpan.FromMilliseconds(_settings.IntervalMinutes > 0 ? _settings.IntervalMinutes * 60_000 : 2500);
             _timer.Tick -= OnPreviewTick;
             _timer.Tick += OnPreviewTick;
             _timer.Start();
@@ -176,7 +161,6 @@ namespace GravityCapture
             {
                 _selectedScreenRect = overlay.SelectedRect;
 
-                // persist crop
                 _settings.UseCrop = true;
                 _settings.CropX = _selectedScreenRect.Value.X;
                 _settings.CropY = _selectedScreenRect.Value.Y;
@@ -203,8 +187,10 @@ namespace GravityCapture
 
                 string text = TryExtractText(body);
                 if (!string.IsNullOrWhiteSpace(text))
+                {
                     LogLineBox.Text = text;
-
+                    if (_showOcrOverlay) { OcrDetailsText.Text = text; OcrDetailsOverlay.Visibility = Visibility.Visible; }
+                }
                 SetStatus(ok ? "OCR returned" : "OCR call failed");
             }
             catch (Exception ex)
@@ -247,6 +233,47 @@ namespace GravityCapture
             catch (Exception ex)
             {
                 SetStatus("Send error: " + ex.Message);
+            }
+        }
+
+        private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            _showOcrOverlay = ShowOcrDetailsCheck.IsChecked == true;
+            OcrDetailsOverlay.Visibility = _showOcrOverlay ? Visibility.Visible : Visibility.Collapsed;
+            if (!_showOcrOverlay) OcrDetailsText.Text = "";
+        }
+
+        private void SaveDebugBtn_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var sfd = new SaveFileDialog { Filter = "ZIP (*.zip)|*.zip", FileName = "gravity-capture-debug.zip" };
+                if (sfd.ShowDialog() != true) return;
+
+                using var zip = ZipFile.Open(sfd.FileName, ZipArchiveMode.Create);
+                // settings
+                var settingsEntry = zip.CreateEntry("settings.json");
+                using (var sw = new StreamWriter(settingsEntry.Open())) sw.Write(JsonSerializer.Serialize(_settings, _json));
+                // last text
+                var textEntry = zip.CreateEntry("last_text.txt");
+                using (var sw = new StreamWriter(textEntry.Open())) sw.Write(LogLineBox.Text ?? "");
+                // crop info
+                var cropEntry = zip.CreateEntry("crop.txt");
+                using (var sw = new StreamWriter(cropEntry.Open()))
+                    sw.Write(_selectedScreenRect.HasValue ? $"{_selectedScreenRect.Value.X},{_selectedScreenRect.Value.Y},{_selectedScreenRect.Value.Width},{_selectedScreenRect.Value.Height}" : "unset");
+                // preview image
+                if (_selectedScreenRect != null)
+                {
+                    using var bmp = CaptureScreenRect(_selectedScreenRect.Value);
+                    var imgEntry = zip.CreateEntry("preview.png");
+                    using var zs = imgEntry.Open();
+                    bmp.Save(zs, System.Drawing.Imaging.ImageFormat.Png);
+                }
+                SetStatus("Debug ZIP saved.");
+            }
+            catch (Exception ex)
+            {
+                SetStatus("ZIP error: " + ex.Message);
             }
         }
 
@@ -311,7 +338,7 @@ namespace GravityCapture
             {
                 using var doc = JsonDocument.Parse(body);
                 if (doc.RootElement.TryGetProperty("text", out var t)) return t.GetString() ?? body;
-                if (doc.RootElement.TryGetProperty("lines", out var lines) && lines.ValueKind == JsonValueKind.Array)
+                if (doc.RootElement.TryGetProperty("lines", out var lines) && lines.ValueKind == System.Text.Json.JsonValueKind.Array)
                 {
                     var sb = new StringBuilder();
                     foreach (var ln in lines.EnumerateArray())
@@ -325,22 +352,19 @@ namespace GravityCapture
 
         private void SetStatus(string s) => StatusText.Text = s;
 
-        // ---------- Win32 ----------
+        // Win32
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
         internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
-
         private static string GetWindowText(IntPtr hWnd)
         {
             var sb = new StringBuilder(512);
             _ = GetWindowText(hWnd, sb, sb.Capacity);
             return sb.ToString();
         }
-
         [DllImport("dwmapi.dll")]
-        private static extern int DwmSetWindowAttribute(
-            IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
     }
 }
