@@ -19,7 +19,6 @@
     <TabControl>
       <!-- Capture -->
       <TabItem Header="Capture">
-        <!-- scroll protects layout at narrow sizes -->
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
           <Grid Margin="10">
             <Grid.RowDefinitions>
@@ -96,7 +95,21 @@
       <!-- Settings -->
       <TabItem Header="Settings">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <Grid Margin="12" ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+          <Grid Margin="12">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="API credentials" FontWeight="Bold" Margin="0,0,0,8"/>
 
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Channel ID:" Margin="0,6,8,6"/>
@@ -109,6 +122,7 @@
             <PasswordBox Grid.Row="3" Grid.Column="1" x:Name="ApiKeyBox"/>
 
             <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="Filters" FontWeight="Bold" Margin="0,16,0,6"/>
+
             <StackPanel Grid.Row="5" Grid.ColumnSpan="2" Orientation="Vertical">
               <CheckBox x:Name="FilterTameDeathsBox" Content="Tame deaths"/>
               <CheckBox x:Name="FilterTamesStarvingBox" Content="Tames starving to death"/>
