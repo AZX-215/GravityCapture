@@ -13,11 +13,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Needed for Bitmap/ImageCodecInfo/ImageFormat, etc -->
+    <!-- Bitmap/ImageCodecInfo/ImageFormat -->
     <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
-    <!-- Needed for TesseractEngine and Pix; brings managed types -->
+    <!-- Tesseract managed wrapper (for Pix, TesseractEngine types) -->
     <PackageReference Include="Tesseract" Version="4.1.1" />
-    <!-- Native assets for Windows so it still compiles/runs even if local OCR is used -->
-    <PackageReference Include="Tesseract.NativeAssets.Windows" Version="2.93.0" />
   </ItemGroup>
 </Project>
