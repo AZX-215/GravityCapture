@@ -1,6 +1,9 @@
 from io import BytesIO
 import numpy as np
-from PIL import Image, ImageOps, ImageFilter
+from PIL import Image, ImageOps, ImageFilter, ImageFile
+
+# allow partially written screenshots without throwing
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 def _otsu_threshold(gray_np: np.ndarray) -> int:
     hist, _ = np.histogram(gray_np.flatten(), bins=256, range=(0, 256))
@@ -27,13 +30,24 @@ def _otsu_threshold(gray_np: np.ndarray) -> int:
     return threshold
 
 def load_and_preprocess(image_bytes: bytes) -> Image.Image:
-    im = Image.open(BytesIO(image_bytes)).convert("RGB")
+    # robust open and normalize to RGB
+    im = Image.open(BytesIO(image_bytes))
+    if im.mode not in ("RGB", "RGBA"):
+        im = im.convert("RGB")
+
+    # mild contrast boost
     im = ImageOps.autocontrast(im, cutoff=1)
+
+    # cap width to keep OCR fast
     max_w = 1920
     if im.width > max_w:
         h = int(im.height * (max_w / im.width))
         im = im.resize((max_w, h), Image.LANCZOS)
+
+    # slight sharpening for glyph edges
     im = im.filter(ImageFilter.UnsharpMask(radius=1.2, percent=130, threshold=3))
+
+    # binarize with Otsu
     gray = im.convert("L")
     g = np.asarray(gray, dtype=np.uint8)
     t = _otsu_threshold(g)
