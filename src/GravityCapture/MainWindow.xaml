@@ -5,10 +5,8 @@
         MinWidth="1120" MinHeight="680"
         WindowStartupLocation="CenterScreen">
   <DockPanel>
-
-    <!-- Tabs -->
     <TabControl>
-      <!-- Capture tab -->
+      <!-- Capture -->
       <TabItem Header="Capture">
         <Grid Margin="10">
           <Grid.RowDefinitions>
@@ -48,32 +46,30 @@
             </Grid>
           </Border>
 
-          <!-- OCR action buttons beside preview -->
+          <!-- OCR actions next to preview -->
           <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Margin="0,12,0,6">
             <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Style="{StaticResource RoundButton}" Click="OcrCropBtn_Click"/>
             <Button x:Name="OcrPostVisibleBtn" Content="OCR &amp; Post Visible Now" Style="{StaticResource RoundButton}" Click="OcrPostVisibleBtn_Click"/>
             <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Style="{StaticResource RoundButton}" Click="SaveDebugBtn_Click"/>
           </StackPanel>
 
-          <!-- Live preview and overlay -->
+          <!-- Live preview -->
           <Border Style="{StaticResource Card}" Grid.Row="2" Grid.Column="0">
             <Grid>
-              <Image x:Name="LivePreview" Stretch="Uniform" />
-              <!-- non-hit overlay for OCR boxes when shown -->
+              <Image x:Name="LivePreview" Stretch="Uniform"/>
               <Canvas x:Name="OcrDetailsOverlay" IsHitTestVisible="False"/>
             </Grid>
           </Border>
 
-          <!-- API echo on right -->
+          <!-- API/OCR details text area (name matches code-behind) -->
           <Border Style="{StaticResource Card}" Grid.Row="2" Grid.Column="2">
             <Grid>
               <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
               </Grid.RowDefinitions>
-
               <TextBlock Text="API echo" Margin="0,0,0,6"/>
-              <TextBox x:Name="ApiEchoText"
+              <TextBox x:Name="OcrDetailsText"
                        Grid.Row="1"
                        AcceptsReturn="True"
                        VerticalScrollBarVisibility="Auto"
@@ -82,11 +78,11 @@
             </Grid>
           </Border>
 
-          <!-- Paste-a-line and send -->
+          <!-- Paste + paths -->
           <Grid Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,12,0,0">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="190"/>
+              <ColumnDefinition Width="240"/>
             </Grid.ColumnDefinitions>
 
             <Border Style="{StaticResource Card}" Grid.Column="0">
@@ -96,7 +92,7 @@
                   <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
                 <TextBlock Text="Paste a tribe log line:" Margin="0,0,0,6"/>
-                <TextBox x:Name="PastedLogLineBox"
+                <TextBox x:Name="LogLineBox"
                          Grid.Row="1"
                          AcceptsReturn="True"
                          VerticalScrollBarVisibility="Auto"
@@ -108,27 +104,25 @@
               <Button x:Name="SendPastedBtn"
                       Content="Send Pasted Log Line"
                       Style="{StaticResource RoundButton}"
-                      Width="180"
+                      Width="220"
                       HorizontalAlignment="Right"
                       Click="SendPastedBtn_Click"/>
-              <!-- optional file path display your code-behind may fill -->
               <TextBox x:Name="LogLinePathBox" Margin="0,10,0,0" IsReadOnly="True" />
+              <TextBox x:Name="ScreenshotPathBox" Margin="0,6,0,0" IsReadOnly="True" />
             </StackPanel>
           </Grid>
 
-          <!-- Status -->
           <TextBlock x:Name="StatusText"
                      Grid.Row="3" Grid.Column="0"
-                     Margin="0,56,0,0"
+                     Margin="0,60,0,0"
                      Foreground="{StaticResource TextMutedBrush}"/>
         </Grid>
       </TabItem>
 
-      <!-- Settings tab -->
+      <!-- Settings -->
       <TabItem Header="Settings">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <StackPanel Margin="10" Orientation="Vertical" >
-
+          <StackPanel Margin="10">
             <!-- API credentials -->
             <Border Style="{StaticResource Card}">
               <Grid>
@@ -144,21 +138,21 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBlock Text="Channel ID:" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center"/>
-                <TextBox x:Name="ChannelIdBox" Grid.Row="0" Grid.Column="1" Margin="8,0,0,8"/>
+                <TextBox x:Name="ChannelBox" Grid.Row="0" Grid.Column="1" Margin="8,0,0,8"/>
 
                 <TextBlock Text="API Base URL:" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center"/>
                 <TextBox x:Name="ApiUrlBox" Grid.Row="1" Grid.Column="1" Margin="8,0,0,8"/>
 
                 <TextBlock Text="API Key:" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center"/>
-                <TextBox x:Name="ApiKeyBox" Grid.Row="2" Grid.Column="1" Margin="8,0,0,8"/>
+                <!-- PasswordBox to satisfy code-behind .Password access -->
+                <PasswordBox x:Name="ApiKeyBox" Grid.Row="2" Grid.Column="1" Margin="8,0,0,8"/>
 
                 <TextBlock Text="OCR path:" Grid.Row="3" Grid.Column="0" VerticalAlignment="Center"/>
-                <TextBox x:Name="OcrPathBox" Grid.Row="3" Grid.Column="1" Margin="8,0,0,0"
-                         ToolTip="Relative API path, e.g. /ocr (your current stage: /extract)"/>
+                <TextBox x:Name="OcrPathBox" Grid.Row="3" Grid.Column="1" Margin="8,0,0,0" Text="/extract"/>
               </Grid>
             </Border>
 
-            <!-- Endpoints (screenshot + log-line) -->
+            <!-- Ingest endpoints -->
             <Border Style="{StaticResource Card}" Margin="0,10,0,0">
               <Grid>
                 <Grid.RowDefinitions>
@@ -178,31 +172,27 @@
               </Grid>
             </Border>
 
-            <!-- Filters -->
+            <!-- Filters (names match code-behind) -->
             <Border Style="{StaticResource Card}" Margin="0,10,0,0">
-              <StackPanel>
-                <TextBlock Text="Filters" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                <WrapPanel>
-                  <StackPanel Width="280">
-                    <CheckBox x:Name="FilterTameDeathsBox"           Content="Tame deaths"/>
-                    <CheckBox x:Name="FilterTamesStarvingBox"         Content="Tames starving to death"/>
-                    <CheckBox x:Name="FilterStructDestroyedBox"       Content="Structures destroyed"/>
-                    <CheckBox x:Name="FilterStructAutoDecayBox"       Content="Structures auto decay"/>
-                    <CheckBox x:Name="FilterTribemateDeathsBox"       Content="Tribemate deaths"/>
-                  </StackPanel>
-                  <StackPanel Width="320" Margin="24,0,0,0">
-                    <CheckBox x:Name="FilterTribeKillsEnemyTamesBox"  Content="Tribe kills enemy tames"/>
-                    <CheckBox x:Name="FilterEnemyPlayerKillsBox"      Content="Enemy player kills"/>
-                    <CheckBox x:Name="FilterTribeDemolishBox"         Content="Tribemates demolishing structures"/>
-                    <CheckBox x:Name="FilterTribeFreezeTamesBox"      Content="Tribemates freezing tames"/>
-                  </StackPanel>
-                </WrapPanel>
-              </StackPanel>
+              <WrapPanel>
+                <StackPanel Width="280">
+                  <CheckBox x:Name="FilterTameDeathsBox"          Content="Tame deaths"/>
+                  <CheckBox x:Name="FilterTamesStarvingBox"        Content="Tames starving to death"/>
+                  <CheckBox x:Name="FilterStructDestroyedBox"      Content="Structures destroyed"/>
+                  <CheckBox x:Name="FilterStructAutoDecayBox"      Content="Structures auto decay"/>
+                  <CheckBox x:Name="FilterTribeMateDeathsBox"      Content="Tribemate deaths"/>
+                </StackPanel>
+                <StackPanel Width="320" Margin="24,0,0,0">
+                  <CheckBox x:Name="FilterTribeKillsEnemyTamesBox" Content="Tribe kills enemy tames"/>
+                  <CheckBox x:Name="FilterEnemyPlayerKillsBox"     Content="Enemy player kills"/>
+                  <CheckBox x:Name="FilterTribeDemolishBox"        Content="Tribemates demolishing structures"/>
+                  <CheckBox x:Name="FilterTribeFreezeTamesBox"     Content="Tribemates freezing tames"/>
+                </StackPanel>
+              </WrapPanel>
             </Border>
 
-            <!-- Misc settings -->
             <Border Style="{StaticResource Card}" Margin="0,10,0,0">
-              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <StackPanel Orientation="Horizontal">
                 <CheckBox x:Name="ShowOcrDetailsCheck"
                           Content="Show OCR details"
                           Margin="0,0,20,0"
