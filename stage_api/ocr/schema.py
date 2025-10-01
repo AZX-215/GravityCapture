@@ -11,6 +11,6 @@ class Line:
 
 @dataclass
 class OcrResult:
-    engine: str           # "ppo" | "tess"
+    engine: str           # "tesseract" | future engines
     conf: float           # mean confidence
     lines: List[Line]
