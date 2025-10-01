@@ -13,153 +13,160 @@
 
   <Grid Margin="12">
     <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/>
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <!-- TOP BAR -->
-    <Border Grid.Row="0"
-            Background="{DynamicResource CardBrush}"
-            BorderBrush="{DynamicResource InputBorderBrush}"
-            BorderThickness="1"
-            CornerRadius="{DynamicResource CardRadius}"
-            Padding="10">
-      <Grid>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-
-        <!-- Column 1 -->
-        <Grid Grid.Column="0">
+    <TabControl Grid.Row="0">
+      <!-- Capture tab -->
+      <TabItem Header="Capture">
+        <Grid Margin="6">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
 
-          <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,6">
-            <TextBlock Text="Channel ID:" Margin="2,2,8,2"/>
-            <TextBox x:Name="ChannelBox" Width="220"/>
-          </StackPanel>
-
-          <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,0,0,6">
-            <TextBlock Text="API URL:" Margin="2,2,8,2"/>
-            <TextBox x:Name="ApiUrlBox" Width="360"/>
-          </StackPanel>
-
-          <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="0,0,0,0">
-            <TextBlock Text="API Key:" Margin="2,2,8,2"/>
-            <TextBox x:Name="ApiKeyBox" Width="360"/>
-          </StackPanel>
-        </Grid>
-
-        <!-- Column 2 -->
-        <Grid Grid.Column="1">
-          <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-          </Grid.RowDefinitions>
-
-          <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,6">
-            <TextBlock Text="Server:" Margin="2,2,8,2"/>
-            <TextBox x:Name="ServerBox" Width="260"/>
-          </StackPanel>
-
-          <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,0,0,10">
-            <TextBlock Text="Tribe:" Margin="2,2,8,2"/>
-            <TextBox x:Name="TribeBox" Width="260"/>
-          </StackPanel>
-
-          <WrapPanel Grid.Row="2" Margin="0,0,0,6">
-            <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" Style="{DynamicResource SecondaryButton}"/>
-            <Button x:Name="StartBtn" Content="Start" Click="StartBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0"/>
-            <Button x:Name="StopBtn" Content="Stop" Click="StopBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0"/>
-            <Button x:Name="SelectAreaBtn" Content="Select Log Area…" Click="SelectCropBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0"/>
-          </WrapPanel>
-
-          <WrapPanel Grid.Row="3">
-            <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click" Style="{DynamicResource SecondaryButton}"/>
-            <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0"/>
-            <Button x:Name="SendParsedBtn" Content="Send Pasted Log Line" Click="SendParsedBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0"/>
-          </WrapPanel>
-        </Grid>
-      </Grid>
-    </Border>
-
-    <!-- FILTERS -->
-    <Border Grid.Row="1"
-            Background="{DynamicResource CardBrush}"
-            BorderBrush="{DynamicResource InputBorderBrush}"
-            BorderThickness="1"
-            CornerRadius="{DynamicResource CardRadius}"
-            Padding="10" Margin="0,10,0,0">
-      <StackPanel Orientation="Horizontal">
-        <CheckBox x:Name="AutoOcrCheck" Content="Auto OCR ingest"/>
-        <CheckBox x:Name="RedOnlyCheck" Content="Post only red logs" Margin="24,2,0,2"/>
-        <TextBlock Text="Filters:" Margin="24,2,8,2"/>
-        <CheckBox x:Name="FilterTameCheck" Content="Tame deaths"/>
-        <CheckBox x:Name="FilterStructCheck" Content="Structures destroyed"/>
-        <CheckBox x:Name="FilterTribeCheck" Content="Tribemate deaths"/>
-      </StackPanel>
-    </Border>
-
-    <!-- LIVE PREVIEW + PASTE BOX -->
-    <Grid Grid.Row="2" Margin="0,10,0,0">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="2*"/>
-        <ColumnDefinition Width="3*"/>
-      </Grid.ColumnDefinitions>
-
-      <!-- Preview -->
-      <Border Grid.Column="0"
-              Background="{DynamicResource CardBrush}"
-              BorderBrush="{DynamicResource InputBorderBrush}"
-              BorderThickness="1"
-              CornerRadius="{DynamicResource CardRadius}"
-              Padding="10" Margin="0,0,10,0">
-        <DockPanel>
-          <StackPanel Orientation="Horizontal" DockPanel.Dock="Top" Margin="0,0,0,6">
-            <TextBlock Text="Live preview" Margin="2,0,12,0"/>
-            <CheckBox x:Name="ShowOcrDetailsCheck" Content="Show OCR details"
-                      Checked="ShowOcrDetailsCheck_Changed" Unchecked="ShowOcrDetailsCheck_Changed"/>
-            <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click"
-                    Style="{DynamicResource SecondaryButton}" Margin="12,0,0,0"/>
-          </StackPanel>
-
-          <Border Background="#121316" BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" CornerRadius="6">
+          <!-- Controls -->
+          <Border Grid.Row="0"
+                  Background="{DynamicResource CardBrush}"
+                  BorderBrush="{DynamicResource InputBorderBrush}"
+                  BorderThickness="1"
+                  CornerRadius="{DynamicResource CardRadius}"
+                  Padding="10">
             <Grid>
-              <Image x:Name="LivePreview" Stretch="Uniform"/>
-              <Canvas x:Name="OcrOverlay" IsHitTestVisible="False" Visibility="Collapsed"/>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+
+              <!-- Column 1 -->
+              <StackPanel Grid.Column="0" Orientation="Horizontal">
+                <TextBlock Text="Server:" Margin="2,2,6,2"/>
+                <TextBox x:Name="ServerBox" Width="260" Margin="0,0,10,0"/>
+                <TextBlock Text="Tribe:" Margin="6,2,6,2"/>
+                <TextBox x:Name="TribeBox" Width="220" Margin="0,0,10,0"/>
+                <Button x:Name="StartBtn" Content="Start" Click="StartBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0"/>
+                <Button x:Name="StopBtn" Content="Stop" Click="StopBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0"/>
+                <Button x:Name="SelectCropBtn" Content="Select Log Area…" Click="SelectCropBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0"/>
+              </StackPanel>
+
+              <!-- Column 2 -->
+              <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
+                <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="0,0,6,0"/>
+                <Button x:Name="SendParsedBtn" Content="Send Pasted Log Line" Click="SendParsedBtn_Click" Style="{DynamicResource SecondaryButton}"/>
+              </StackPanel>
             </Grid>
           </Border>
-        </DockPanel>
-      </Border>
 
-      <!-- Paste box -->
-      <Border Grid.Column="1"
-              Background="{DynamicResource CardBrush}"
-              BorderBrush="{DynamicResource InputBorderBrush}"
-              BorderThickness="1"
-              CornerRadius="{DynamicResource CardRadius}"
-              Padding="10">
-        <DockPanel>
-          <TextBlock Text="Paste a tribe log line:" DockPanel.Dock="Top" Margin="2,0,0,6"/>
-          <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <TextBox x:Name="LogLineBox" AcceptsReturn="True" FontFamily="Consolas"
-                     Foreground="#EEEEEE" Background="#111214" BorderThickness="0"
-                     HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"/>
-          </ScrollViewer>
-        </DockPanel>
-      </Border>
-    </Grid>
+          <!-- Filters + toggles -->
+          <Border Grid.Row="1" Margin="0,10,0,0"
+                  Background="{DynamicResource CardBrush}"
+                  BorderBrush="{DynamicResource InputBorderBrush}"
+                  BorderThickness="1"
+                  CornerRadius="{DynamicResource CardRadius}"
+                  Padding="10">
+            <DockPanel>
+              <CheckBox x:Name="ShowOcrDetailsCheck" DockPanel.Dock="Right" Content="Show OCR details"
+                        Margin="8,0,0,0"
+                        Checked="ShowOcrDetailsCheck_Changed"
+                        Unchecked="ShowOcrDetailsCheck_Changed"/>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Filters (session only):" Margin="0,2,12,2"/>
+                <CheckBox x:Name="FilterTameDeaths" Content="Tame deaths" Margin="0,0,8,0"/>
+                <CheckBox x:Name="FilterTamesStarving" Content="Tames starving to death" Margin="0,0,8,0"/>
+                <CheckBox x:Name="FilterStructDestroyed" Content="Structures destroyed" Margin="0,0,8,0"/>
+                <CheckBox x:Name="FilterStructAutoDecay" Content="Structures auto decay" Margin="0,0,8,0"/>
+                <CheckBox x:Name="FilterTribeMateDeaths" Content="Tribemate deaths" Margin="0,0,8,0"/>
+                <CheckBox x:Name="FilterTribeKillsEnemyTames" Content="Tribe kills enemy tames" Margin="0,0,8,0"/>
+                <CheckBox x:Name="FilterEnemyPlayerKills" Content="Enemy player kills" Margin="0,0,8,0"/>
+                <CheckBox x:Name="FilterTribeDemolish" Content="Tribemates demolishing structures" Margin="0,0,8,0"/>
+                <CheckBox x:Name="FilterTribeFreezeTames" Content="Tribemates freezing tames" Margin="0,0,8,0"/>
+              </StackPanel>
+            </DockPanel>
+          </Border>
+
+          <!-- Live preview + paste -->
+          <Grid Grid.Row="2" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="2*"/>
+              <ColumnDefinition Width="3*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Preview -->
+            <Border Grid.Column="0"
+                    Background="{DynamicResource CardBrush}"
+                    BorderBrush="{DynamicResource InputBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{DynamicResource CardRadius}"
+                    Padding="10">
+              <Grid>
+                <Image x:Name="LivePreview" Stretch="Uniform"/>
+                <Border x:Name="OcrDetailsOverlay" Background="#66000000" Visibility="Collapsed" CornerRadius="6" Margin="6">
+                  <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="OcrDetailsText" FontFamily="Consolas" TextWrapping="Wrap"/>
+                  </ScrollViewer>
+                </Border>
+              </Grid>
+            </Border>
+
+            <!-- Paste box -->
+            <Border Grid.Column="1" Margin="10,0,0,0"
+                    Background="{DynamicResource CardBrush}"
+                    BorderBrush="{DynamicResource InputBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{DynamicResource CardRadius}"
+                    Padding="10">
+              <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                  <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click" Style="{DynamicResource SecondaryButton}" Margin="0,0,12,0"/>
+                  <TextBlock Text="API echo:" Margin="0,6,6,0"/>
+                  <TextBlock x:Name="ApiEchoText" Foreground="#9ECFFF" Margin="0,6,0,0"/>
+                </StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                  <TextBox x:Name="LogLineBox" AcceptsReturn="True" FontFamily="Consolas"
+                           Foreground="#EEEEEE" Background="#111214" BorderThickness="0"
+                           HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"/>
+                </ScrollViewer>
+              </DockPanel>
+            </Border>
+          </Grid>
+        </Grid>
+      </TabItem>
+
+      <!-- Settings tab -->
+      <TabItem Header="Settings">
+        <Grid Margin="10">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+
+          <TextBlock Grid.Row="0" Grid.ColumnSpan="3" Text="API credentials" FontWeight="Bold" Margin="0,0,0,8"/>
+          <TextBlock Grid.Row="1" Grid.Column="0" Text="Channel ID:" Margin="0,2,8,2"/>
+          <TextBox   Grid.Row="1" Grid.Column="1" x:Name="ChannelBox" Width="320"/>
+          <TextBlock Grid.Row="2" Grid.Column="0" Text="API URL:" Margin="0,2,8,2"/>
+          <TextBox   Grid.Row="2" Grid.Column="1" x:Name="ApiUrlBox" Width="420"/>
+          <TextBlock Grid.Row="3" Grid.Column="0" Text="API Key:" Margin="0,2,8,2"/>
+          <PasswordBox Grid.Row="3" Grid.Column="1" x:Name="ApiKeyBox" Width="420"/>
+
+          <StackPanel Grid.Row="3" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Bottom">
+            <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" Style="{DynamicResource SecondaryButton}"/>
+          </StackPanel>
+        </Grid>
+      </TabItem>
+    </TabControl>
 
     <!-- STATUS -->
-    <DockPanel Grid.Row="3" Margin="0,10,0,0">
+    <DockPanel Grid.Row="1" Margin="0,10,0,0">
       <TextBlock x:Name="StatusText" Foreground="#9ECFFF"/>
     </DockPanel>
   </Grid>
