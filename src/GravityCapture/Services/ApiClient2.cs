@@ -12,16 +12,26 @@ namespace GravityCapture.Services
     /// <summary>Path-aware HTTP client that tries common Railway stage routes and headers.</summary>
     public sealed class ApiClient2 : IDisposable
     {
-        private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(25) };
+        private readonly HttpClient _http;
         private readonly AppSettings _s;
 
         public ApiClient2(AppSettings s)
         {
             _s = s;
+            var handler = new HttpClientHandler
+            {
+                AutomaticDecompression = DecompressionMethods.All
+            };
+            _http = new HttpClient(handler)
+            {
+                Timeout = TimeSpan.FromSeconds(30),
+                DefaultRequestVersion = HttpVersion.Version11,
+                DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
+            };
+
             var key = _s.Auth?.ApiKey ?? "";
             if (!string.IsNullOrWhiteSpace(key))
             {
-                // try both header spellings
                 _http.DefaultRequestHeaders.TryAddWithoutValidation("x-api-key", key);
                 _http.DefaultRequestHeaders.TryAddWithoutValidation("ApiKey", key);
                 _http.DefaultRequestHeaders.TryAddWithoutValidation("X-GL-Key", key);
@@ -60,17 +70,25 @@ namespace GravityCapture.Services
                     using var content = new MultipartFormDataContent();
                     var img = new ByteArrayContent(jpegBytes);
                     img.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+
+                    // send under two common field names for compatibility
                     content.Add(img, "file", "crop.jpg");
+                    content.Add(new ByteArrayContent(jpegBytes){Headers={ContentType=new MediaTypeHeaderValue("image/jpeg")}},
+                                "image", "crop.jpg");
+
                     content.Add(new StringContent(_s.Capture?.ServerName ?? _s.ServerName ?? string.Empty), "server");
                     content.Add(new StringContent(_s.TribeName ?? string.Empty), "tribe");
 
                     var res = await _http.PostAsync(Url(p), content).ConfigureAwait(false);
                     var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
                     if (res.IsSuccessStatusCode) return (true, body);
-                    if (res.StatusCode == HttpStatusCode.NotFound || res.StatusCode == HttpStatusCode.MethodNotAllowed) continue;
-                    return (false, body);
+                    if (res.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) continue;
+                    return (false, $"HTTP {(int)res.StatusCode}: {body}");
                 }
-                catch (Exception ex) { return (false, ex.Message); }
+                catch (Exception ex)
+                {
+                    return (false, ex.ToString());
+                }
             }
             return (false, "{\"error\":\"OCR endpoint not found\"}");
         }
@@ -92,7 +110,7 @@ namespace GravityCapture.Services
                 var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
                 return (res.IsSuccessStatusCode, body);
             }
-            catch (Exception ex) { return (false, ex.Message); }
+            catch (Exception ex) { return (false, ex.ToString()); }
         }
 
         public async Task<(bool ok, string body)> SendPastedLineAsync(string line)
@@ -111,7 +129,7 @@ namespace GravityCapture.Services
                 var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
                 return (res.IsSuccessStatusCode, body);
             }
-            catch (Exception ex) { return (false, ex.Message); }
+            catch (Exception ex) { return (false, ex.ToString()); }
         }
 
         public void Dispose() => _http.Dispose();
