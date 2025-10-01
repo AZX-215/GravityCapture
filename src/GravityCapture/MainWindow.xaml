@@ -20,13 +20,9 @@
       <TextBlock x:Name="StatusText" Foreground="{DynamicResource TextMutedBrush}"/>
     </Border>
 
-    <!-- Tabs -->
-    <TabControl Background="{DynamicResource BgBrush}"
-                BorderBrush="{DynamicResource BgBrush}"
-                BorderThickness="0">
-
+    <TabControl>
       <!-- ================== Capture ================== -->
-      <TabItem Header="Capture" Background="{DynamicResource BgBrush}">
+      <TabItem Header="Capture">
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="{DynamicResource BgBrush}">
           <Grid Margin="10">
             <Grid.RowDefinitions>
@@ -39,7 +35,6 @@
                     BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1"
                     Background="{DynamicResource CardBrush}">
               <StackPanel Orientation="Vertical">
-                <!-- Row 1 -->
                 <WrapPanel ItemHeight="32">
                   <TextBlock Text="Server" Margin="0,4,6,0" VerticalAlignment="Center"/>
                   <TextBox x:Name="ServerBox" Width="300" Margin="0,0,10,0"/>
@@ -58,7 +53,6 @@
                             Unchecked="ShowOcrDetailsCheck_Changed"/>
                 </WrapPanel>
 
-                <!-- Row 2 -->
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                   <WrapPanel Margin="0,8,0,0" ItemHeight="32">
                     <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click"
@@ -72,21 +66,20 @@
               </StackPanel>
             </Border>
 
-            <!-- Preview + paste -->
+            <!-- Preview + API echo -->
             <Grid Grid.Row="1" Margin="0,10,0,0">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2*"/>
                 <ColumnDefinition Width="3*"/>
               </Grid.ColumnDefinitions>
 
-              <!-- Live preview (shrinks to fit) -->
               <Border CornerRadius="{DynamicResource CardRadius}"
                       BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" Padding="10"
                       Background="{DynamicResource CardBrush}" ClipToBounds="True">
+                <!-- auto-shrink -->
                 <Viewbox Stretch="Uniform" StretchDirection="DownOnly">
                   <Grid>
-                    <Image x:Name="LivePreview"
-                           Stretch="Uniform"
+                    <Image x:Name="LivePreview" Stretch="Uniform"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            SnapsToDevicePixels="True" UseLayoutRounding="True"/>
                     <Border x:Name="OcrDetailsOverlay" Background="#66000000"
@@ -99,7 +92,6 @@
                 </Viewbox>
               </Border>
 
-              <!-- OCR text / API echo -->
               <Border Grid.Column="1" Margin="10,0,0,0" CornerRadius="{DynamicResource CardRadius}"
                       BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" Padding="10"
                       Background="{DynamicResource CardBrush}">
@@ -123,7 +115,7 @@
       </TabItem>
 
       <!-- ================== Settings ================== -->
-      <TabItem Header="Settings" Background="{DynamicResource BgBrush}">
+      <TabItem Header="Settings">
         <ScrollViewer VerticalScrollBarVisibility="Auto" Background="{DynamicResource BgBrush}">
           <Grid Margin="12">
             <!-- rows 0..10 -->
@@ -161,13 +153,13 @@
             <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="Endpoint paths"
                        FontWeight="Bold" Margin="0,16,0,6"/>
             <TextBlock Grid.Row="5" Grid.Column="0" Text="OCR path:" Margin="0,6,8,6"/>
-            <TextBox   Grid.Row="5" Grid.Column="1" x:Name="OcrPathBox" ToolTip="e.g. /api/extract"/>
+            <TextBox   Grid.Row="5" Grid.Column="1" x:Name="OcrPathBox" ToolTip="e.g. /extract or /api/extract"/>
 
             <TextBlock Grid.Row="6" Grid.Column="0" Text="Screenshot ingest path:" Margin="0,6,8,6"/>
-            <TextBox   Grid.Row="6" Grid.Column="1" x:Name="ScreenshotPathBox" ToolTip="e.g. /api/ingest/screenshot"/>
+            <TextBox   Grid.Row="6" Grid.Column="1" x:Name="ScreenshotPathBox" ToolTip="e.g. /ingest/screenshot or /api/ingest/screenshot"/>
 
             <TextBlock Grid.Row="7" Grid.Column="0" Text="Log-line ingest path:" Margin="0,6,8,6"/>
-            <TextBox   Grid.Row="7" Grid.Column="1" x:Name="LogLinePathBox" ToolTip="e.g. /api/ingest/log-line"/>
+            <TextBox   Grid.Row="7" Grid.Column="1" x:Name="LogLinePathBox" ToolTip="e.g. /ingest/log-line or /api/ingest/log-line"/>
 
             <!-- Filters -->
             <TextBlock Grid.Row="8" Grid.ColumnSpan="2" Text="Filters"
@@ -193,7 +185,6 @@
           </Grid>
         </ScrollViewer>
       </TabItem>
-
     </TabControl>
   </DockPanel>
 </Window>
