@@ -1,27 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- Windows 10 API surface; matches your build path -->
     <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
-    <!-- Leave WinForms off to avoid pulling in Forms types unless you need them -->
     <UseWindowsForms>false</UseWindowsForms>
-
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-
-    <!-- Good to keep while targeting windows-specific APIs -->
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
-
     <AssemblyName>GravityCapture</AssemblyName>
     <RootNamespace>GravityCapture</RootNamespace>
     <Platforms>AnyCPU</Platforms>
   </PropertyGroup>
 
-  <!-- Only add what you actually use. System.Drawing is available on Windows by default in .NET 9. -->
-  <!-- If you explicitly need it, uncomment:
   <ItemGroup>
+    <!-- Needed for Bitmap/ImageCodecInfo/ImageFormat, etc -->
     <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+    <!-- Needed for TesseractEngine and Pix; brings managed types -->
+    <PackageReference Include="Tesseract" Version="4.1.1" />
+    <!-- Native assets for Windows so it still compiles/runs even if local OCR is used -->
+    <PackageReference Include="Tesseract.NativeAssets.Windows" Version="2.93.0" />
   </ItemGroup>
-  -->
 </Project>
