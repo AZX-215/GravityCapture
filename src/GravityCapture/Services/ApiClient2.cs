@@ -9,7 +9,6 @@ using GravityCapture.Models;
 
 namespace GravityCapture.Services
 {
-    /// <summary>Path-aware HTTP client that tries common Railway stage routes and headers.</summary>
     public sealed class ApiClient2 : IDisposable
     {
         private readonly HttpClient _http;
@@ -29,7 +28,7 @@ namespace GravityCapture.Services
                 DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
             };
 
-            // Added: avoid 100-continue stalls and keep-alive issues
+            // prevent 100-continue stalls and reuse issues
             _http.DefaultRequestHeaders.ExpectContinue = false;
             _http.DefaultRequestHeaders.ConnectionClose = true;
 
@@ -57,7 +56,7 @@ namespace GravityCapture.Services
         {
             var candidates = new[]
             {
-                _s.OcrPath,
+                string.IsNullOrWhiteSpace(_s.OcrPath) ? null : _s.OcrPath,
                 "/extract",
                 "/api/extract",
                 "/ocr",
@@ -74,12 +73,7 @@ namespace GravityCapture.Services
                     using var content = new MultipartFormDataContent();
                     var img = new ByteArrayContent(jpegBytes);
                     img.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
-
-                    // send under two common field names for compatibility
                     content.Add(img, "file", "crop.jpg");
-                    content.Add(new ByteArrayContent(jpegBytes){Headers={ContentType=new MediaTypeHeaderValue("image/jpeg")}},
-                                "image", "crop.jpg");
-
                     content.Add(new StringContent(_s.Capture?.ServerName ?? _s.ServerName ?? string.Empty), "server");
                     content.Add(new StringContent(_s.TribeName ?? string.Empty), "tribe");
 
@@ -89,56 +83,77 @@ namespace GravityCapture.Services
                     if (res.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) continue;
                     return (false, $"HTTP {(int)res.StatusCode}: {body}");
                 }
-                catch (Exception ex)
-                {
-                    return (false, Flatten(ex));
-                }
+                catch (Exception ex) { return (false, Flatten(ex)); }
             }
             return (false, "{\"error\":\"OCR endpoint not found\"}");
         }
 
         public async Task<(bool ok, string body)> PostScreenshotAsync(byte[] jpegBytes, bool postVisible)
         {
-            try
+            var candidates = new[]
             {
-                var path = string.IsNullOrWhiteSpace(_s.ScreenshotIngestPath) ? "/ingest/screenshot" : _s.ScreenshotIngestPath!;
-                using var content = new MultipartFormDataContent();
-                var img = new ByteArrayContent(jpegBytes);
-                img.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
-                content.Add(img, "file", "visible.jpg");
-                content.Add(new StringContent(_s.Capture?.ServerName ?? _s.ServerName ?? string.Empty), "server");
-                content.Add(new StringContent(_s.TribeName ?? string.Empty), "tribe");
-                content.Add(new StringContent(postVisible ? "1" : "0"), "post_visible");
+                string.IsNullOrWhiteSpace(_s.ScreenshotIngestPath) ? null : _s.ScreenshotIngestPath,
+                "/ingest/screenshot",
+                "/api/ingest/screenshot"
+            };
 
-                var res = await _http.PostAsync(Url(path), content).ConfigureAwait(false);
-                var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
-                return (res.IsSuccessStatusCode, body);
+            foreach (var p in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(p)) continue;
+                try
+                {
+                    using var content = new MultipartFormDataContent();
+                    var img = new ByteArrayContent(jpegBytes);
+                    img.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+                    content.Add(img, "file", "visible.jpg");
+                    content.Add(new StringContent(_s.Capture?.ServerName ?? _s.ServerName ?? string.Empty), "server");
+                    content.Add(new StringContent(_s.TribeName ?? string.Empty), "tribe");
+                    content.Add(new StringContent(postVisible ? "1" : "0"), "post_visible");
+
+                    var res = await _http.PostAsync(Url(p), content).ConfigureAwait(false);
+                    var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (res.IsSuccessStatusCode) return (true, body);
+                    if (res.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) continue;
+                    return (false, $"HTTP {(int)res.StatusCode}: {body}");
+                }
+                catch (Exception ex) { return (false, Flatten(ex)); }
             }
-            catch (Exception ex) { return (false, Flatten(ex)); }
+            return (false, "{\"error\":\"screenshot ingest endpoint not found\"}");
         }
 
         public async Task<(bool ok, string body)> SendPastedLineAsync(string line)
         {
-            try
+            var candidates = new[]
             {
-                var path = string.IsNullOrWhiteSpace(_s.LogLineIngestPath) ? "/ingest/log-line" : _s.LogLineIngestPath!;
-                var payload = new
+                string.IsNullOrWhiteSpace(_s.LogLineIngestPath) ? null : _s.LogLineIngestPath,
+                "/ingest/log-line",
+                "/api/ingest/log-line"
+            };
+
+            foreach (var p in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(p)) continue;
+                try
                 {
-                    line,
-                    server = _s.Capture?.ServerName ?? _s.ServerName ?? string.Empty,
-                    tribe = _s.TribeName ?? string.Empty
-                };
-                var res = await _http.PostAsync(Url(path),
-                    new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")).ConfigureAwait(false);
-                var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
-                return (res.IsSuccessStatusCode, body);
+                    var payload = new
+                    {
+                        line,
+                        server = _s.Capture?.ServerName ?? _s.ServerName ?? string.Empty,
+                        tribe = _s.TribeName ?? string.Empty
+                    };
+                    var res = await _http.PostAsync(Url(p),
+                        new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")).ConfigureAwait(false);
+                    var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (res.IsSuccessStatusCode) return (true, body);
+                    if (res.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) continue;
+                    return (false, $"HTTP {(int)res.StatusCode}: {body}");
+                }
+                catch (Exception ex) { return (false, Flatten(ex)); }
             }
-            catch (Exception ex) { return (false, Flatten(ex)); }
+            return (false, "{\"error\":\"log-line ingest endpoint not found\"}");
         }
 
         public void Dispose() => _http.Dispose();
-
-        private static string Flatten(Exception ex)
-            => ex.Message + (ex.InnerException != null ? " | " + ex.InnerException.Message : "");
+        private static string Flatten(Exception ex) => ex.Message + (ex.InnerException != null ? " | " + ex.InnerException.Message : "");
     }
 }
