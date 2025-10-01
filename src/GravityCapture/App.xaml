@@ -4,7 +4,7 @@
              StartupUri="MainWindow.xaml">
   <Application.Resources>
 
-    <!-- ===== Color palette ===== -->
+    <!-- Palette -->
     <SolidColorBrush x:Key="BgBrush"        Color="#1E1F23"/>
     <SolidColorBrush x:Key="CardBrush"      Color="#262B33"/>
     <SolidColorBrush x:Key="BorderBrush"    Color="#333842"/>
@@ -12,7 +12,7 @@
     <SolidColorBrush x:Key="TextBrush"      Color="#F2F4F8"/>
     <SolidColorBrush x:Key="AccentBrush"    Color="#6EA8FE"/>
 
-    <!-- ===== Window defaults ===== -->
+    <!-- Defaults -->
     <Style TargetType="Window">
       <Setter Property="Background" Value="{DynamicResource BgBrush}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
@@ -23,12 +23,11 @@
       <Setter Property="ResizeMode" Value="CanResize"/>
     </Style>
 
-    <!-- Common controls -->
     <Style TargetType="Border">
-      <Setter Property="CornerRadius"  Value="8"/>
-      <Setter Property="BorderBrush"   Value="{DynamicResource BorderBrush}"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="BorderBrush"  Value="{DynamicResource BorderBrush}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Background"    Value="{DynamicResource CardBrush}"/>
+      <Setter Property="Background"   Value="{DynamicResource CardBrush}"/>
     </Style>
 
     <Style TargetType="Button">
@@ -50,15 +49,15 @@
 
     <Style TargetType="CheckBox">
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-      <Setter Property="Margin" Value="4,2"/>
+      <Setter Property="Margin"     Value="4,2"/>
     </Style>
 
     <Style TargetType="Label">
       <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}"/>
-      <Setter Property="Margin" Value="4,2"/>
+      <Setter Property="Margin"     Value="4,2"/>
     </Style>
 
-    <!-- ===== TabControl template (removes white background) ===== -->
+    <!-- TabControl template so content area isn’t white -->
     <Style TargetType="TabControl">
       <Setter Property="Background"   Value="{DynamicResource BgBrush}"/>
       <Setter Property="BorderBrush"  Value="{DynamicResource BorderBrush}"/>
