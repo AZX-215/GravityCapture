@@ -4,8 +4,8 @@
              StartupUri="MainWindow.xaml">
   <Application.Resources>
     <!-- Palette -->
-    <Color x:Key="BgColor">#0E1014</Color>           <!-- window background -->
-    <Color x:Key="CardColor">#171A1F</Color>         <!-- panels/cards -->
+    <Color x:Key="BgColor">#0E1014</Color>
+    <Color x:Key="CardColor">#171A1F</Color>
     <Color x:Key="AccentColor">#7D7FFF</Color>
     <Color x:Key="TextColor">#FFFFFF</Color>
     <Color x:Key="TextMutedColor">#C8CBD2</Color>
@@ -36,15 +36,18 @@
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
     </Style>
 
-    <!-- Containers -->
+    <!-- Remove top light line from TabControl -->
     <Style TargetType="TabControl">
       <Setter Property="Background" Value="{DynamicResource BgBrush}"/>
+      <Setter Property="BorderThickness" Value="0"/>
     </Style>
     <Style TargetType="TabItem">
       <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
       <Setter Property="Padding" Value="10,6"/>
     </Style>
+
+    <!-- Containers -->
     <Style TargetType="GroupBox">
       <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
