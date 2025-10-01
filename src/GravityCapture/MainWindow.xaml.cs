@@ -19,7 +19,7 @@ namespace GravityCapture
 {
     public partial class MainWindow : Window
     {
-        private const double Aspect = 16.0 / 10.0;   // keep ≥ 16:10
+        private const double Aspect = 16.0 / 10.0;
         private readonly JsonSerializerOptions _json = new() { WriteIndented = true };
         private readonly string SettingsDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GravityCapture");
@@ -60,7 +60,6 @@ namespace GravityCapture
 
         private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            // enforce minimum aspect ratio so controls remain visible
             if (e.WidthChanged)
             {
                 var minH = Math.Max(MinHeight, e.NewSize.Width / Aspect);
@@ -82,7 +81,6 @@ namespace GravityCapture
             ServerBox.Text  = _settings.Capture?.ServerName ?? _settings.ServerName ?? "";
             TribeBox.Text   = _settings.TribeName ?? "";
 
-            // filters
             var f = _settings.Filters ?? new AppSettings.FilterSettings();
             FilterTameDeathsBox.IsChecked = f.TameDeaths;
             FilterTamesStarvingBox.IsChecked = f.TamesStarved;
@@ -113,7 +111,6 @@ namespace GravityCapture
                 _settings.Capture.ServerName = string.IsNullOrWhiteSpace(ServerBox.Text) ? null : ServerBox.Text.Trim();
                 _settings.TribeName       = string.IsNullOrWhiteSpace(TribeBox.Text) ? null : TribeBox.Text.Trim();
 
-                // filters from Settings tab
                 _settings.Filters.TameDeaths = FilterTameDeathsBox.IsChecked == true;
                 _settings.Filters.TamesStarved = FilterTamesStarvingBox.IsChecked == true;
                 _settings.Filters.StructuresDestroyed = FilterStructDestroyedBox.IsChecked == true;
@@ -222,9 +219,22 @@ namespace GravityCapture
                 LivePreview.Source = BmpToSource(bmp);
 
                 var jpeg = EncodeJpeg(bmp, 100);
-                using var api = new ApiClient(_settings);
+                using var api = new ProbingApiClient(_settings);
                 var (ok, body) = await api.OcrOnlyAsync(jpeg);
                 ApiEchoText.Text = body;
+
+                if (!ok)
+                {
+                    // fallback to RemoteOcrService (/extract with x-api-key)
+                    using var ms = new MemoryStream();
+                    bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                    ms.Position = 0;
+                    var remote = new RemoteOcrService(_settings);
+                    var resp = await remote.ExtractAsync(ms, default);
+                    body = string.IsNullOrWhiteSpace(resp.Text) ? "{\"error\":\"OCR failed\"}" : JsonSerializer.Serialize(resp);
+                    ok = !string.IsNullOrWhiteSpace(resp.Text);
+                    ApiEchoText.Text = body;
+                }
 
                 if (ok)
                 {
@@ -257,7 +267,7 @@ namespace GravityCapture
                 LivePreview.Source = BmpToSource(bmp);
 
                 var jpeg = EncodeJpeg(bmp, 100);
-                using var api = new ApiClient(_settings);
+                using var api = new ProbingApiClient(_settings);
                 var (ok, body) = await api.PostScreenshotAsync(jpeg, postVisible: true);
                 ApiEchoText.Text = body;
                 SetStatus(ok ? "Posted screenshot" : "Post failed");
@@ -275,7 +285,7 @@ namespace GravityCapture
             if (string.IsNullOrEmpty(line)) { SetStatus("No text to send."); return; }
             try
             {
-                using var api = new ApiClient(_settings);
+                using var api = new ProbingApiClient(_settings);
                 var (ok, body) = await api.SendPastedLineAsync(line);
                 ApiEchoText.Text = body;
                 SetStatus(ok ? "Pasted line sent" : "Send failed");
@@ -302,17 +312,13 @@ namespace GravityCapture
                 if (sfd.ShowDialog() != true) return;
 
                 using var zip = ZipFile.Open(sfd.FileName, ZipArchiveMode.Create);
-                // settings
                 var settingsEntry = zip.CreateEntry("settings.json");
                 using (var sw = new StreamWriter(settingsEntry.Open())) sw.Write(JsonSerializer.Serialize(_settings, _json));
-                // last text
                 var textEntry = zip.CreateEntry("last_text.txt");
                 using (var sw = new StreamWriter(textEntry.Open())) sw.Write(LogLineBox.Text ?? "");
-                // crop info
                 var cropEntry = zip.CreateEntry("crop.txt");
                 using (var sw = new StreamWriter(cropEntry.Open()))
                     sw.Write(_selectedScreenRect.HasValue ? $"{_selectedScreenRect.Value.X},{_selectedScreenRect.Value.Y},{_selectedScreenRect.Value.Width},{_selectedScreenRect.Value.Height}" : "unset");
-                // preview image
                 if (_selectedScreenRect != null)
                 {
                     using var bmp = CaptureScreenRect(_selectedScreenRect.Value);
@@ -417,5 +423,23 @@ namespace GravityCapture
         }
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+    }
+
+    /// <summary>
+    /// Small wrapper so OCR and ingest probe known stage paths and header names.
+    /// </summary>
+    internal sealed class ProbingApiClient : IDisposable
+    {
+        private readonly GravityCapture.Services.ApiClient _clientA;
+        private readonly GravityCapture.Services.ApiClient2 _clientB;
+        public ProbingApiClient(AppSettings s)
+        {
+            _clientA = new ApiClient2(s); // new path-aware client below
+            _clientB = new ApiClient2(s); // identical instance reused for other calls
+        }
+        public Task<(bool ok, string body)> OcrOnlyAsync(byte[] jpeg) => _clientA.OcrOnlyAsync(jpeg);
+        public Task<(bool ok, string body)> PostScreenshotAsync(byte[] jpeg, bool postVisible) => _clientB.PostScreenshotAsync(jpeg, postVisible);
+        public Task<(bool ok, string body)> SendPastedLineAsync(string line) => _clientB.SendPastedLineAsync(line);
+        public void Dispose() { _clientA.Dispose(); _clientB.Dispose(); }
     }
 }
