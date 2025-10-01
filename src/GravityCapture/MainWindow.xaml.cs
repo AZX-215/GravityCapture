@@ -305,6 +305,9 @@ namespace GravityCapture
             }
         }
 
+        // NEW: keep XAML compatibility (Click="SendPastedBtn_Click")
+        private void SendPastedBtn_Click(object sender, RoutedEventArgs e) => SendParsedBtn_Click(sender, e);
+
         private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e)
         {
             _showOcrOverlay = ShowOcrDetailsCheck.IsChecked == true;
