@@ -1,11 +1,10 @@
 using System;
 using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
-using System.Runtime.InteropServices;
+using System.Timers;
 using System.Windows;
-using System.Windows.Media.Imaging;
-using System.Windows.Threading;
+using System.Windows.Interop;
+using System.Runtime.InteropServices;
 using GravityCapture.Models;
 using GravityCapture.Services;
 
@@ -13,212 +12,125 @@ namespace GravityCapture
 {
     public partial class MainWindow : Window
     {
-        private IntPtr _hwnd = IntPtr.Zero;
-        private bool _haveCrop = false;
-        private double _nx, _ny, _nw, _nh;
-        private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(800) };
+        // ── DWM dark title bar (Win10/11) ─────────────────────────────────────
+        // Some Windows builds use 19, newer use 20
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_NEW = 20;
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
 
-        private AppSettings _settings = AppSettings.Load();
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+        // ──────────────────────────────────────────────────────────────────────
 
-        [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hWnd);
+        private readonly AppSettings _settings;
+        private readonly System.Timers.Timer _timer;
+        private ApiClient? _api;
 
         public MainWindow()
         {
             InitializeComponent();
-            BindFromSettings();
 
-            // Prefer Ark automatically
-            var ark = ScreenCapture.ResolveArkWindow();
-            if (ark != IntPtr.Zero) _hwnd = ark;
+            // Apply dark title bar once the HWND exists
+            SourceInitialized += (_, __) => ApplyDarkTitleBar();
 
-            QualityLabel.Text = ((int)QualitySlider.Value).ToString();
+            _settings = AppSettings.Load();
+
+            ApiUrlBox.Text = _settings.ApiUrl;
+            ApiKeyBox.Text = _settings.ApiKey;
+            ChannelBox.Text = _settings.ChannelId == 0 ? "" : _settings.ChannelId.ToString();
+            IntervalBox.Text = _settings.IntervalMinutes.ToString();
+            ActiveWindowCheck.IsChecked = _settings.CaptureActiveWindow;
+            QualitySlider.Value = _settings.JpegQuality;
+            QualityLabel.Text = _settings.JpegQuality.ToString();
+
             QualitySlider.ValueChanged += (_, __) => QualityLabel.Text = ((int)QualitySlider.Value).ToString();
-            _previewTimer.Tick += (_, __) => UpdatePreview();
 
-            Loaded += (_, __) =>
+            _timer = new System.Timers.Timer { AutoReset = true, Enabled = false };
+            _timer.Elapsed += OnTick;
+
+            if (_settings.Autostart) StartCapture();
+        }
+
+        // Enable the OS-provided dark title bar (non-client area)
+        private void ApplyDarkTitleBar()
+        {
+            try
             {
-                _previewTimer.Start();
-                UpdatePreview();
-            };
+                var hwnd = new WindowInteropHelper(this).Handle;
+                if (hwnd == IntPtr.Zero) return;
+
+                int enable = 1;
+                // Try new attr id then old one (no-ops if unsupported)
+                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_NEW, ref enable, sizeof(int));
+                _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref enable, sizeof(int));
+            }
+            catch
+            {
+                // best-effort; ignore on unsupported systems
+            }
         }
 
         private void SaveBtn_Click(object sender, RoutedEventArgs e)
         {
-            BindToSettings();
-            _settings.Save();
-            StatusText.Text = "Saved.";
+            SaveSettings();
+            Status("Saved.");
         }
 
         private void StartBtn_Click(object sender, RoutedEventArgs e)
         {
-            _previewTimer.Start();
-            StatusText.Text = "Preview running.";
+            SaveSettings();
+            StartCapture();
         }
 
-        private void StopBtn_Click(object sender, RoutedEventArgs e)
+        private void StopBtn_Click(object sender, RoutedEventArgs e) => StopCapture();
+
+        private void SaveSettings()
         {
-            _previewTimer.Stop();
-            LivePreview.Source = null;
-            StatusText.Text = "Preview stopped.";
+            _settings.ApiUrl = ApiUrlBox.Text.TrimEnd('/');
+            _settings.ApiKey = ApiKeyBox.Text.Trim();
+            _settings.CaptureActiveWindow = ActiveWindowCheck.IsChecked == true;
+            _settings.IntervalMinutes = int.TryParse(IntervalBox.Text, out var m) ? Math.Max(1, m) : 5;
+            _settings.JpegQuality = (int)QualitySlider.Value;
+            _settings.ChannelId = ulong.TryParse(ChannelBox.Text, out var ch) ? ch : 0;
+            _settings.Save();
         }
 
-        private void SelectCropBtn_Click(object sender, RoutedEventArgs e)
+        private void StartCapture()
         {
-            if (_hwnd == IntPtr.Zero)
-            {
-                var ark = ScreenCapture.ResolveArkWindow();
-                if (ark != IntPtr.Zero) _hwnd = ark;
-            }
-
-            var (ok, rect, hwndUsed) = ScreenCapture.SelectRegion(_hwnd);
-            if (!ok) { StatusText.Text = "Selection cancelled."; return; }
-
-            if (hwndUsed != IntPtr.Zero) _hwnd = hwndUsed;
-
-            bool normOk = (_hwnd != IntPtr.Zero)
-                ? ScreenCapture.TryNormalizeRect(_hwnd, rect, out _nx, out _ny, out _nw, out _nh)
-                : ScreenCapture.TryNormalizeRectDesktop(rect, out _nx, out _ny, out _nw, out _nh);
-
-            _haveCrop = normOk;
-
-            if (normOk)
-            {
-                _settings.UseCrop = true;
-                _settings.CropX = _nx; _settings.CropY = _ny; _settings.CropW = _nw; _settings.CropH = _nh;
-                _settings.Save();
-            }
-
-            StatusText.Text = normOk ? "Crop set." : "Failed to normalize crop.";
-            UpdatePreview();
+            _api = new ApiClient(_settings.ApiUrl, _settings.ApiKey);
+            _timer.Interval = TimeSpan.FromMinutes(_settings.IntervalMinutes).TotalMilliseconds;
+            _timer.Start();
+            StartBtn.IsEnabled = false; StopBtn.IsEnabled = true;
+            Status($"Running – every {_settings.IntervalMinutes} min.");
+            // fire first shot immediately
+            _ = CaptureOnceAsync();
         }
 
-        private void OcrCropBtn_Click(object sender, RoutedEventArgs e)
+        private void StopCapture()
         {
-            if (!_haveCrop) { StatusText.Text = "No crop set."; return; }
-            using var bmp = ScreenCapture.CaptureCropNormalized(_hwnd, _nx, _ny, _nw, _nh);
-            System.Windows.Clipboard.SetImage(ToBitmapImage(bmp));
-            StatusText.Text = "Cropped image copied.";
+            _timer.Stop();
+            StartBtn.IsEnabled = true; StopBtn.IsEnabled = false;
+            Status("Stopped.");
         }
 
-        private void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
-        {
-            if (!_haveCrop) { StatusText.Text = "No crop set."; return; }
-            using var bmp = ScreenCapture.CaptureCropNormalized(_hwnd, _nx, _ny, _nw, _nh);
-            LivePreview.Source = ToBitmapImage(bmp);
-            StatusText.Text = "Captured now.";
-        }
+        private async void OnTick(object? s, ElapsedEventArgs e) => await CaptureOnceAsync();
 
-        private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
+        private async System.Threading.Tasks.Task CaptureOnceAsync()
         {
-            StatusText.Text = "Sent.";
-        }
-
-        private void UpdatePreview()
-        {
+            if (_api == null) return;
             try
             {
-                if (_hwnd == IntPtr.Zero || !IsWindow(_hwnd))
-                {
-                    LivePreview.Source = null;
-                    StatusText.Text = "No Ark window selected.";
-                    return;
-                }
-                if (IsIconic(_hwnd))
-                {
-                    LivePreview.Source = null;
-                    StatusText.Text = "Ark window minimized.";
-                    return;
-                }
-
-                using var frameBmp = ScreenCapture.CaptureForPreview(_hwnd, out bool fallback, out string? why);
-
-                Bitmap toShow = frameBmp;
-                Bitmap? cropped = null;
-                if (_haveCrop)
-                {
-                    // crop using normalized rect against the captured frame size
-                    int rx = Math.Clamp((int)Math.Round(_nx * frameBmp.Width), 0, frameBmp.Width - 1);
-                    int ry = Math.Clamp((int)Math.Round(_ny * frameBmp.Height), 0, frameBmp.Height - 1);
-                    int rw = Math.Clamp((int)Math.Round(_nw * frameBmp.Width), 1, frameBmp.Width - rx);
-                    int rh = Math.Clamp((int)Math.Round(_nh * frameBmp.Height), 1, frameBmp.Height - ry);
-
-                    cropped = new Bitmap(rw, rh, PixelFormat.Format32bppPArgb);
-                    using var g = Graphics.FromImage(cropped);
-                    g.DrawImage(frameBmp, new Rectangle(0, 0, rw, rh), new Rectangle(rx, ry, rw, rh), GraphicsUnit.Pixel);
-                    toShow = cropped;
-                }
-
-                LivePreview.Source = ToBitmapImage(toShow);
-                cropped?.Dispose();
-
-                StatusText.Text = fallback ? $"Preview: screen fallback ({why})" : "Preview: WGC";
+                using Bitmap bmp = ScreenCapture.Capture(_settings.CaptureActiveWindow);
+                var bytes = ScreenCapture.ToJpegBytes(bmp, _settings.JpegQuality);
+                string fname = $"gravity_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
+                bool ok = await _api.SendScreenshotAsync(bytes, fname, _settings.ChannelId, "Gravity capture");
+                Status(ok ? $"Sent {fname}" : "Send failed (HTTP)");
             }
             catch (Exception ex)
             {
-                LivePreview.Source = null;
-                StatusText.Text = $"Preview error: {ex.Message}";
+                Status("Error: " + ex.Message);
             }
         }
 
-        private static BitmapImage ToBitmapImage(Bitmap bmp)
-        {
-            using var ms = new MemoryStream();
-            bmp.Save(ms, ImageFormat.Png);
-            ms.Position = 0;
-            var img = new BitmapImage();
-            img.BeginInit();
-            img.CacheOption = BitmapCacheOption.OnLoad;
-            img.StreamSource = ms;
-            img.EndInit();
-            img.Freeze();
-            return img;
-        }
-
-        private void BindFromSettings()
-        {
-            ChannelBox.Text = _settings.Image?.ChannelId ?? "";
-            ApiUrlBox.Text   = _settings.ApiBaseUrl ?? "";
-            ApiKeyBox.Text   = _settings.Auth?.ApiKey ?? "";
-            IntervalBox.Text = Math.Max(1, _settings.IntervalMinutes).ToString();
-
-            // Preview ignores this toggle; reserved for scheduled capture logic
-            ActiveWindowCheck.IsChecked = _settings.Capture?.ActiveWindow ?? false;
-
-            ServerBox.Text = _settings.Capture?.ServerName ?? "";
-            TribeBox.Text  = _settings.TribeName ?? "";
-
-            QualitySlider.Value     = _settings.Image?.JpegQuality ?? 90;
-            AutoOcrCheck.IsChecked  = _settings.AutoOcrEnabled;
-            RedOnlyCheck.IsChecked  = _settings.PostOnlyCritical;
-
-            FilterTameCheck.IsChecked    = _settings.Image?.FilterTameDeath ?? false;
-            FilterStructCheck.IsChecked  = _settings.Image?.FilterStructureDestroyed ?? false;
-            FilterTribeCheck.IsChecked   = _settings.Image?.FilterTribeMateDeath ?? false;
-        }
-
-        private void BindToSettings()
-        {
-            _settings.Image   ??= new AppSettings.ImageSettings();
-            _settings.Capture ??= new AppSettings.CaptureSettings();
-            _settings.Auth    ??= new AppSettings.AuthSettings();
-
-            _settings.Image.ChannelId = ChannelBox.Text?.Trim() ?? "";
-            _settings.ApiBaseUrl      = ApiUrlBox.Text?.Trim() ?? "";
-            _settings.Auth.ApiKey     = ApiKeyBox.Text?.Trim() ?? "";
-            _settings.TribeName       = TribeBox.Text?.Trim() ?? "";
-
-            _settings.IntervalMinutes = int.TryParse(IntervalBox.Text, out var mins) && mins > 0 ? mins : 1;
-            _settings.Capture.ActiveWindow = ActiveWindowCheck.IsChecked == true;
-            _settings.Capture.ServerName   = ServerBox.Text?.Trim() ?? "";
-
-            _settings.Image.JpegQuality = (int)QualitySlider.Value;
-            _settings.AutoOcrEnabled    = AutoOcrCheck.IsChecked == true;
-            _settings.PostOnlyCritical  = RedOnlyCheck.IsChecked == true;
-
-            _settings.Image.FilterTameDeath          = FilterTameCheck.IsChecked == true;
-            _settings.Image.FilterStructureDestroyed = FilterStructCheck.IsChecked == true;
-            _settings.Image.FilterTribeMateDeath     = FilterTribeCheck.IsChecked == true;
-        }
+        private void Status(string s) => Dispatcher.Invoke(() => StatusText.Text = s);
     }
 }
