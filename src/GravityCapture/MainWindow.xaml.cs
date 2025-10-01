@@ -81,6 +81,10 @@ namespace GravityCapture
             ServerBox.Text  = _settings.Capture?.ServerName ?? _settings.ServerName ?? "";
             TribeBox.Text   = _settings.TribeName ?? "";
 
+            OcrPathBox.Text = _settings.OcrPath ?? "";
+            ScreenshotPathBox.Text = _settings.ScreenshotIngestPath ?? "";
+            LogLinePathBox.Text = _settings.LogLineIngestPath ?? "";
+
             var f = _settings.Filters ?? new AppSettings.FilterSettings();
             FilterTameDeathsBox.IsChecked = f.TameDeaths;
             FilterTamesStarvingBox.IsChecked = f.TamesStarved;
@@ -110,6 +114,10 @@ namespace GravityCapture
                 _settings.Auth.ApiKey     = ApiKeyBox.Password?.Trim();
                 _settings.Capture.ServerName = string.IsNullOrWhiteSpace(ServerBox.Text) ? null : ServerBox.Text.Trim();
                 _settings.TribeName       = string.IsNullOrWhiteSpace(TribeBox.Text) ? null : TribeBox.Text.Trim();
+
+                _settings.OcrPath = string.IsNullOrWhiteSpace(OcrPathBox.Text) ? null : OcrPathBox.Text.Trim();
+                _settings.ScreenshotIngestPath = string.IsNullOrWhiteSpace(ScreenshotPathBox.Text) ? null : ScreenshotPathBox.Text.Trim();
+                _settings.LogLineIngestPath = string.IsNullOrWhiteSpace(LogLinePathBox.Text) ? null : LogLinePathBox.Text.Trim();
 
                 _settings.Filters.TameDeaths = FilterTameDeathsBox.IsChecked == true;
                 _settings.Filters.TamesStarved = FilterTamesStarvingBox.IsChecked == true;
@@ -225,7 +233,6 @@ namespace GravityCapture
 
                 if (!ok)
                 {
-                    // fallback to RemoteOcrService
                     using var ms = new MemoryStream();
                     bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
                     ms.Position = 0;
@@ -426,14 +433,13 @@ namespace GravityCapture
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
     }
 
-    /// <summary>Wrapper that always uses ApiClient2.</summary>
     internal sealed class ProbingApiClient : IDisposable
     {
         private readonly ApiClient2 _client;
         public ProbingApiClient(AppSettings s) { _client = new ApiClient2(s); }
-        public Task<(bool ok, string body)> OcrOnlyAsync(byte[] jpeg) => _client.OcrOnlyAsync(jpeg);
-        public Task<(bool ok, string body)> PostScreenshotAsync(byte[] jpeg, bool postVisible) => _client.PostScreenshotAsync(jpeg, postVisible);
-        public Task<(bool ok, string body)> SendPastedLineAsync(string line) => _client.SendPastedLineAsync(line);
+        public System.Threading.Tasks.Task<(bool ok, string body)> OcrOnlyAsync(byte[] jpeg) => _client.OcrOnlyAsync(jpeg);
+        public System.Threading.Tasks.Task<(bool ok, string body)> PostScreenshotAsync(byte[] jpeg, bool postVisible) => _client.PostScreenshotAsync(jpeg, postVisible);
+        public System.Threading.Tasks.Task<(bool ok, string body)> SendPastedLineAsync(string line) => _client.SendPastedLineAsync(line);
         public void Dispose() => _client.Dispose();
     }
 }
