@@ -1,301 +1,326 @@
+# api_main.py
+# FastAPI service for Gravity Capture (stage API)
+# - Stable OCR endpoint aliases
+# - Joined `text` field in the response
+# - Compatible /ingest endpoints used by the desktop app
+
+from __future__ import annotations
+
+import io
 import os
-import re
-import asyncio
-from typing import Optional, List, Set, Any
+import sys
+import traceback
+from typing import Any, Dict, List, Optional, Tuple
 
-import asyncpg
-import httpx
-from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Query, Request
-from pydantic import BaseModel, Field
+from fastapi import (
+    FastAPI,
+    File,
+    UploadFile,
+    HTTPException,
+    Request,
+    Body,
+    Form,
+)
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-# OCR router expects raw image bytes and returns a dict
-from ocr.router import extract_text
+# ---------- optional dependencies ----------
+# We try EasyOCR first, then pytesseract, else return 501
+EASYOCR_READER = None
+EASYOCR_ERR: Optional[str] = None
+PYTESSERACT_AVAILABLE = False
+PYTESSERACT_ERR: Optional[str] = None
 
+try:
+    import easyocr  # type: ignore
+    # suppress stdout from easyocr initialization
+    try:
+        EASYOCR_READER = easyocr.Reader(["en"], gpu=False, verbose=False)
+    except Exception as _e:
+        EASYOCR_ERR = f"easyocr init failed: {_e}"
+except Exception as _e:
+    EASYOCR_ERR = f"easyocr import failed: {_e}"
+
+try:
+    import pytesseract  # type: ignore
+    from pytesseract import Output  # type: ignore
+
+    PYTESSERACT_AVAILABLE = True
+except Exception as _e:
+    PYTESSERACT_ERR = f"pytesseract import failed: {_e}"
+
+try:
+    from PIL import Image  # type: ignore
+except Exception:
+    raise RuntimeError("Pillow is required")
+
+try:
+    import numpy as np  # type: ignore
+except Exception:
+    np = None  # only needed for easyocr
+
+
+# ---------- environment ----------
 APP_ENV = os.getenv("ENVIRONMENT", "stage")
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-SHARED = os.getenv("GL_SHARED_SECRET", "")
-
-# ---- alerts config ----
 LOG_POSTING_ENABLED = os.getenv("LOG_POSTING_ENABLED", "false").lower() == "true"
-WEBHOOK_URL = os.getenv("ALERT_DISCORD_WEBHOOK_URL", "")
+DISCORD_WEBHOOK = os.getenv("ALERT_DISCORD_WEBHOOK_URL", "").strip()
+GL_SHARED_SECRET = os.getenv("GL_SHARED_SECRET", "").strip()
 
-def _csv(name: str, default: str = "") -> List[str]:
-    raw = os.getenv(name, default)
-    if not raw:
-        return []
-    return [s.strip().upper() for s in raw.split(",") if s.strip()]
+# httpx only used if webhook present
+HTTPX_AVAILABLE = False
+try:
+    import httpx  # type: ignore
 
-ALERT_SEVERITIES: Set[str] = set(_csv("ALERT_SEVERITIES", "CRITICAL,IMPORTANT"))
-ALERT_CATEGORIES: Set[str] = set(_csv("ALERT_CATEGORIES", ""))  # empty -> all
-
-app = FastAPI()
-_pool: Optional[asyncpg.Pool] = None
-_http: Optional[httpx.AsyncClient] = None
+    HTTPX_AVAILABLE = True
+except Exception:
+    pass
 
 
-class TribeEvent(BaseModel):
-    server: str
-    tribe: str
-    ark_day: int = Field(0, ge=0)
-    ark_time: str = ""
-    severity: str = "INFO"
-    category: str = "GENERAL"
-    actor: str = "Unknown"
-    message: str
-    raw_line: str
+# ---------- models ----------
+class LogLineIngest(BaseModel):
+    line: str
+    server: Optional[str] = ""
+    tribe: Optional[str] = ""
 
 
-# ---------- startup/shutdown ----------
-@app.on_event("startup")
-async def _start():
-    global _pool, _http
-    _pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=3)
-    async with _pool.acquire() as con:
-        await con.execute(
-            """
-            create table if not exists tribe_events (
-              id serial primary key,
-              ingested_at timestamptz not null default now(),
-              server   text not null,
-              tribe    text not null,
-              ark_day  integer not null,
-              ark_time text not null,
-              severity text not null,
-              category text not null,
-              actor    text not null,
-              message  text not null,
-              raw_line text not null
-            );
-            """
-        )
-        await con.execute(
-            "create unique index if not exists tribe_events_raw_line_uidx on tribe_events(raw_line);"
-        )
-        await con.execute(
-            "create index if not exists tribe_events_id_desc_idx on tribe_events(id desc);"
-        )
+# ---------- app ----------
+app = FastAPI(title="Gravity Capture Stage API", version="1.2.0")
 
-    _http = httpx.AsyncClient(timeout=10)
-
-@app.on_event("startup")
-async def warm_ocr():
-    """Warm OCR using an in-memory PNG. Do not fail startup on error."""
-    try:
-        from PIL import Image
-        import io
-        img = Image.new("RGB", (256, 64), color=(255, 255, 255))
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        png = buf.getvalue()
-        # Tesseract-only warmup to avoid cv2/libGL requirements
-        extract_text(png, engine_hint="tess")
-        print("[ocr] warmup ok")
-    except Exception as e:
-        print(f"[ocr] warmup error: {e}")
-
-@app.on_event("shutdown")
-async def _stop():
-    global _pool, _http
-    if _http:
-        await _http.aclose()
-    if _pool:
-        await _pool.close()
-
-
-# ---------- helpers ----------
-def _authorized(key: Optional[str]) -> bool:
-    return bool(SHARED) and (key == SHARED)
-
-def _should_alert(evt: TribeEvent) -> bool:
-    if not LOG_POSTING_ENABLED or not WEBHOOK_URL:
-        return False
-    sev_ok = (not ALERT_SEVERITIES) or (evt.severity.upper() in ALERT_SEVERITIES)
-    cat_ok = (not ALERT_CATEGORIES) or (evt.category.upper() in ALERT_CATEGORIES)
-    return sev_ok and cat_ok
-
-async def _post_discord(evt: TribeEvent):
-    if not _http or not WEBHOOK_URL:
-        return
-    color = 0xE74C3C if evt.severity.upper() == "CRITICAL" else 0xF1C40F
-    embed = {
-        "title": f"{evt.category} • {evt.severity}",
-        "color": color,
-        "fields": [
-            {"name": "Server", "value": evt.server, "inline": True},
-            {"name": "Tribe", "value": evt.tribe, "inline": True},
-            {"name": "ARK Time", "value": f"Day {evt.ark_day}, {evt.ark_time}", "inline": True},
-            {"name": "Actor", "value": evt.actor or "—", "inline": False},
-            {"name": "Msg", "value": evt.message[:1000], "inline": False},
-        ],
-        "footer": {"text": f"env={APP_ENV}"},
-    }
-    payload = {"embeds": [embed], "content": None}
-    try:
-        r = await _http.post(WEBHOOK_URL, json=payload)
-        if r.status_code not in (200, 204):
-            print(f"[alert] webhook failed: {r.status_code} {r.text[:200]}")
-    except Exception as e:
-        print(f"[alert] exception: {type(e).__name__}: {e}")
-
-
-# ---- dedupe helpers ----
-STARVE_RX = re.compile(r"\bstarved\s+to\s+death\b", re.I)
-KILLED_RX = re.compile(r"\bwas\s+killed\b", re.I)
-TAME_ID_RX = re.compile(
-    r"(?:Your\s+)?(?P<tame>.+?)\s+(?:starved\s+to\s+death|was\s+killed|was\s+ground\s+up|\bwas\s+destroyed\b)",
-    re.I,
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-def _tame_identity(msg: str) -> str:
-    m = TAME_ID_RX.search(msg or "")
-    ident = (m.group("tame") if m else "").strip()
-    return re.sub(r"\s+", " ", ident).strip().lower()
 
-def _is_starved(msg: str) -> bool:
-    return bool(STARVE_RX.search(msg or ""))
+# ---------- utils ----------
+def _avg(values: List[float]) -> Optional[float]:
+    vals = [v for v in values if v is not None]
+    if not vals:
+        return None
+    return float(sum(vals) / len(vals))
 
-def _is_killed(msg: str) -> bool:
-    return bool(KILLED_RX.search(msg or ""))
+
+def _pil_from_bytes(b: bytes) -> Image.Image:
+    try:
+        return Image.open(io.BytesIO(b)).convert("RGB")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid image bytes")
+
+
+def _easyocr_extract(img: Image.Image) -> Tuple[str, Optional[float], List[Dict[str, Any]]]:
+    if EASYOCR_READER is None:
+        raise HTTPException(status_code=501, detail=EASYOCR_ERR or "easyocr not available")
+    if np is None:
+        raise HTTPException(status_code=501, detail="numpy not available for easyocr")
+    arr = np.array(img)
+    # result: list of [bbox, text, conf]
+    result = EASYOCR_READER.readtext(arr, detail=1, paragraph=False)
+    lines: List[Dict[str, Any]] = []
+    confs: List[float] = []
+    texts: List[str] = []
+    for item in result:
+        try:
+            bbox, text, conf = item
+        except Exception:
+            # older formats
+            bbox, text, conf = item[0], item[1], item[2] if len(item) > 2 else None
+        texts.append(text or "")
+        if conf is not None:
+            try:
+                confs.append(float(conf))
+            except Exception:
+                pass
+        lines.append({"text": text or "", "conf": None if conf is None else float(conf), "bbox": bbox})
+    joined = "\n".join([t for t in texts if t]).strip()
+    return joined, _avg(confs), lines
+
+
+def _tesseract_extract(img: Image.Image) -> Tuple[str, Optional[float], List[Dict[str, Any]]]:
+    if not PYTESSERACT_AVAILABLE:
+        raise HTTPException(status_code=501, detail=PYTESSERACT_ERR or "pytesseract not available")
+    data = pytesseract.image_to_data(img, output_type=Output.DICT)  # type: ignore
+    n = len(data.get("text", []))
+    lines: List[Dict[str, Any]] = []
+    confs: List[float] = []
+    pieces: List[str] = []
+    for i in range(n):
+        txt = (data["text"][i] or "").strip()
+        if not txt:
+            continue
+        try:
+            conf = float(data["conf"][i])
+            # tesseract returns -1 for missing
+            conf = None if conf < 0 else conf
+        except Exception:
+            conf = None
+        if conf is not None:
+            confs.append(conf)
+        bbox = {
+            "x": int(data.get("left", [0])[i]),
+            "y": int(data.get("top", [0])[i]),
+            "w": int(data.get("width", [0])[i]),
+            "h": int(data.get("height", [0])[i]),
+        }
+        pieces.append(txt)
+        lines.append({"text": txt, "conf": conf, "bbox": bbox})
+    joined = " ".join(pieces).strip()
+    return joined, _avg(confs), lines
+
+
+def extract_text(image_bytes: bytes, engine_hint: str = "auto") -> Dict[str, Any]:
+    img = _pil_from_bytes(image_bytes)
+
+    engine_used = None
+    text: str = ""
+    conf: Optional[float] = None
+    lines: List[Dict[str, Any]] = []
+
+    # choose engine
+    if engine_hint in ("auto", "easyocr"):
+        try:
+            text, conf, lines = _easyocr_extract(img)
+            engine_used = "easyocr"
+        except HTTPException:
+            if engine_hint == "easyocr":
+                raise
+        except Exception as e:
+            # fall back
+            pass
+
+    if engine_used is None and engine_hint in ("auto", "tesseract"):
+        try:
+            text, conf, lines = _tesseract_extract(img)
+            engine_used = "tesseract"
+        except HTTPException:
+            if engine_hint == "tesseract":
+                raise
+        except Exception:
+            pass
+
+    if engine_used is None:
+        # neither available
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "No OCR engine available. "
+                f"{EASYOCR_ERR or ''} | {PYTESSERACT_ERR or ''}".strip()
+            ),
+        )
+
+    return {
+        "engine": engine_used,
+        "conf": conf,
+        "lines": lines,
+        "text": text,
+    }
+
+
+async def _read_image_from_request(
+    request: Request, file: UploadFile | None, image: UploadFile | None
+) -> bytes:
+    up = file or image
+    if up is not None:
+        ct = (up.content_type or "").lower()
+        if not ct.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Uploaded part must be an image (png, jpeg, webp).")
+        return await up.read()
+
+    # allow raw image bytes
+    ct = (request.headers.get("content-type") or "").lower()
+    if not ct.startswith("image/"):
+        raise HTTPException(
+            status_code=422,
+            detail="No file provided. Send multipart field 'file' or 'image', or raw image bytes with Content-Type: image/*.",
+        )
+    return await request.body()
 
 
 # ---------- routes ----------
-@app.get("/health")
-async def health():
-    try:
-        async with _pool.acquire() as con:  # type: ignore
-            ver = await con.fetchval("select version()")
-        return {"ok": True, "env": APP_ENV, "db": bool(ver)}
-    except Exception as e:
-        return {"ok": False, "env": APP_ENV, "error": f"{type(e).__name__}: {e}"}
+@app.get("/")
+async def root():
+    return {"service": "gravity-capture-stage-api", "env": APP_ENV, "ok": True}
 
-@app.post("/api/tribe-events")
-async def ingest(evt: TribeEvent, x_gl_key: Optional[str] = Header(None)):
-    if not _authorized(x_gl_key):
-        raise HTTPException(status_code=401, detail="unauthorized")
 
-    fam_ident = _tame_identity(evt.message or evt.raw_line)
-    deduped = False
-    try:
-        async with _pool.acquire() as con:  # type: ignore
-            rows = await con.fetch(
-                """
-                select id, message
-                  from tribe_events
-                 where server=$1 and tribe=$2 and ark_day=$3 and ark_time=$4
-                   and ingested_at >= (now() - interval '2 minutes')
-                 order by id desc
-                """,
-                evt.server, evt.tribe, evt.ark_day, evt.ark_time
-            )
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True, "env": APP_ENV}
 
-            for r in rows:
-                if _tame_identity(r["message"]) == fam_ident:
-                    if _is_starved(r["message"]) and _is_killed(evt.message):
-                        deduped = True
-                    elif _is_killed(r["message"]) and _is_starved(evt.message):
-                        await con.execute("delete from tribe_events where id=$1", r["id"])
-                    break
 
-            if deduped:
-                return {"ok": True, "deduped": True, "alerted": False, "env": APP_ENV}
-
-            status: str = await con.execute(
-                """
-                insert into tribe_events
-                  (server, tribe, ark_day, ark_time, severity, category, actor, message, raw_line)
-                values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-                on conflict (raw_line) do nothing
-                """,
-                evt.server, evt.tribe, evt.ark_day, evt.ark_time,
-                evt.severity, evt.category, evt.actor, evt.message, evt.raw_line
-            )
-            deduped = status.strip().endswith("0")
-    except Exception as e:
-        print(f"[db] insert error: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=500, detail="db insert failed")
-
-    alerted = False
-    if not deduped and _should_alert(evt):
-        asyncio.create_task(_post_discord(evt))
-        alerted = True
-
-    return {"ok": True, "deduped": deduped, "alerted": alerted, "env": APP_ENV}
-
-@app.get("/api/tribe-events/recent")
-async def recent(server: Optional[str] = None, tribe: Optional[str] = None, limit: int = 20):
-    limit = max(1, min(int(limit), 100))
-    try:
-        async with _pool.acquire() as con:  # type: ignore
-            where = []
-            args: List[Any] = []
-            if server:
-                where.append(f"server = ${len(args)+1}")
-                args.append(server)
-            if tribe:
-                where.append(f"tribe = ${len(args)+1}")
-                args.append(tribe)
-
-            sql = """
-                select id, ingested_at, server, tribe, ark_day, ark_time,
-                       severity, category, actor, message
-                from tribe_events
-            """
-            if where:
-                sql += " where " + " and ".join(where)
-            sql += f" order by id desc limit ${len(args)+1}"
-            args.append(limit)
-
-            rows = await con.fetch(sql, *args)
-            return [dict(r) for r in rows]
-    except Exception as e:
-        print(f"[db] recent error: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=500, detail="db query failed")
-
-# ---------- OCR route ----------
+# All OCR aliases used by the desktop app or experiments
+@app.post("/extract")
+@app.post("/api/extract")
+@app.post("/ocr")
+@app.post("/ocr/extract")
+@app.post("/api/ocr")
 @app.post("/api/ocr/extract")
 async def ocr_extract(
     request: Request,
     file: UploadFile | None = File(None),
     image: UploadFile | None = File(None),
-    engine: str = Query("auto"),
+    engine: str = "auto",
 ):
-    """Extract text from an image.
+    try:
+        data = await _read_image_from_request(request, file, image)
+        res = extract_text(data, engine_hint=engine)
+        return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
-    Accepts **either** a multipart form field named `file` **or** `image`.
-    Also supports posting **raw image bytes** with a `Content-Type: image/*` header.
-    """
-    up = file or image
-    data: bytes
-    content_type: str
 
-    if up is not None:
-        content_type = (up.content_type or "").lower()
-        if not content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="Uploaded part must be an image (png, jpeg, webp).")
-        data = await up.read()
-    else:
-        # No multipart field provided: try raw body
-        content_type = (request.headers.get("content-type") or "").lower()
-        if not content_type.startswith("image/"):
-            raise HTTPException(
-                status_code=422,
-                detail="No file provided. Send multipart form-data with field 'file' or 'image', "
-                       "or send raw image bytes with Content-Type: image/*."
-            )
-        data = await request.body()
+# temporary but compatible ingest handlers
+@app.post("/ingest/screenshot")
+@app.post("/api/ingest/screenshot")
+async def ingest_screenshot(
+    file: UploadFile = File(...),
+    server: str = Form(""),
+    tribe: str = Form(""),
+    post_visible: str = Form("0"),
+):
+    img_bytes = await file.read()
+    ok = True
+    posted = False
+    err: Optional[str] = None
 
-    # Call OCR (returns a dict). Keep response shape compatible: engine/conf/lines.
-    res = extract_text(data, engine_hint=engine)
-    if not isinstance(res, dict):
-        # Fallback if an older router returns a tuple
+    if LOG_POSTING_ENABLED and DISCORD_WEBHOOK and HTTPX_AVAILABLE:
         try:
-            text, conf, lines = res  # type: ignore[misc]
-            return {"engine": engine, "conf": conf, "lines": lines}
-        except Exception:
-            raise HTTPException(status_code=500, detail="Unexpected OCR return type")
+            content = f"[{APP_ENV}] Screenshot from server='{server}' tribe='{tribe}' visible={post_visible}"
+            files = {"file": (file.filename or "visible.jpg", img_bytes, file.content_type or "image/jpeg")}
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.post(DISCORD_WEBHOOK, data={"content": content}, files=files)
+                posted = r.status_code < 300
+        except Exception as e:
+            err = f"webhook error: {e}"
 
-    return {
-        "engine": res.get("engine", engine),
-        "conf": res.get("conf"),
-        "lines": res.get("lines"),
-    }
+    return {"ok": ok, "posted": posted, "env": APP_ENV, "error": err}
+
+
+@app.post("/ingest/log-line")
+@app.post("/api/ingest/log-line")
+async def ingest_log_line(payload: LogLineIngest = Body(...)):
+    posted = False
+    err: Optional[str] = None
+
+    if LOG_POSTING_ENABLED and DISCORD_WEBHOOK and HTTPX_AVAILABLE:
+        try:
+            content = f"[{APP_ENV}] {payload.server or ''} / {payload.tribe or ''}\n```\n{payload.line}\n```"
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.post(DISCORD_WEBHOOK, json={"content": content})
+                posted = r.status_code < 300
+        except Exception as e:
+            err = f"webhook error: {e}"
+
+    return {"ok": True, "posted": posted, "env": APP_ENV, "error": err, "echo": payload.dict()}
+
+
+# ---------- uvicorn entry ----------
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8080"))
+    uvicorn.run("api_main:app", host="0.0.0.0", port=port, reload=False)
