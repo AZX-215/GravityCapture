@@ -3,7 +3,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
-    <UseWindowsForms>false</UseWindowsForms>
+    <!-- enable WinForms so System.Windows.Forms.Screen is available -->
+    <UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -13,9 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Bitmap/ImageCodecInfo/ImageFormat -->
     <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
-    <!-- Tesseract managed wrapper (for Pix, TesseractEngine types) -->
     <PackageReference Include="Tesseract" Version="4.1.1" />
   </ItemGroup>
 </Project>
