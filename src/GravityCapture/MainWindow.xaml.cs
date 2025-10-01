@@ -225,14 +225,15 @@ namespace GravityCapture
 
                 if (!ok)
                 {
-                    // fallback to RemoteOcrService (/extract with x-api-key)
+                    // fallback to RemoteOcrService
                     using var ms = new MemoryStream();
                     bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
                     ms.Position = 0;
                     var remote = new RemoteOcrService(_settings);
                     var resp = await remote.ExtractAsync(ms, default);
-                    body = string.IsNullOrWhiteSpace(resp.Text) ? "{\"error\":\"OCR failed\"}" : JsonSerializer.Serialize(resp);
-                    ok = !string.IsNullOrWhiteSpace(resp.Text);
+                    var textJoined = resp?.TextJoined ?? "";
+                    body = string.IsNullOrWhiteSpace(textJoined) ? "{\"error\":\"OCR failed\"}" : JsonSerializer.Serialize(resp);
+                    ok = !string.IsNullOrWhiteSpace(textJoined);
                     ApiEchoText.Text = body;
                 }
 
@@ -425,21 +426,14 @@ namespace GravityCapture
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
     }
 
-    /// <summary>
-    /// Small wrapper so OCR and ingest probe known stage paths and header names.
-    /// </summary>
+    /// <summary>Wrapper that always uses ApiClient2.</summary>
     internal sealed class ProbingApiClient : IDisposable
     {
-        private readonly GravityCapture.Services.ApiClient _clientA;
-        private readonly GravityCapture.Services.ApiClient2 _clientB;
-        public ProbingApiClient(AppSettings s)
-        {
-            _clientA = new ApiClient2(s); // new path-aware client below
-            _clientB = new ApiClient2(s); // identical instance reused for other calls
-        }
-        public Task<(bool ok, string body)> OcrOnlyAsync(byte[] jpeg) => _clientA.OcrOnlyAsync(jpeg);
-        public Task<(bool ok, string body)> PostScreenshotAsync(byte[] jpeg, bool postVisible) => _clientB.PostScreenshotAsync(jpeg, postVisible);
-        public Task<(bool ok, string body)> SendPastedLineAsync(string line) => _clientB.SendPastedLineAsync(line);
-        public void Dispose() { _clientA.Dispose(); _clientB.Dispose(); }
+        private readonly ApiClient2 _client;
+        public ProbingApiClient(AppSettings s) { _client = new ApiClient2(s); }
+        public Task<(bool ok, string body)> OcrOnlyAsync(byte[] jpeg) => _client.OcrOnlyAsync(jpeg);
+        public Task<(bool ok, string body)> PostScreenshotAsync(byte[] jpeg, bool postVisible) => _client.PostScreenshotAsync(jpeg, postVisible);
+        public Task<(bool ok, string body)> SendPastedLineAsync(string line) => _client.SendPastedLineAsync(line);
+        public void Dispose() => _client.Dispose();
     }
 }
