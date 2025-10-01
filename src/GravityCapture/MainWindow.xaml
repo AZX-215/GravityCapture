@@ -8,10 +8,76 @@
         SourceInitialized="Window_SourceInitialized"
         SizeChanged="Window_SizeChanged">
 
-    <Grid Background="{DynamicResource BgColor}">
-        <TabControl Margin="8">
+    <Window.Resources>
+        <!-- Dark TabControl so the page content isn’t white -->
+        <Style x:Key="DarkTabControl" TargetType="TabControl">
+            <Setter Property="Background" Value="{DynamicResource BgColor}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid Background="{DynamicResource BgColor}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
 
-            <!-- CAPTURE -->
+                            <!-- Tab headers -->
+                            <TabPanel Grid.Row="0"
+                                      Background="{DynamicResource BgColor}"
+                                      IsItemsHost="True"
+                                      Margin="0,0,0,6"/>
+
+                            <!-- Selected tab content -->
+                            <Border Grid.Row="1"
+                                    Background="{DynamicResource BgColor}"
+                                    BorderBrush="{DynamicResource InputBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    Padding="6">
+                                <ContentPresenter ContentSource="SelectedContent"
+                                                  SnapsToDevicePixels="True"/>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Make tab headers readable on dark bg -->
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextColor}"/>
+            <Setter Property="Background" Value="{DynamicResource CardColor}"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{DynamicResource InputBorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background"
+                                        Value="{DynamicResource BgColor}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Background="{DynamicResource BgColor}">
+        <TabControl Style="{StaticResource DarkTabControl}">
+
+            <!-- ============ CAPTURE ============ -->
             <TabItem Header="Capture">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -37,7 +103,7 @@
 
                         <Button x:Name="SelectCropBtn" Content="Select Log Area..." Click="SelectCropBtn_Click"/>
 
-                        <!-- OCR buttons close to preview to avoid cutoff -->
+                        <!-- Keep OCR actions near the preview so they never get cut off -->
                         <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click"/>
                         <Button x:Name="OcrAndPostBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click"/>
 
@@ -45,7 +111,7 @@
                     </StackPanel>
 
                     <!-- Live preview -->
-                    <Border Style="{StaticResource RoundedCard}" Grid.Row="1" Grid.Column="0">
+                    <Border Style="{DynamicResource RoundedCard}" Grid.Row="1" Grid.Column="0">
                         <Grid>
                             <TextBlock Text="Live preview" Margin="2,0,0,6"/>
                             <Image x:Name="LivePreview" Margin="0,18,0,0" Stretch="Uniform"/>
@@ -53,7 +119,7 @@
                     </Border>
 
                     <!-- API echo + paste area -->
-                    <Border Style="{StaticResource RoundedCard}" Grid.Row="1" Grid.Column="1">
+                    <Border Style="{DynamicResource RoundedCard}" Grid.Row="1" Grid.Column="1">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="*"/>
@@ -89,7 +155,7 @@
                         </Grid>
                     </Border>
 
-                    <!-- OCR details overlay (toggled in Settings) -->
+                    <!-- Optional OCR details overlay, toggled from Settings -->
                     <Border x:Name="OcrDetailsOverlay"
                             Grid.Row="1" Grid.ColumnSpan="2"
                             Background="#80000000"
@@ -105,18 +171,18 @@
 
                     <!-- Status -->
                     <DockPanel Grid.Row="2" Grid.ColumnSpan="2" Margin="6">
-                        <TextBlock x:Name="StatusText" />
+                        <TextBlock x:Name="StatusText"/>
                     </DockPanel>
                 </Grid>
             </TabItem>
 
-            <!-- SETTINGS -->
+            <!-- ============ SETTINGS ============ -->
             <TabItem Header="Settings">
                 <ScrollViewer>
                     <StackPanel Margin="8">
 
                         <TextBlock Text="API credentials" FontWeight="Bold" Margin="0,0,0,6"/>
-                        <Border Style="{StaticResource RoundedCard}">
+                        <Border Style="{DynamicResource RoundedCard}">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="180"/>
@@ -135,7 +201,7 @@
                         </Border>
 
                         <TextBlock Text="Endpoint paths" FontWeight="Bold" Margin="0,8,0,6"/>
-                        <Border Style="{StaticResource RoundedCard}">
+                        <Border Style="{DynamicResource RoundedCard}">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="180"/>
@@ -154,7 +220,7 @@
                         </Border>
 
                         <TextBlock Text="Filters" FontWeight="Bold" Margin="0,8,0,6"/>
-                        <Border Style="{StaticResource RoundedCard}">
+                        <Border Style="{DynamicResource RoundedCard}">
                             <UniformGrid Columns="1">
                                 <CheckBox x:Name="FilterTameDeathsBox"           Content="Tame deaths"/>
                                 <CheckBox x:Name="FilterTamesStarvingBox"        Content="Tames starving to death"/>
@@ -168,7 +234,7 @@
                             </UniformGrid>
                         </Border>
 
-                        <Border Style="{StaticResource RoundedCard}">
+                        <Border Style="{DynamicResource RoundedCard}">
                             <StackPanel Orientation="Horizontal">
                                 <CheckBox x:Name="ShowOcrDetailsCheck"
                                           Content="Show OCR details overlay on Capture"
