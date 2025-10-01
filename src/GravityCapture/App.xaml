@@ -3,78 +3,117 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
   <Application.Resources>
-    <!-- Palette -->
-    <Color x:Key="BgColor">#0E1014</Color>
-    <Color x:Key="CardColor">#171A1F</Color>
-    <Color x:Key="AccentColor">#7D7FFF</Color>
-    <Color x:Key="TextColor">#FFFFFF</Color>
-    <Color x:Key="TextMutedColor">#C8CBD2</Color>
-    <Color x:Key="InputBgColor">#1C2027</Color>
-    <Color x:Key="InputBorderColor">#2B3140</Color>
 
-    <!-- Brushes -->
-    <SolidColorBrush x:Key="BgBrush" Color="{DynamicResource BgColor}"/>
-    <SolidColorBrush x:Key="CardBrush" Color="{DynamicResource CardColor}"/>
-    <SolidColorBrush x:Key="AccentBrush" Color="{DynamicResource AccentColor}"/>
-    <SolidColorBrush x:Key="TextBrush" Color="{DynamicResource TextColor}"/>
-    <SolidColorBrush x:Key="TextMutedBrush" Color="{DynamicResource TextMutedColor}"/>
-    <SolidColorBrush x:Key="InputBgBrush" Color="{DynamicResource InputBgColor}"/>
-    <SolidColorBrush x:Key="InputBorderBrush" Color="{DynamicResource InputBorderColor}"/>
+    <!-- ===== Color palette ===== -->
+    <SolidColorBrush x:Key="BgBrush"        Color="#1E1F23"/>
+    <SolidColorBrush x:Key="CardBrush"      Color="#262B33"/>
+    <SolidColorBrush x:Key="BorderBrush"    Color="#333842"/>
+    <SolidColorBrush x:Key="MutedTextBrush" Color="#B9C2CF"/>
+    <SolidColorBrush x:Key="TextBrush"      Color="#F2F4F8"/>
+    <SolidColorBrush x:Key="AccentBrush"    Color="#6EA8FE"/>
 
-    <CornerRadius x:Key="CardRadius">12</CornerRadius>
-
-    <!-- Window defaults -->
+    <!-- ===== Window defaults ===== -->
     <Style TargetType="Window">
       <Setter Property="Background" Value="{DynamicResource BgBrush}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-      <Setter Property="FontFamily" Value="Segoe UI"/>
-    </Style>
-    <Style TargetType="TextElement">
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-    </Style>
-    <Style TargetType="TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="SnapsToDevicePixels" Value="True"/>
+      <Setter Property="UseLayoutRounding" Value="True"/>
+      <Setter Property="MinWidth" Value="960"/>
+      <Setter Property="MinHeight" Value="600"/>
+      <Setter Property="ResizeMode" Value="CanResize"/>
     </Style>
 
-    <!-- Remove dotted focus rectangles -->
-    <Style TargetType="Button"><Setter Property="FocusVisualStyle" Value="{x:Null}"/></Style>
-    <Style TargetType="CheckBox"><Setter Property="FocusVisualStyle" Value="{x:Null}"/></Style>
-
-    <!-- Inputs -->
-    <Style x:Key="BaseInput" TargetType="Control">
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-      <Setter Property="Background" Value="{DynamicResource InputBgBrush}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
+    <!-- Common controls -->
+    <Style TargetType="Border">
+      <Setter Property="CornerRadius"  Value="8"/>
+      <Setter Property="BorderBrush"   Value="{DynamicResource BorderBrush}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="8,6"/>
-      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Background"    Value="{DynamicResource CardBrush}"/>
     </Style>
-    <Style TargetType="TextBox" BasedOn="{StaticResource BaseInput}"/>
-    <Style TargetType="PasswordBox" BasedOn="{StaticResource BaseInput}"/>
 
-    <!-- Buttons -->
-    <Style x:Key="PrimaryButton" TargetType="Button">
+    <Style TargetType="Button">
+      <Setter Property="Foreground"   Value="{DynamicResource TextBrush}"/>
+      <Setter Property="Background"   Value="{DynamicResource CardBrush}"/>
+      <Setter Property="BorderBrush"  Value="{DynamicResource BorderBrush}"/>
+      <Setter Property="Padding"      Value="10,6"/>
+      <Setter Property="Margin"       Value="4,0,4,0"/>
+    </Style>
+
+    <Style TargetType="TextBox">
+      <Setter Property="Foreground"   Value="{DynamicResource TextBrush}"/>
+      <Setter Property="Background"   Value="{DynamicResource CardBrush}"/>
+      <Setter Property="BorderBrush"  Value="{DynamicResource BorderBrush}"/>
+      <Setter Property="CaretBrush"   Value="{DynamicResource TextBrush}"/>
+      <Setter Property="Padding"      Value="6,4"/>
+      <Setter Property="Margin"       Value="4,2"/>
+    </Style>
+
+    <Style TargetType="CheckBox">
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="10,7"/>
+      <Setter Property="Margin" Value="4,2"/>
+    </Style>
+
+    <Style TargetType="Label">
+      <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}"/>
+      <Setter Property="Margin" Value="4,2"/>
+    </Style>
+
+    <!-- ===== TabControl template (removes white background) ===== -->
+    <Style TargetType="TabControl">
+      <Setter Property="Background"   Value="{DynamicResource BgBrush}"/>
+      <Setter Property="BorderBrush"  Value="{DynamicResource BorderBrush}"/>
       <Setter Property="Template">
         <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border Background="{TemplateBinding Background}"
-                    CornerRadius="{DynamicResource CardRadius}"
-                    BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
+          <ControlTemplate TargetType="TabControl">
+            <Grid ClipToBounds="True" SnapsToDevicePixels="True">
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+              </Grid.RowDefinitions>
+
+              <TabPanel Grid.Row="0"
+                        Background="{DynamicResource BgBrush}"
+                        Margin="8,8,8,0"
+                        IsItemsHost="True"/>
+
+              <Border Grid.Row="1"
+                      Margin="8"
+                      Background="{DynamicResource CardBrush}"
+                      BorderBrush="{DynamicResource BorderBrush}"
+                      BorderThickness="1"
+                      Padding="12">
+                <ContentPresenter ContentSource="SelectedContent"/>
+              </Border>
+            </Grid>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
     </Style>
-    <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
-      <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
+
+    <Style TargetType="TabItem">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="Padding"    Value="12,8"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TabItem">
+            <Border x:Name="Bd"
+                    Background="{DynamicResource BgBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="0,0,0,1"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter ContentSource="Header"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource CardBrush}"/>
+                <Setter TargetName="Bd" Property="BorderThickness" Value="1,1,1,0"/>
+                <Setter Property="Panel.ZIndex" Value="1"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
+
   </Application.Resources>
 </Application>
