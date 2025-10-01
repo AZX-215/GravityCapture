@@ -12,12 +12,14 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using GravityCapture.Models;
 using GravityCapture.Services;
-using GravityCapture.Views;   // <-- FIX: brings RegionSelectorWindow into scope
+using GravityCapture.Views;
+using SaveFileDialog = Microsoft.Win32.SaveFileDialog;
 
 namespace GravityCapture
 {
     public partial class MainWindow : Window
     {
+        private const double Aspect = 16.0 / 10.0;   // keep ≥ 16:10
         private readonly JsonSerializerOptions _json = new() { WriteIndented = true };
         private readonly string SettingsDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GravityCapture");
@@ -56,6 +58,22 @@ namespace GravityCapture
             catch { }
         }
 
+        private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            // enforce minimum aspect ratio so controls remain visible
+            if (e.WidthChanged)
+            {
+                var minH = Math.Max(MinHeight, e.NewSize.Width / Aspect);
+                if (Height < minH) Height = minH;
+            }
+            else if (e.HeightChanged)
+            {
+                var minW = Math.Max(MinWidth, e.NewSize.Height * Aspect);
+                if (Width < minW) Width = minW;
+            }
+        }
+
+        // ---------- settings ----------
         private void LoadSettingsIntoUi()
         {
             ChannelBox.Text = _settings.Image?.ChannelId ?? "";
@@ -63,6 +81,18 @@ namespace GravityCapture
             ApiKeyBox.Password  = _settings.Auth?.ApiKey ?? "";
             ServerBox.Text  = _settings.Capture?.ServerName ?? _settings.ServerName ?? "";
             TribeBox.Text   = _settings.TribeName ?? "";
+
+            // filters
+            var f = _settings.Filters ?? new AppSettings.FilterSettings();
+            FilterTameDeathsBox.IsChecked = f.TameDeaths;
+            FilterTamesStarvingBox.IsChecked = f.TamesStarved;
+            FilterStructDestroyedBox.IsChecked = f.StructuresDestroyed;
+            FilterStructAutoDecayBox.IsChecked = f.StructuresAutoDecay;
+            FilterTribeMateDeathsBox.IsChecked = f.TribemateDeaths;
+            FilterTribeKillsEnemyTamesBox.IsChecked = f.TribeKillsEnemyTames;
+            FilterEnemyPlayerKillsBox.IsChecked = f.EnemyPlayerKills;
+            FilterTribeDemolishBox.IsChecked = f.TribematesDemolishing;
+            FilterTribeFreezeTamesBox.IsChecked = f.TribematesFreezingTames;
 
             if (_settings.UseCrop && _settings.CropW > 0 && _settings.CropH > 0)
                 _selectedScreenRect = new System.Drawing.Rectangle(_settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
@@ -75,12 +105,24 @@ namespace GravityCapture
                 _settings.Image ??= new AppSettings.ImageSettings();
                 _settings.Auth  ??= new AppSettings.AuthSettings();
                 _settings.Capture ??= new AppSettings.CaptureSettings();
+                _settings.Filters ??= new AppSettings.FilterSettings();
 
                 _settings.Image.ChannelId = ChannelBox.Text?.Trim();
                 _settings.ApiBaseUrl      = ApiUrlBox.Text?.Trim();
                 _settings.Auth.ApiKey     = ApiKeyBox.Password?.Trim();
                 _settings.Capture.ServerName = string.IsNullOrWhiteSpace(ServerBox.Text) ? null : ServerBox.Text.Trim();
                 _settings.TribeName       = string.IsNullOrWhiteSpace(TribeBox.Text) ? null : TribeBox.Text.Trim();
+
+                // filters from Settings tab
+                _settings.Filters.TameDeaths = FilterTameDeathsBox.IsChecked == true;
+                _settings.Filters.TamesStarved = FilterTamesStarvingBox.IsChecked == true;
+                _settings.Filters.StructuresDestroyed = FilterStructDestroyedBox.IsChecked == true;
+                _settings.Filters.StructuresAutoDecay = FilterStructAutoDecayBox.IsChecked == true;
+                _settings.Filters.TribemateDeaths = FilterTribeMateDeathsBox.IsChecked == true;
+                _settings.Filters.TribeKillsEnemyTames = FilterTribeKillsEnemyTamesBox.IsChecked == true;
+                _settings.Filters.EnemyPlayerKills = FilterEnemyPlayerKillsBox.IsChecked == true;
+                _settings.Filters.TribematesDemolishing = FilterTribeDemolishBox.IsChecked == true;
+                _settings.Filters.TribematesFreezingTames = FilterTribeFreezeTamesBox.IsChecked == true;
 
                 Directory.CreateDirectory(SettingsDir);
                 File.WriteAllText(SettingsFile, JsonSerializer.Serialize(_settings, _json));
@@ -99,6 +141,7 @@ namespace GravityCapture
                 SetStatus("Saved.");
         }
 
+        // ---------- ARK window polling ----------
         private void StartArkPolling()
         {
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -133,6 +176,7 @@ namespace GravityCapture
             return (found, title);
         }
 
+        // ---------- Buttons ----------
         private void StartBtn_Click(object sender, RoutedEventArgs e)
         {
             if (_selectedScreenRect == null) { SetStatus("Select log area first."); return; }
@@ -182,16 +226,24 @@ namespace GravityCapture
                 var (ok, body) = await api.OcrOnlyAsync(jpeg);
                 ApiEchoText.Text = body;
 
-                string text = TryExtractText(body);
-                if (!string.IsNullOrWhiteSpace(text))
+                if (ok)
                 {
-                    LogLineBox.Text = text;
-                    if (_showOcrOverlay) { OcrDetailsText.Text = text; OcrDetailsOverlay.Visibility = Visibility.Visible; }
+                    var text = TryExtractText(body);
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        LogLineBox.Text = text;
+                        if (_showOcrOverlay) { OcrDetailsText.Text = text; OcrDetailsOverlay.Visibility = Visibility.Visible; }
+                    }
+                    SetStatus("OCR returned");
                 }
-                SetStatus(ok ? "OCR returned" : "OCR call failed");
+                else
+                {
+                    SetStatus("OCR failed");
+                }
             }
             catch (Exception ex)
             {
+                ApiEchoText.Text = ex.Message;
                 SetStatus("OCR error: " + ex.Message);
             }
         }
@@ -212,6 +264,7 @@ namespace GravityCapture
             }
             catch (Exception ex)
             {
+                ApiEchoText.Text = ex.Message;
                 SetStatus("Post error: " + ex.Message);
             }
         }
@@ -229,6 +282,7 @@ namespace GravityCapture
             }
             catch (Exception ex)
             {
+                ApiEchoText.Text = ex.Message;
                 SetStatus("Send error: " + ex.Message);
             }
         }
@@ -244,21 +298,21 @@ namespace GravityCapture
         {
             try
             {
-                var sfd = new Microsoft.Win32.SaveFileDialog   // <-- FIX: disambiguate
-                {
-                    Filter = "ZIP (*.zip)|*.zip",
-                    FileName = "gravity-capture-debug.zip"
-                };
+                var sfd = new SaveFileDialog { Filter = "ZIP (*.zip)|*.zip", FileName = "gravity-capture-debug.zip" };
                 if (sfd.ShowDialog() != true) return;
 
                 using var zip = ZipFile.Open(sfd.FileName, ZipArchiveMode.Create);
+                // settings
                 var settingsEntry = zip.CreateEntry("settings.json");
                 using (var sw = new StreamWriter(settingsEntry.Open())) sw.Write(JsonSerializer.Serialize(_settings, _json));
+                // last text
                 var textEntry = zip.CreateEntry("last_text.txt");
                 using (var sw = new StreamWriter(textEntry.Open())) sw.Write(LogLineBox.Text ?? "");
+                // crop info
                 var cropEntry = zip.CreateEntry("crop.txt");
                 using (var sw = new StreamWriter(cropEntry.Open()))
                     sw.Write(_selectedScreenRect.HasValue ? $"{_selectedScreenRect.Value.X},{_selectedScreenRect.Value.Y},{_selectedScreenRect.Value.Width},{_selectedScreenRect.Value.Height}" : "unset");
+                // preview image
                 if (_selectedScreenRect != null)
                 {
                     using var bmp = CaptureScreenRect(_selectedScreenRect.Value);
@@ -274,6 +328,7 @@ namespace GravityCapture
             }
         }
 
+        // ---------- preview ----------
         private void OnPreviewTick(object? sender, EventArgs e)
         {
             if (_selectedScreenRect == null) return;
@@ -288,6 +343,7 @@ namespace GravityCapture
             }
         }
 
+        // ---------- helpers ----------
         private static Bitmap CaptureScreenRect(System.Drawing.Rectangle r)
         {
             var bmp = new Bitmap(Math.Max(1, r.Width), Math.Max(1, r.Height), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
@@ -347,6 +403,7 @@ namespace GravityCapture
 
         private void SetStatus(string s) => StatusText.Text = s;
 
+        // Win32
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
         internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
