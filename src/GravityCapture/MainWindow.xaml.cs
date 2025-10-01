@@ -10,9 +10,9 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using Microsoft.Win32;
 using GravityCapture.Models;
 using GravityCapture.Services;
+using GravityCapture.Views;   // <-- FIX: brings RegionSelectorWindow into scope
 
 namespace GravityCapture
 {
@@ -56,7 +56,6 @@ namespace GravityCapture
             catch { }
         }
 
-        // ---------- settings ----------
         private void LoadSettingsIntoUi()
         {
             ChannelBox.Text = _settings.Image?.ChannelId ?? "";
@@ -100,7 +99,6 @@ namespace GravityCapture
                 SetStatus("Saved.");
         }
 
-        // ---------- ARK window polling ----------
         private void StartArkPolling()
         {
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -135,7 +133,6 @@ namespace GravityCapture
             return (found, title);
         }
 
-        // ---------- Buttons ----------
         private void StartBtn_Click(object sender, RoutedEventArgs e)
         {
             if (_selectedScreenRect == null) { SetStatus("Select log area first."); return; }
@@ -247,21 +244,21 @@ namespace GravityCapture
         {
             try
             {
-                var sfd = new SaveFileDialog { Filter = "ZIP (*.zip)|*.zip", FileName = "gravity-capture-debug.zip" };
+                var sfd = new Microsoft.Win32.SaveFileDialog   // <-- FIX: disambiguate
+                {
+                    Filter = "ZIP (*.zip)|*.zip",
+                    FileName = "gravity-capture-debug.zip"
+                };
                 if (sfd.ShowDialog() != true) return;
 
                 using var zip = ZipFile.Open(sfd.FileName, ZipArchiveMode.Create);
-                // settings
                 var settingsEntry = zip.CreateEntry("settings.json");
                 using (var sw = new StreamWriter(settingsEntry.Open())) sw.Write(JsonSerializer.Serialize(_settings, _json));
-                // last text
                 var textEntry = zip.CreateEntry("last_text.txt");
                 using (var sw = new StreamWriter(textEntry.Open())) sw.Write(LogLineBox.Text ?? "");
-                // crop info
                 var cropEntry = zip.CreateEntry("crop.txt");
                 using (var sw = new StreamWriter(cropEntry.Open()))
                     sw.Write(_selectedScreenRect.HasValue ? $"{_selectedScreenRect.Value.X},{_selectedScreenRect.Value.Y},{_selectedScreenRect.Value.Width},{_selectedScreenRect.Value.Height}" : "unset");
-                // preview image
                 if (_selectedScreenRect != null)
                 {
                     using var bmp = CaptureScreenRect(_selectedScreenRect.Value);
@@ -277,7 +274,6 @@ namespace GravityCapture
             }
         }
 
-        // ---------- preview loop ----------
         private void OnPreviewTick(object? sender, EventArgs e)
         {
             if (_selectedScreenRect == null) return;
@@ -292,7 +288,6 @@ namespace GravityCapture
             }
         }
 
-        // ---------- helpers ----------
         private static Bitmap CaptureScreenRect(System.Drawing.Rectangle r)
         {
             var bmp = new Bitmap(Math.Max(1, r.Width), Math.Max(1, r.Height), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
@@ -338,7 +333,7 @@ namespace GravityCapture
             {
                 using var doc = JsonDocument.Parse(body);
                 if (doc.RootElement.TryGetProperty("text", out var t)) return t.GetString() ?? body;
-                if (doc.RootElement.TryGetProperty("lines", out var lines) && lines.ValueKind == System.Text.Json.JsonValueKind.Array)
+                if (doc.RootElement.TryGetProperty("lines", out var lines) && lines.ValueKind == JsonValueKind.Array)
                 {
                     var sb = new StringBuilder();
                     foreach (var ln in lines.EnumerateArray())
@@ -352,7 +347,6 @@ namespace GravityCapture
 
         private void SetStatus(string s) => StatusText.Text = s;
 
-        // Win32
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
         internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
