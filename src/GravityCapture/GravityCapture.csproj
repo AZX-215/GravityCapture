@@ -1,11 +1,9 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net9.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <!-- enable WinForms so System.Windows.Forms.Screen is available -->
     <UseWindowsForms>true</UseWindowsForms>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>GravityCapture</AssemblyName>
@@ -16,5 +14,10 @@
   <ItemGroup>
     <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
     <PackageReference Include="Tesseract" Version="4.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\GravityCapture_Rounded.ico" />
+    <Resource Include="Assets\Gravity_Capture_App_Banner.png" />
   </ItemGroup>
 </Project>
