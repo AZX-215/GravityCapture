@@ -6,9 +6,9 @@
         <!-- Dark theme -->
         <SolidColorBrush x:Key="BgColor"            Color="#1C1E22"/>
         <SolidColorBrush x:Key="CardColor"          Color="#24272D"/>
-        <SolidColorBrush x:Key="InputBgColor"       Color="#2B2F36"/>
+        <SolidColorBrush x:Key="InputBgColor"       Color="#000000"/>
         <SolidColorBrush x:Key="InputBorderColor"   Color="#3A404A"/>
-        <SolidColorBrush x:Key="AccentBrush"        Color="#263C80"/>
+        <SolidColorBrush x:Key="AccentBrush"        Color="#563C80"/>
         <SolidColorBrush x:Key="TextBrush"          Color="#D0D0D0"/>
         <SolidColorBrush x:Key="TextMutedBrush"     Color="#B9C0CC"/>
 
@@ -38,7 +38,7 @@
             <Setter Property="Foreground"      Value="{DynamicResource TextBrush}"/>
             <Setter Property="BorderBrush"     Value="{DynamicResource InputBorderColor}"/>
             <Setter Property="Padding"         Value="6"/>
-            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderThickness" Value="2"/>
         </Style>
 
         <Style TargetType="PasswordBox">
@@ -52,17 +52,17 @@
         <!-- Rounded dark button -->
         <Style TargetType="Button">
             <Setter Property="Foreground"  Value="{DynamicResource TextBrush}"/>
-            <Setter Property="Background"  Value="#323846"/>
+            <Setter Property="Background"  Value="#FF2B2F36"/>
             <Setter Property="BorderBrush" Value="#3E4556"/>
-            <Setter Property="Padding"     Value="8,6"/>
-            <Setter Property="Margin"      Value="4,0,0,0"/>
+            <Setter Property="Padding"     Value="9,0"/>
+            <Setter Property="Margin"      Value="8,2,9,0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="8">
+                                BorderThickness="3"
+                                CornerRadius="9">
                             <ContentPresenter Margin="{TemplateBinding Padding}"
                                               HorizontalAlignment="Center"
                                               VerticalAlignment="Center"/>
@@ -87,8 +87,8 @@
 <Style TargetType="TabControl">
     <Setter Property="Background"      Value="{DynamicResource BgColor}"/>
     <Setter Property="Foreground"      Value="#A6A6A6"/>
-    <Setter Property="BorderBrush"     Value="{DynamicResource InputBorderColor}"/>
-    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="BorderBrush"     Value="#2B2F36"/>
+    <Setter Property="BorderThickness" Value="0.1"/>
     <Setter Property="Template">
         <Setter.Value>
             <ControlTemplate TargetType="TabControl">
@@ -133,24 +133,25 @@
         <!-- Tab headers: selected/hover use grey, not white -->
         <Style TargetType="TabItem">
             <Setter Property="Foreground"      Value="{DynamicResource TextBrush}"/>
-            <Setter Property="Background"      Value="#2A2E35"/>   <!-- unselected -->
+            <Setter Property="Background"      Value="#2B2F36"/>   <!-- unselected -->
             <Setter Property="BorderBrush"     Value="{DynamicResource InputBorderColor}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Margin"          Value="0,0,6,0"/>
-            <Setter Property="Padding"         Value="10,6"/>
+            <Setter Property="BorderThickness" Value="3"/>
+            <Setter Property="Margin"          Value="0,0,0,0"/>
+            <Setter Property="Padding"         Value="100,6"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TabItem">
                         <Border x:Name="Bd"
                                 Background="{TemplateBinding Background}"
+                                HorizontalAlignment="Center"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6,6,0,0"
+                                CornerRadius="9,9,9,9"
                                 Padding="{TemplateBinding Padding}"
                                 SnapsToDevicePixels="True">
                             <ContentPresenter ContentSource="Header"
                                               HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"
+                                              
                                               RecognizesAccessKey="True"/>
                         </Border>
                         <ControlTemplate.Triggers>
