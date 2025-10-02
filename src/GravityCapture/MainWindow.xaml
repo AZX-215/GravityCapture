@@ -33,10 +33,12 @@
 
                         <!-- Single banner -->
                         <Border Grid.Row="1" Background="{DynamicResource CardColor}" Margin="0,0,0,6">
-                            <Image Height="56"
-                                   Stretch="Uniform"
-                                   VerticalAlignment="Center"
-                                   Source="pack://application:,,,/GravityCapture;component/Assets/Gravity_Capture_App_Banner.png"/>
+                            <Image Stretch="Uniform"
+                               MaxHeight="72"
+                               SnapsToDevicePixels="True"
+                               UseLayoutRounding="True"
+                               Source="pack://application:,,,/GravityCapture;component/Assets/Gravity_Capture_App_Banner.png"/>
+
                         </Border>
 
                         <!-- Content host -->
@@ -239,3 +241,4 @@
         </Border>
     </Grid>
 </Window>
+
