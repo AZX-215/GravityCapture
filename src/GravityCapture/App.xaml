@@ -34,34 +34,35 @@
         </Style>
 
         <Style TargetType="TextBox">
-            <Setter Property="Background"     Value="{DynamicResource InputBgColor}"/>
-            <Setter Property="Foreground"     Value="{DynamicResource TextBrush}"/>
-            <Setter Property="BorderBrush"    Value="{DynamicResource InputBorderColor}"/>
-            <Setter Property="Padding"        Value="6"/>
+            <Setter Property="Background"      Value="{DynamicResource InputBgColor}"/>
+            <Setter Property="Foreground"      Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush"     Value="{DynamicResource InputBorderColor}"/>
+            <Setter Property="Padding"         Value="6"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
 
         <Style TargetType="PasswordBox">
-            <Setter Property="Background"     Value="{DynamicResource InputBgColor}"/>
-            <Setter Property="Foreground"     Value="{DynamicResource TextBrush}"/>
-            <Setter Property="BorderBrush"    Value="{DynamicResource InputBorderColor}"/>
-            <Setter Property="Padding"        Value="6"/>
+            <Setter Property="Background"      Value="{DynamicResource InputBgColor}"/>
+            <Setter Property="Foreground"      Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush"     Value="{DynamicResource InputBorderColor}"/>
+            <Setter Property="Padding"         Value="6"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
 
         <!-- Rounded dark button -->
         <Style TargetType="Button">
-            <Setter Property="Foreground"     Value="{DynamicResource TextBrush}"/>
-            <Setter Property="Background"     Value="#323846"/>
-            <Setter Property="BorderBrush"    Value="#3E4556"/>
-            <Setter Property="Padding"        Value="8,6"/>
-            <Setter Property="Margin"         Value="4,0,0,0"/>
+            <Setter Property="Foreground"  Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Background"  Value="#323846"/>
+            <Setter Property="BorderBrush" Value="#3E4556"/>
+            <Setter Property="Padding"     Value="8,6"/>
+            <Setter Property="Margin"      Value="4,0,0,0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="1" CornerRadius="8">
+                                BorderThickness="1"
+                                CornerRadius="8">
                             <ContentPresenter Margin="{TemplateBinding Padding}"
                                               HorizontalAlignment="Center"
                                               VerticalAlignment="Center"/>
@@ -102,7 +103,7 @@
                                       IsItemsHost="True"
                                       Background="{TemplateBinding Background}"/>
 
-                            <!-- Selected content host with themed background/border -->
+                            <!-- Selected content host -->
                             <Border Grid.Row="1"
                                     Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}"
@@ -116,13 +117,47 @@
             </Setter>
         </Style>
 
+        <!-- Tab headers: selected/hover use grey, not white -->
         <Style TargetType="TabItem">
             <Setter Property="Foreground"      Value="{DynamicResource TextBrush}"/>
-            <Setter Property="Background"      Value="#2A2E35"/>
+            <Setter Property="Background"      Value="#2A2E35"/>   <!-- unselected -->
             <Setter Property="BorderBrush"     Value="{DynamicResource InputBorderColor}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Margin"          Value="0,0,6,0"/>
             <Setter Property="Padding"         Value="10,6"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6,6,0,0"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <!-- Hover -->
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#343A46"/>
+                            </Trigger>
+                            <!-- Selected (grey, not white) -->
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#383E49"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+                                <Setter Property="Panel.ZIndex" Value="1"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Application.Resources>
 </Application>
