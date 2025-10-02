@@ -112,7 +112,7 @@
                         <Image Height="56"
                                Stretch="Uniform"
                                Margin="12,6"
-                               Source="/GravityCapture;component/Assets/Gravity_Capture_App_Banner.png"/>
+                               Source="Assets/Gravity_Capture_App_Banner.png"/>
                     </Border>
 
                     <!-- Selected content host -->
