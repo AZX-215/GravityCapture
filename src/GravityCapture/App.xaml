@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
   <Application.Resources>
-    <!-- Dark theme -->
+    <!-- Theme -->
     <SolidColorBrush x:Key="BgColor"            Color="#1C1E22"/>
     <SolidColorBrush x:Key="CardColor"          Color="#24272D"/>
     <SolidColorBrush x:Key="InputBgColor"       Color="#000000"/>
@@ -12,113 +12,40 @@
     <SolidColorBrush x:Key="TextBrush"          Color="#D0D0D0"/>
     <SolidColorBrush x:Key="TextMutedBrush"     Color="#B9C0CC"/>
 
-    <!-- Defaults -->
     <Style TargetType="Window">
       <Setter Property="Background" Value="{DynamicResource BgColor}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
       <Setter Property="SnapsToDevicePixels" Value="True"/>
-      <Setter Property="UseLayoutRounding" Value="True"/>
     </Style>
 
     <Style TargetType="GroupBox">
-      <Setter Property="Background"   Value="{DynamicResource CardColor}"/>
-      <Setter Property="Foreground"   Value="{DynamicResource TextBrush}"/>
-      <Setter Property="BorderBrush"  Value="{DynamicResource InputBorderColor}"/>
-      <Setter Property="Margin"       Value="8"/>
-      <Setter Property="Padding"      Value="8"/>
-    </Style>
-
-    <Style TargetType="TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-      <Setter Property="TextWrapping" Value="Wrap"/>
-    </Style>
-
-    <Style TargetType="TextBox">
-      <Setter Property="Background"      Value="{DynamicResource InputBgColor}"/>
-      <Setter Property="Foreground"      Value="{DynamicResource TextBrush}"/>
-      <Setter Property="BorderBrush"     Value="{DynamicResource InputBorderColor}"/>
-      <Setter Property="Padding"         Value="6"/>
-      <Setter Property="BorderThickness" Value="2"/>
-    </Style>
-
-    <Style TargetType="PasswordBox">
-      <Setter Property="Background"      Value="{DynamicResource InputBgColor}"/>
-      <Setter Property="Foreground"      Value="{DynamicResource TextBrush}"/>
-      <Setter Property="BorderBrush"     Value="{DynamicResource InputBorderColor}"/>
-      <Setter Property="Padding"         Value="6"/>
-      <Setter Property="BorderThickness" Value="1"/>
-    </Style>
-
-    <!-- Rounded dark button -->
-    <Style TargetType="Button">
-      <Setter Property="Foreground"  Value="{DynamicResource TextBrush}"/>
-      <Setter Property="Background"  Value="#FF2B2F36"/>
-      <Setter Property="BorderBrush" Value="#3E4556"/>
-      <Setter Property="Padding"     Value="9,0"/>
-      <Setter Property="Margin"      Value="8,2,9,0"/>
+      <Setter Property="Background" Value="{DynamicResource BgColor}"/>
+      <Setter Property="Padding" Value="6"/>
+      <Setter Property="Margin"  Value="8"/>
       <Setter Property="Template">
         <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border Background="{TemplateBinding Background}"
-                    BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="3"
-                    CornerRadius="9">
-              <ContentPresenter Margin="{TemplateBinding Padding}"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="#3A4152"/>
-              </Trigger>
-              <Trigger Property="IsPressed" Value="True">
-                <Setter Property="Background" Value="#2C3240"/>
-              </Trigger>
-              <Trigger Property="IsEnabled" Value="False">
-                <Setter Property="Opacity" Value="0.55"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <!-- Dark TabControl (content area painted to BgColor) -->
-    <Style TargetType="TabControl">
-      <Setter Property="Background"      Value="{DynamicResource BgColor}"/>
-      <Setter Property="Foreground"      Value="#A6A6A6"/>
-      <Setter Property="BorderBrush"     Value="#2B2F36"/>
-      <Setter Property="BorderThickness" Value="0.1"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="TabControl">
-            <Grid SnapsToDevicePixels="True">
+          <ControlTemplate TargetType="GroupBox">
+            <Grid>
               <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>  <!-- tab headers -->
-                <RowDefinition Height="Auto"/>  <!-- banner -->
-                <RowDefinition Height="*"/>     <!-- tab content -->
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
               </Grid.RowDefinitions>
-
-              <TabPanel Grid.Row="0"
-                        IsItemsHost="True"
-                        Background="{TemplateBinding Background}"/>
-
-              <Border Grid.Row="1"
-                      Background="{DynamicResource CardColor}"
+              <Border Grid.Row="0"
+                      CornerRadius="6,6,0,0"
+                      Background="#1A000000"
                       BorderBrush="{DynamicResource InputBorderColor}"
-                      BorderThickness="0,1,0,1">
-                <Image Height="56"
-                       Stretch="Uniform"
-                       Margin="12,6"
-                       Source="Assets/Gravity_Capture_App_Banner.png"/>
+                      BorderThickness="0,1,0,0"
+                      Padding="8,4,8,4">
+                <ContentPresenter ContentSource="Header"/>
               </Border>
-
-              <Border Grid.Row="2"
+              <Border Grid.Row="1"
+                      CornerRadius="0,0,6,6"
                       Background="{TemplateBinding Background}"
-                      BorderBrush="{TemplateBinding BorderBrush}"
-                      BorderThickness="{TemplateBinding BorderThickness}">
-                <ContentPresenter x:Name="PART_SelectedContentHost"
-                                  ContentSource="SelectedContent"/>
+                      BorderBrush="{DynamicResource InputBorderColor}"
+                      BorderThickness="1">
+                <ContentPresenter Margin="8,6,8,8"/>
               </Border>
             </Grid>
           </ControlTemplate>
@@ -126,43 +53,113 @@
       </Setter>
     </Style>
 
-    <!-- Tab headers -->
-    <Style TargetType="TabItem">
-      <Setter Property="Foreground"      Value="{DynamicResource TextBrush}"/>
-      <Setter Property="Background"      Value="#2B2F36"/>
-      <Setter Property="BorderBrush"     Value="{DynamicResource InputBorderColor}"/>
-      <Setter Property="BorderThickness" Value="3"/>
-      <Setter Property="Margin"          Value="0,0,0,0"/>
-      <Setter Property="Padding"         Value="100,6"/>
+    <Style TargetType="Button">
+      <Setter Property="Padding" Value="10,6"/>
+      <Setter Property="Margin"  Value="6"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="Background" Value="#2B2F36"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource InputBorderColor}"/>
+      <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Template">
         <Setter.Value>
-          <ControlTemplate TargetType="TabItem">
-            <Border x:Name="Bd"
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" CornerRadius="8"
                     Background="{TemplateBinding Background}"
-                    HorizontalAlignment="Center"
                     BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="9,9,9,9"
-                    Padding="{TemplateBinding Padding}"
-                    SnapsToDevicePixels="True">
-              <ContentPresenter ContentSource="Header"
-                                HorizontalAlignment="Center"
-                                RecognizesAccessKey="True"/>
+                    BorderThickness="{TemplateBinding BorderThickness}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#343A46"/>
+                <Setter TargetName="Bd" Property="Background" Value="#343A44"/>
               </Trigger>
-              <Trigger Property="IsSelected" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#383E49"/>
-                <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-                <Setter Property="Panel.ZIndex" Value="1"/>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#3E4551"/>
               </Trigger>
               <Trigger Property="IsEnabled" Value="False">
                 <Setter Property="Opacity" Value="0.55"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style TargetType="TextBox">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource InputBgColor}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource InputBorderColor}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="6,4"/>
+      <Setter Property="Margin"  Value="6"/>
+    </Style>
+
+    <!-- TabControl: headers (top), hidden template banner (independent), content -->
+    <Style TargetType="TabControl">
+      <Setter Property="Background" Value="#16191F"/>
+      <Setter Property="BorderBrush" Value="#2B2F36"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TabControl">
+            <Grid SnapsToDevicePixels="True">
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>  <!-- headers -->
+                <RowDefinition Height="Auto"/>  <!-- template banner row -->
+                <RowDefinition Height="*"/>     <!-- content -->
+              </Grid.RowDefinitions>
+
+              <TabPanel Grid.Row="0" IsItemsHost="True" HorizontalAlignment="Center"
+                        Background="{TemplateBinding Background}"/>
+
+              <!-- keep independent banner row hidden -->
+              <Border Grid.Row="1" Visibility="Collapsed"/>
+
+              <Border Grid.Row="2"
+                      Background="{TemplateBinding Background}"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}">
+                <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent"/>
+              </Border>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+
+      <Setter Property="ItemContainerStyle">
+        <Setter.Value>
+          <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Background" Value="#2B2F36"/>
+            <Setter Property="Height"   Value="32"/>
+            <Setter Property="Padding"  Value="100,6"/>
+            <Setter Property="Margin"   Value="4,2,4,2"/>
+            <Setter Property="Template">
+              <Setter.Value>
+                <ControlTemplate TargetType="TabItem">
+                  <Border x:Name="Bd"
+                          CornerRadius="8"
+                          Background="{TemplateBinding Background}"
+                          BorderBrush="{DynamicResource InputBorderColor}"
+                          BorderThickness="1"
+                          Padding="{TemplateBinding Padding}">
+                    <ContentPresenter ContentSource="Header"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Border>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsSelected" Value="True">
+                      <Setter TargetName="Bd" Property="Background" Value="#383E49"/>
+                      <Setter Property="Panel.ZIndex" Value="1"/>
+                    </Trigger>
+                    <Trigger Property="IsEnabled" Value="False">
+                      <Setter Property="Opacity" Value="0.55"/>
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </Setter.Value>
+            </Setter>
+          </Style>
         </Setter.Value>
       </Setter>
     </Style>
