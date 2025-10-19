@@ -3,16 +3,13 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
   <Application.Resources>
-    <!-- Theme -->
     <SolidColorBrush x:Key="BgColor"            Color="#1C1E22"/>
     <SolidColorBrush x:Key="CardColor"          Color="#24272D"/>
     <SolidColorBrush x:Key="InputBgColor"       Color="#000000"/>
     <SolidColorBrush x:Key="InputBorderColor"   Color="#3A404A"/>
-    <SolidColorBrush x:Key="AccentBrush"        Color="#563C80"/>
     <SolidColorBrush x:Key="TextBrush"          Color="#D0D0D0"/>
     <SolidColorBrush x:Key="TextMutedBrush"     Color="#B9C0CC"/>
 
-    <!-- Window defaults -->
     <Style TargetType="Window">
       <Setter Property="Background" Value="{DynamicResource BgColor}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
@@ -20,7 +17,6 @@
       <Setter Property="SnapsToDevicePixels" Value="True"/>
     </Style>
 
-    <!-- GroupBox -->
     <Style TargetType="GroupBox">
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
       <Setter Property="Background" Value="{DynamicResource BgColor}"/>
@@ -34,16 +30,13 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
               </Grid.RowDefinitions>
-              <Border Grid.Row="0"
-                      CornerRadius="6,6,0,0"
+              <Border Grid.Row="0" CornerRadius="6,6,0,0"
                       Background="#1A000000"
                       BorderBrush="{DynamicResource InputBorderColor}"
-                      BorderThickness="0,1,0,0"
-                      Padding="8,4,8,4">
+                      BorderThickness="0,1,0,0" Padding="8,4,8,4">
                 <ContentPresenter ContentSource="Header"/>
               </Border>
-              <Border Grid.Row="1"
-                      CornerRadius="0,0,6,6"
+              <Border Grid.Row="1" CornerRadius="0,0,6,6"
                       Background="{TemplateBinding Background}"
                       BorderBrush="{DynamicResource InputBorderColor}"
                       BorderThickness="1">
@@ -55,7 +48,6 @@
       </Setter>
     </Style>
 
-    <!-- Button -->
     <Style TargetType="Button">
       <Setter Property="Padding" Value="10,6"/>
       <Setter Property="Margin"  Value="6"/>
@@ -88,7 +80,6 @@
       </Setter>
     </Style>
 
-    <!-- TextBox -->
     <Style TargetType="TextBox">
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
       <Setter Property="Background" Value="{DynamicResource InputBgColor}"/>
@@ -98,10 +89,9 @@
       <Setter Property="Margin"  Value="6"/>
     </Style>
 
-    <!-- TabControl: headers (top), hidden template banner row, content -->
+    <!-- Tabs: bigger, centered, close to banner -->
     <Style TargetType="TabControl">
       <Setter Property="Background" Value="#16191F"/>
-      <Setter Property="BorderBrush" Value="#2B2F36"/>
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="Padding" Value="0"/>
       <Setter Property="Template">
@@ -114,19 +104,13 @@
                 <RowDefinition Height="*"/>     <!-- content -->
               </Grid.RowDefinitions>
 
-              <TabPanel Grid.Row="0"
-                        IsItemsHost="True"
+              <TabPanel Grid.Row="0" IsItemsHost="True"
                         HorizontalAlignment="Center"
-                        Margin="0,2,0,2"
-                        Background="{TemplateBinding Background}"/>
+                        Margin="0,2,0,6"/>
 
-              <!-- independent banner row kept hidden -->
               <Border Grid.Row="1" Visibility="Collapsed"/>
 
-              <Border Grid.Row="2"
-                      Background="{TemplateBinding Background}"
-                      BorderBrush="{TemplateBinding BorderBrush}"
-                      BorderThickness="{TemplateBinding BorderThickness}">
+              <Border Grid.Row="2" Background="{TemplateBinding Background}">
                 <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent"/>
               </Border>
             </Grid>
@@ -134,24 +118,20 @@
         </Setter.Value>
       </Setter>
 
-      <!-- Tab "buttons" size -->
       <Setter Property="ItemContainerStyle">
         <Setter.Value>
           <Style TargetType="TabItem">
-            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-            <Setter Property="Background" Value="#2B2F36"/>
-            <Setter Property="Height"   Value="36"/>
-            <Setter Property="Padding"  Value="64,6"/>
-            <Setter Property="Margin"   Value="4,2,4,2"/>
+            <Setter Property="Height"   Value="44"/>
+            <Setter Property="MinWidth" Value="160"/>
+            <Setter Property="Padding"  Value="96,10"/>
+            <Setter Property="Margin"   Value="6,2,6,2"/>
             <Setter Property="Template">
               <Setter.Value>
                 <ControlTemplate TargetType="TabItem">
-                  <Border x:Name="Bd"
-                          CornerRadius="8"
-                          Background="{TemplateBinding Background}"
+                  <Border x:Name="Bd" CornerRadius="10"
+                          Background="#2B2F36"
                           BorderBrush="{DynamicResource InputBorderColor}"
-                          BorderThickness="1"
-                          Padding="{TemplateBinding Padding}">
+                          BorderThickness="1" Padding="{TemplateBinding Padding}">
                     <ContentPresenter ContentSource="Header"
                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
                   </Border>
@@ -159,9 +139,6 @@
                     <Trigger Property="IsSelected" Value="True">
                       <Setter TargetName="Bd" Property="Background" Value="#383E49"/>
                       <Setter Property="Panel.ZIndex" Value="1"/>
-                    </Trigger>
-                    <Trigger Property="IsEnabled" Value="False">
-                      <Setter Property="Opacity" Value="0.55"/>
                     </Trigger>
                   </ControlTemplate.Triggers>
                 </ControlTemplate>
