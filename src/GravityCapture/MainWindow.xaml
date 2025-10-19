@@ -17,33 +17,24 @@
   VerticalContentAlignment="Stretch">
 
   <Grid Background="#FF16191F">
-    <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="Auto"/>
-    </Grid.ColumnDefinitions>
     <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
     </Grid.RowDefinitions>
 
-    <!-- TabControl -->
     <TabControl SelectionChanged="TabControl_SelectionChanged"
                 SelectedIndex="0"
                 IsSynchronizedWithCurrentItem="True"
                 Padding="0"
                 BorderThickness="0"
                 HorizontalAlignment="Center"
-                VerticalAlignment="Top"
-                Height="Auto">
+                VerticalAlignment="Stretch"
+                Height="Auto"
+                Width="800">
 
-      <!-- ======================= Capture ======================= -->
-      <TabItem Header="Capture"
-               FontFamily="Microsoft YaHei UI"
-               Background="#FF2B2F36"
-               FontWeight="Bold"
-               Padding="0"
-               SnapsToDevicePixels="True">
+      <!-- ========== Capture ========== -->
+      <TabItem Header="Capture" FontWeight="Bold" Padding="0" SnapsToDevicePixels="True">
         <TabItem.Effect><DropShadowEffect/></TabItem.Effect>
 
-        <!-- Capture layout: Banner, Toolbar, Content -->
         <Grid>
           <Grid.Background>
             <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
@@ -52,10 +43,11 @@
             </LinearGradientBrush>
           </Grid.Background>
 
+          <!-- rows: Banner / Toolbar / Content fills rest -->
           <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>  <!-- Banner -->
-            <RowDefinition Height="Auto"/>  <!-- Toolbar -->
-            <RowDefinition Height="*"/>     <!-- Content -->
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
 
           <!-- Banner -->
@@ -67,145 +59,115 @@
           <!-- Toolbar -->
           <Border Grid.Row="1" Width="820" VerticalAlignment="Bottom">
             <WrapPanel ItemHeight="32" VerticalAlignment="Top" Height="104">
-              <TextBlock Text="Server" Margin="9,0,9,0" Foreground="Red"
-                         FontFamily="Microsoft YaHei UI" FontSize="14" Height="22" VerticalAlignment="Bottom">
+              <TextBlock Text="Server" Margin="9,0,9,0" Foreground="Red" FontSize="14" Height="22" VerticalAlignment="Bottom">
                 <TextBlock.Effect><DropShadowEffect/></TextBlock.Effect>
               </TextBlock>
-              <TextBox x:Name="ServerBox" Width="320" Margin="9,0,9,0"
-                       TextChanged="ServerBox_TextChanged" Height="28" Background="Black"
-                       VerticalContentAlignment="Center" VerticalAlignment="Bottom">
+              <TextBox x:Name="ServerBox" Width="320" Margin="9,0,9,0" TextChanged="ServerBox_TextChanged" Height="28" Background="Black" VerticalContentAlignment="Center" VerticalAlignment="Bottom">
                 <TextBox.Effect><DropShadowEffect/></TextBox.Effect>
               </TextBox>
 
-              <TextBlock Text="Tribe" Margin="9,0,9,0" Foreground="Red"
-                         FontFamily="Microsoft YaHei UI" FontSize="14" Height="22" VerticalAlignment="Bottom">
+              <TextBlock Text="Tribe" Margin="9,0,9,0" Foreground="Red" FontSize="14" Height="22" VerticalAlignment="Bottom">
                 <TextBlock.Effect><DropShadowEffect/></TextBlock.Effect>
               </TextBlock>
-              <TextBox x:Name="TribeBox" Width="320" Padding="6"
-                       ScrollViewer.CanContentScroll="True" Height="28" Margin="9,0,9,0"
-                       TextChanged="TribeBox_TextChanged" Background="Black"
-                       VerticalContentAlignment="Center" VerticalAlignment="Bottom">
+              <TextBox x:Name="TribeBox" Width="320" Padding="6" ScrollViewer.CanContentScroll="True" Height="28" Margin="9,0,9,0" TextChanged="TribeBox_TextChanged" Background="Black" VerticalContentAlignment="Center" VerticalAlignment="Bottom">
                 <TextBox.Effect><DropShadowEffect/></TextBox.Effect>
               </TextBox>
 
-              <Button x:Name="StartBtn" Content="Start" Click="StartBtn_Click"
-                      Margin="60,0,4,0" Width="55" Height="22">
+              <Button x:Name="StartBtn" Content="Start" Click="StartBtn_Click" Margin="60,0,4,0" Width="55" Height="22">
                 <Button.Effect><DropShadowEffect/></Button.Effect>
               </Button>
-              <Button x:Name="StopBtn" Content="Stop" Click="StopBtn_Click"
-                      Margin="4,0,60,0" Width="55" Height="22" FontFamily="Microsoft YaHei UI">
+              <Button x:Name="StopBtn" Content="Stop" Click="StopBtn_Click" Margin="4,0,60,0" Width="55" Height="22">
                 <Button.Effect><DropShadowEffect/></Button.Effect>
               </Button>
-              <Button x:Name="SelectCropBtn" Content="Select Log Area..." Click="SelectCropBtn_Click"
-                      Width="164" Height="22" Margin="8,0,4,0">
+              <Button x:Name="SelectCropBtn" Content="Select Log Area..." Click="SelectCropBtn_Click" Width="164" Height="22" Margin="8,0,4,0">
                 <Button.Effect><DropShadowEffect/></Button.Effect>
               </Button>
 
-              <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click"
-                      Width="164" Height="22" Margin="4,0,4,0" BorderThickness="1">
+              <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click" Width="164" Height="22" Margin="4,0,4,0" BorderThickness="1">
                 <Button.Effect><DropShadowEffect/></Button.Effect>
               </Button>
-              <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click"
-                      Padding="9,0,9,0" Margin="4,0,8,0" Height="22" Width="164" BorderThickness="1">
+              <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click" Padding="9,0,9,0" Margin="4,0,8,0" Height="22" Width="164" BorderThickness="1">
                 <Button.Effect><DropShadowEffect/></Button.Effect>
               </Button>
 
-              <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click"
-                      Width="216" Height="22" Margin="10,4,10,4">
+              <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click" Width="216" Height="22" Margin="10,4,10,4">
                 <Button.Effect><DropShadowEffect/></Button.Effect>
               </Button>
             </WrapPanel>
           </Border>
 
-          <!-- Content: 2 equal columns; right has two equal rows + button -->
-          <Grid Grid.Row="2" Margin="16,12,16,12">
+          <!-- Content -->
+          <Grid Grid.Row="2" Margin="16,12,16,16">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>   <!-- Left: Live Preview -->
-              <ColumnDefinition Width="*"/>   <!-- Right: API + Tribe Log + Button -->
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- LEFT: Live Preview fills full left column height -->
-            <GroupBox Header="Live Preview"
-                      Margin="0,0,16,0" BorderThickness="0"
-                      FontFamily="Microsoft YaHei UI" BorderBrush="Black"
-                      Foreground="#FFD0D0D0" FontWeight="Bold" Background="#FF16191F"
-                      HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+            <!-- LEFT: Live Preview fills full height -->
+            <GroupBox Header="Live Preview" Margin="0,0,16,0" BorderThickness="0"
+                      FontWeight="Bold" Background="#FF16191F"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
               <GroupBox.Effect><DropShadowEffect/></GroupBox.Effect>
-              <Grid Background="Black">
-                <Image x:Name="LivePreview" Stretch="Uniform" ClipToBounds="True" Margin="8"/>
-                <!-- start hidden so preview is not covered -->
+
+              <!-- Viewbox guarantees scale-to-fit; no overflow -->
+              <Grid Background="Black" ClipToBounds="True">
+                <Viewbox Stretch="Uniform" StretchDirection="Both" Margin="8" ClipToBounds="True">
+                  <Image x:Name="LivePreview" Stretch="Fill"/>
+                </Viewbox>
+
+                <!-- overlay starts hidden -->
                 <Border x:Name="OcrDetailsOverlay" Background="Black" Visibility="Collapsed" Margin="8" CornerRadius="2">
                   <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <TextBlock x:Name="OcrDetailsText" FontFamily="Microsoft YaHei Light" FontSize="12" Foreground="#FF2B2F36"/>
+                    <TextBlock x:Name="OcrDetailsText" FontSize="12" Foreground="#FF2B2F36"/>
                   </ScrollViewer>
                 </Border>
               </Grid>
             </GroupBox>
 
-            <!-- RIGHT: two equal rows + button -->
+            <!-- RIGHT: API Echo (top half) / Tribe Log (bottom half) / Button -->
             <Grid Grid.Column="1">
               <Grid.RowDefinitions>
-                <RowDefinition Height="*"/>    <!-- API Echo -->
-                <RowDefinition Height="*"/>    <!-- Tribe Log -->
-                <RowDefinition Height="Auto"/> <!-- Send button -->
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
               </Grid.RowDefinitions>
 
-              <!-- API Echo -->
-              <GroupBox x:Name="API_Echo_Box" Grid.Row="0" Header="API Echo"
-                        BorderThickness="0" Foreground="#FFD0D0D0" BorderBrush="Black"
-                        FontWeight="Bold" Background="#FF16191F" Padding="0" Margin="0,0,0,12">
+              <GroupBox x:Name="API_Echo_Box" Grid.Row="0" Header="API Echo" BorderThickness="0"
+                        Background="#FF16191F" Padding="0" Margin="0,0,0,12"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                 <Grid Margin="8">
-                  <TextBox x:Name="ApiEchoText"
-                           AcceptsReturn="True" IsReadOnly="True"
-                           TextChanged="ApiEchoText_TextChanged"
-                           BorderThickness="0.5" Padding="6"
-                           VerticalAlignment="Stretch" HorizontalAlignment="Stretch"/>
+                  <TextBox x:Name="ApiEchoText" AcceptsReturn="True" IsReadOnly="True"
+                           TextChanged="ApiEchoText_TextChanged" BorderThickness="0.5" Padding="6"
+                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
                 </Grid>
               </GroupBox>
 
-              <!-- Tribe Log Output -->
               <GroupBox x:Name="Tribe_Log_Output_Box" Grid.Row="1" Header="Tribe Log Text Output Testing"
-                        BorderThickness="0" Foreground="White" FontWeight="Bold"
-                        Background="#FF16191F" Padding="0" Margin="0,0,0,12">
+                        BorderThickness="0" Background="#FF16191F" Padding="0" Margin="0,0,0,12"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                 <Grid Margin="8">
-                  <TextBox x:Name="LogLineBox"
-                           FontFamily="Microsoft YaHei UI" FontSize="12"
-                           AcceptsReturn="True"
-                           Background="Black"
-                           BorderThickness="0.5" Padding="6"
-                           VerticalAlignment="Stretch" HorizontalAlignment="Stretch"/>
+                  <TextBox x:Name="LogLineBox" AcceptsReturn="True"
+                           Background="Black" BorderThickness="0.5" Padding="6"
+                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
                 </Grid>
               </GroupBox>
 
-              <!-- Send button fully visible -->
               <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,0">
-                <Button x:Name="SendPastedBtn"
-                        Content="Send Pasted Logs"
-                        Click="SendParsedBtn_Click"
-                        Height="32" Width="180">
-                  <Button.Effect><DropShadowEffect/></Button.Effect>
-                </Button>
+                <Button x:Name="SendPastedBtn" Content="Send Pasted Logs"
+                        Click="SendParsedBtn_Click" Height="32" Width="200"/>
               </StackPanel>
             </Grid>
           </Grid>
         </Grid>
       </TabItem>
 
-      <!-- ======================= Settings ======================= -->
-      <TabItem Header="Settings"
-               FontFamily="Microsoft YaHei UI"
-               Background="#FF2B2F36"
-               FontWeight="Bold"
-               Padding="0"
-               SnapsToDevicePixels="True">
+      <!-- ========== Settings ========== -->
+      <TabItem Header="Settings" FontWeight="Bold" Padding="0" SnapsToDevicePixels="True">
         <TabItem.Effect><DropShadowEffect/></TabItem.Effect>
 
-        <!-- Independent root; no shared rows with Capture -->
         <ScrollViewer VerticalScrollBarVisibility="Auto" Width="800" Height="750" HorizontalAlignment="Center" VerticalAlignment="Center">
           <StackPanel Margin="8" Orientation="Vertical">
-
             <GroupBox Header="API credentials" BorderThickness="0.5">
-              <GroupBox.Effect><DropShadowEffect/></GroupBox.Effect>
               <Grid>
                 <Grid.RowDefinitions>
                   <RowDefinition Height="Auto"/>
@@ -229,7 +191,6 @@
             </GroupBox>
 
             <GroupBox Header="Endpoint paths" BorderThickness="0.5">
-              <GroupBox.Effect><DropShadowEffect/></GroupBox.Effect>
               <Grid>
                 <Grid.RowDefinitions>
                   <RowDefinition Height="Auto"/>
@@ -253,7 +214,6 @@
             </GroupBox>
 
             <GroupBox Header="Filters" BorderThickness="0.5">
-              <GroupBox.Effect><DropShadowEffect/></GroupBox.Effect>
               <UniformGrid Columns="2">
                 <CheckBox x:Name="FilterTameDeathsBox"            Content="Tame deaths"/>
                 <CheckBox x:Name="FilterTamesStarvingBox"          Content="Tames starving to death"/>
@@ -268,7 +228,6 @@
             </GroupBox>
 
             <GroupBox Header="Overlay" BorderThickness="0.5">
-              <GroupBox.Effect><DropShadowEffect/></GroupBox.Effect>
               <StackPanel Orientation="Horizontal">
                 <CheckBox x:Name="ShowOcrDetailsCheck"
                           Content="Show OCR details overlay on Capture"
@@ -278,25 +237,11 @@
             </GroupBox>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-              <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" BorderThickness="0">
-                <Button.Effect><DropShadowEffect/></Button.Effect>
-              </Button>
+              <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" BorderThickness="0"/>
             </StackPanel>
           </StackPanel>
         </ScrollViewer>
       </TabItem>
     </TabControl>
-
-    <!-- Status Bar -->
-    <Border BorderBrush="#FF2B2F36" CornerRadius="2,2,0,0" Margin="0,878,0,0">
-      <Border.Background>
-        <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0" Opacity="0.2">
-          <GradientStop Color="#FF16191F" Offset="0.9"/>
-          <GradientStop Color="#FF7B7E82" Offset="0.2"/>
-        </LinearGradientBrush>
-      </Border.Background>
-      <Border.Effect><DropShadowEffect/></Border.Effect>
-      <TextBlock x:Name="StatusText" FontFamily="Microsoft YaHei" Text="" ClipToBounds="True"/>
-    </Border>
   </Grid>
 </Window>
