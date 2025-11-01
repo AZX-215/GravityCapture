@@ -48,8 +48,7 @@
                     Margin="0,0,12,0"
                     Background="#FF3A3F47"
                     Foreground="White"
-                    BorderThickness="0"
-                    CornerRadius="12,12,0,0" />
+                    BorderThickness="0" />
             <Button x:Name="SettingsTabButton"
                     Content="Settings"
                     Click="SettingsTabButton_Click"
@@ -58,8 +57,7 @@
                     FontSize="14"
                     Background="#FF2E333A"
                     Foreground="White"
-                    BorderThickness="0"
-                    CornerRadius="0,12,12,0" />
+                    BorderThickness="0" />
         </StackPanel>
 
         <!-- ========== BANNER ========== -->
@@ -78,7 +76,6 @@
         </Border>
 
         <!-- ========== CAPTURE TOOLBAR (top of capture page) ========== -->
-        <!-- moved Save debug ZIP out of here -->
         <Grid x:Name="CaptureToolbar"
               Grid.Row="2"
               Margin="14,4,14,4">
@@ -193,11 +190,9 @@
                           BorderThickness="0.5"
                           BorderBrush="#FF394049">
                     <Grid Margin="6" ClipToBounds="True">
-                        <!-- actual preview box -->
                         <Border Background="Black"
                                 BorderBrush="#FF2B2F36"
                                 BorderThickness="1"
-                                CornerRadius="2"
                                 Margin="0,18,0,0"
                                 ClipToBounds="True">
                             <Grid>
@@ -206,11 +201,9 @@
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"
                                        SnapsToDevicePixels="True"/>
-                                <!-- OCR overlay -->
                                 <Border x:Name="OcrDetailsOverlay"
                                         Background="#CC000000"
                                         Margin="4"
-                                        CornerRadius="2"
                                         Visibility="Collapsed"
                                         VerticalAlignment="Stretch"
                                         HorizontalAlignment="Stretch">
@@ -249,7 +242,6 @@
                                  Margin="6"
                                  Background="Black"
                                  Foreground="White"
-                                 Height="Auto"
                                  VerticalScrollBarVisibility="Auto"
                                  AcceptsReturn="True"
                                  TextChanged="ApiEchoText_TextChanged"/>
@@ -371,7 +363,6 @@
                     <!-- Bottom buttons on Settings -->
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                         <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" Width="90" Margin="0,0,8,0"/>
-                        <!-- moved here -->
                         <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click" Width="140"/>
                     </StackPanel>
 
