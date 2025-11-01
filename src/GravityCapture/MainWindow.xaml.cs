@@ -334,4 +334,206 @@ namespace GravityCapture
             }
             catch (Exception ex)
             {
-                ApiEchoText.Text = ex.M
+                ApiEchoText.Text = ex.Message;
+                SetStatus("Post error: " + ex.Message);
+            }
+        }
+
+        private async void SendParsedBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var line = LogLineBox.Text?.Trim();
+            if (string.IsNullOrEmpty(line)) { SetStatus("No text to send."); return; }
+            try
+            {
+                using var api = new ProbingApiClient(_settings);
+                var (ok, body) = await api.SendPastedLineAsync(line);
+                ApiEchoText.Text = body;
+                SetStatus(ok ? "Pasted line sent" : "Send failed");
+            }
+            catch (Exception ex)
+            {
+                ApiEchoText.Text = ex.Message;
+                SetStatus("Send error: " + ex.Message);
+            }
+        }
+
+        // XAML compatibility
+        private void SendPastedBtn_Click(object sender, RoutedEventArgs e) => SendParsedBtn_Click(sender, e);
+
+        private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            _showOcrOverlay = ShowOcrDetailsCheck.IsChecked == true;
+            OcrDetailsOverlay.Visibility = _showOcrOverlay ? Visibility.Visible : Visibility.Collapsed;
+            if (!_showOcrOverlay)
+                OcrDetailsText.Text = "";
+
+            SaveOverlayPreference();
+        }
+
+        private void SaveDebugBtn_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var sfd = new SaveFileDialog { Filter = "ZIP (*.zip)|*.zip", FileName = "gravity-capture-debug.zip" };
+                if (sfd.ShowDialog() != true) return;
+
+                using var zip = ZipFile.Open(sfd.FileName, ZipArchiveMode.Create);
+                var settingsEntry = zip.CreateEntry("settings.json");
+                using (var sw = new StreamWriter(settingsEntry.Open())) sw.Write(JsonSerializer.Serialize(_settings, _json));
+                var textEntry = zip.CreateEntry("last_text.txt");
+                using (var sw = new StreamWriter(textEntry.Open())) sw.Write(LogLineBox.Text ?? "");
+                var cropEntry = zip.CreateEntry("crop.txt");
+                using (var sw = new StreamWriter(cropEntry.Open()))
+                    sw.Write(_selectedScreenRect.HasValue
+                        ? $"{_selectedScreenRect.Value.X},{_selectedScreenRect.Value.Y},{_selectedScreenRect.Value.Width},{_selectedScreenRect.Value.Height}"
+                        : "unset");
+                if (_selectedScreenRect != null)
+                {
+                    using var bmp = CaptureScreenRect(_selectedScreenRect.Value);
+                    var imgEntry = zip.CreateEntry("preview.png");
+                    using var zs = imgEntry.Open();
+                    bmp.Save(zs, System.Drawing.Imaging.ImageFormat.Png);
+                }
+                SetStatus("Debug ZIP saved.");
+            }
+            catch (Exception ex)
+            {
+                SetStatus("ZIP error: " + ex.Message);
+            }
+        }
+
+        // ================= preview timer =================
+        private void OnPreviewTick(object? sender, EventArgs e)
+        {
+            if (_selectedScreenRect == null) return;
+            try
+            {
+                using var bmp = CaptureScreenRect(_selectedScreenRect.Value);
+                LivePreview.Source = BmpToSource(bmp);
+            }
+            catch (Exception ex)
+            {
+                SetStatus("Preview error: " + ex.Message);
+            }
+        }
+
+        // ================= page switching =================
+        private void ShowCapturePage()
+        {
+            CapturePage.Visibility = Visibility.Visible;
+            SettingsPage.Visibility = Visibility.Collapsed;
+            CaptureToolbar.Visibility = Visibility.Visible;
+
+            CaptureTabButton.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#FF3A3F47");
+            SettingsTabButton.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#FF2E333A");
+        }
+
+        private void ShowSettingsPage()
+        {
+            CapturePage.Visibility = Visibility.Collapsed;
+            SettingsPage.Visibility = Visibility.Visible;
+            CaptureToolbar.Visibility = Visibility.Collapsed;
+
+            CaptureTabButton.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#FF2E333A");
+            SettingsTabButton.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#FF3A3F47");
+        }
+
+        private void CaptureTabButton_Click(object sender, RoutedEventArgs e) => ShowCapturePage();
+
+        private void SettingsTabButton_Click(object sender, RoutedEventArgs e) => ShowSettingsPage();
+
+        // ================= helpers =================
+        private static Bitmap CaptureScreenRect(System.Drawing.Rectangle r)
+        {
+            var bmp = new Bitmap(Math.Max(1, r.Width), Math.Max(1, r.Height),
+                System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            using var g = Graphics.FromImage(bmp);
+            g.CopyFromScreen(new System.Drawing.Point(r.X, r.Y), System.Drawing.Point.Empty, r.Size,
+                System.Drawing.CopyPixelOperation.SourceCopy);
+            return bmp;
+        }
+
+        private static byte[] EncodeJpeg(Bitmap bmp, int quality)
+        {
+            using var ms = new MemoryStream();
+            var encoder = GetJpegEncoder();
+            var eps = new System.Drawing.Imaging.EncoderParameters(1);
+            eps.Param[0] = new System.Drawing.Imaging.EncoderParameter(
+                System.Drawing.Imaging.Encoder.Quality,
+                Math.Clamp(quality, 1, 100));
+            bmp.Save(ms, encoder, eps);
+            return ms.ToArray();
+        }
+
+        private static System.Drawing.Imaging.ImageCodecInfo GetJpegEncoder()
+        {
+            foreach (var c in System.Drawing.Imaging.ImageCodecInfo.GetImageEncoders())
+                if (c.MimeType == "image/jpeg") return c;
+            throw new InvalidOperationException("JPEG encoder not found");
+        }
+
+        private static BitmapSource BmpToSource(Bitmap bmp)
+        {
+            using var ms = new MemoryStream();
+            bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            ms.Position = 0;
+            var img = new BitmapImage();
+            img.BeginInit();
+            img.CacheOption = BitmapCacheOption.OnLoad;
+            img.StreamSource = ms;
+            img.EndInit();
+            img.Freeze();
+            return img;
+        }
+
+        private static string TryExtractText(string body)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("text", out var t)) return t.GetString() ?? body;
+                if (doc.RootElement.TryGetProperty("lines", out var lines) && lines.ValueKind == JsonValueKind.Array)
+                {
+                    var sb = new StringBuilder();
+                    foreach (var ln in lines.EnumerateArray())
+                        if (ln.TryGetProperty("text", out var lt)) sb.AppendLine(lt.GetString());
+                    return sb.ToString().Trim();
+                }
+            }
+            catch { }
+            return body;
+        }
+
+        private void SetStatus(string s) => StatusText.Text = s;
+
+        // Win32
+        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+        internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+        private static string GetWindowText(IntPtr hWnd)
+        {
+            var sb = new StringBuilder(512);
+            _ = GetWindowText(hWnd, sb, sb.Capacity);
+            return sb.ToString();
+        }
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+        private void ApiEchoText_TextChanged(object sender, TextChangedEventArgs e) { }
+        private void ServerBox_TextChanged(object sender, TextChangedEventArgs e) { }
+        private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e) { }
+        private void TribeBox_TextChanged(object sender, TextChangedEventArgs e) { }
+    }
+
+    internal sealed class ProbingApiClient : IDisposable
+    {
+        private readonly ApiClient2 _client;
+        public ProbingApiClient(AppSettings s) { _client = new ApiClient2(s); }
+        public System.Threading.Tasks.Task<(bool ok, string body)> OcrOnlyAsync(byte[] jpeg) => _client.OcrOnlyAsync(jpeg);
+        public System.Threading.Tasks.Task<(bool ok, string body)> PostScreenshotAsync(byte[] jpeg, bool postVisible) => _client.PostScreenshotAsync(jpeg, postVisible);
+        public System.Threading.Tasks.Task<(bool ok, string body)> SendPastedLineAsync(string line) => _client.SendPastedLineAsync(line);
+        public void Dispose() => _client.Dispose();
+    }
+}
