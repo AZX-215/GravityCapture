@@ -28,32 +28,43 @@
         </Grid.RowDefinitions>
 
         <!-- ================= TABS ================= -->
-        <StackPanel Grid.Row="0"
-                    Orientation="Horizontal"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Margin="0,6,0,0"
-                    Height="48">
+        <Grid Grid.Row="0"
+              Margin="0,6,0,0"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Center"
+              Height="48"
+              Width="420">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
             <Button x:Name="CaptureTabButton"
+                    Grid.Column="0"
                     Content="Capture"
                     Click="CaptureTabButton_Click"
-                    Width="180"
-                    Height="44"
-                    FontSize="14"
                     Margin="0,0,12,0"
+                    Height="44"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Center"
+                    FontSize="14"
                     Background="#FF3A3F47"
                     Foreground="White"
                     BorderThickness="0" />
+
             <Button x:Name="SettingsTabButton"
+                    Grid.Column="1"
                     Content="Settings"
                     Click="SettingsTabButton_Click"
-                    Width="180"
+                    Margin="12,0,0,0"
                     Height="44"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Center"
                     FontSize="14"
                     Background="#FF2E333A"
                     Foreground="White"
                     BorderThickness="0" />
-        </StackPanel>
+        </Grid>
 
         <!-- ================= BANNER ================= -->
         <Border Grid.Row="1"
@@ -71,7 +82,6 @@
         </Border>
 
         <!-- ================= CAPTURE TOOLBAR ================= -->
-        <!-- real two-row grid, no overlap -->
         <Grid x:Name="CaptureToolbar"
               Grid.Row="2"
               Margin="14,4,14,4">
@@ -94,7 +104,6 @@
                        FontSize="14"
                        VerticalAlignment="Center"
                        Margin="0,0,6,0"/>
-
             <TextBox x:Name="ServerBox"
                      Grid.Row="0" Grid.Column="1"
                      MinWidth="240"
@@ -104,7 +113,6 @@
                      Foreground="White"
                      VerticalContentAlignment="Center"
                      TextChanged="ServerBox_TextChanged"/>
-
             <TextBlock Text="Tribe"
                        Grid.Row="0" Grid.Column="2"
                        Foreground="Red"
@@ -112,7 +120,6 @@
                        FontSize="14"
                        VerticalAlignment="Center"
                        Margin="0,0,6,0"/>
-
             <TextBox x:Name="TribeBox"
                      Grid.Row="0" Grid.Column="3"
                      MinWidth="240"
@@ -122,7 +129,7 @@
                      VerticalContentAlignment="Center"
                      TextChanged="TribeBox_TextChanged"/>
 
-            <!-- row 1: toolbar buttons -->
+            <!-- row 1 -->
             <WrapPanel Grid.Row="1" Grid.ColumnSpan="4"
                        Margin="0,6,0,0"
                        Orientation="Horizontal">
@@ -169,7 +176,6 @@
                     <ColumnDefinition Width="2*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- LEFT: Live preview -->
                 <GroupBox Header="Live Preview"
                           Grid.Column="0"
                           Margin="0,0,10,0"
@@ -209,7 +215,6 @@
                     </Grid>
                 </GroupBox>
 
-                <!-- RIGHT: stacked boxes -->
                 <Grid Grid.Column="1">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
@@ -217,7 +222,6 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <!-- API Echo -->
                     <GroupBox x:Name="API_Echo_Box"
                               Grid.Row="0"
                               Header="API Echo"
@@ -236,7 +240,6 @@
                                  TextChanged="ApiEchoText_TextChanged"/>
                     </GroupBox>
 
-                    <!-- Tribe log text output -->
                     <GroupBox x:Name="Tribe_Log_Output_Box"
                               Grid.Row="1"
                               Header="Tribe Log Text Output Testing"
@@ -258,7 +261,6 @@
                         </Grid>
                     </GroupBox>
 
-                    <!-- Send button -->
                     <Button x:Name="SendPastedBtn"
                             Grid.Row="2"
                             Content="Send Pasted Logs"
@@ -273,7 +275,6 @@
             <!-- ===== Settings page ===== -->
             <ScrollViewer x:Name="SettingsPage"
                           Visibility="Collapsed"
-                          Grid.Row="0"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
                           Margin="0"
@@ -281,7 +282,6 @@
                           VerticalAlignment="Stretch">
                 <StackPanel Margin="6" HorizontalAlignment="Stretch" MaxWidth="760">
 
-                    <!-- API credentials -->
                     <GroupBox Header="API credentials" BorderThickness="0.5" HorizontalAlignment="Stretch">
                         <Grid Margin="4">
                             <Grid.RowDefinitions>
@@ -296,16 +296,13 @@
 
                             <TextBlock Text="Channel ID" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Foreground="#FFB5B9C0"/>
                             <TextBox x:Name="ChannelBox" Grid.Row="0" Grid.Column="1"/>
-
                             <TextBlock Text="API Base URL" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Foreground="#FFB5B9C0"/>
                             <TextBox x:Name="ApiUrlBox" Grid.Row="1" Grid.Column="1"/>
-
                             <TextBlock Text="API Key" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Foreground="#FFB5B9C0"/>
                             <PasswordBox x:Name="ApiKeyBox" Grid.Row="2" Grid.Column="1"/>
                         </Grid>
                     </GroupBox>
 
-                    <!-- Endpoint paths -->
                     <GroupBox Header="Endpoint paths" BorderThickness="0.5" Margin="0,6,0,0" HorizontalAlignment="Stretch">
                         <Grid Margin="4">
                             <Grid.RowDefinitions>
@@ -320,16 +317,13 @@
 
                             <TextBlock Text="OCR path:" Grid.Row="0" Grid.Column="0" Foreground="#FFB5B9C0"/>
                             <TextBox x:Name="OcrPathBox" Grid.Row="0" Grid.Column="1"/>
-
                             <TextBlock Text="Screenshot ingest path:" Grid.Row="1" Grid.Column="0" Foreground="#FFB5B9C0"/>
                             <TextBox x:Name="ScreenshotPathBox" Grid.Row="1" Grid.Column="1"/>
-
                             <TextBlock Text="Log-line ingest path:" Grid.Row="2" Grid.Column="0" Foreground="#FFB5B9C0"/>
                             <TextBox x:Name="LogLinePathBox" Grid.Row="2" Grid.Column="1"/>
                         </Grid>
                     </GroupBox>
 
-                    <!-- Filters -->
                     <GroupBox Header="Filters" BorderThickness="0.5" Margin="0,6,0,0" HorizontalAlignment="Stretch">
                         <UniformGrid Columns="2">
                             <CheckBox x:Name="FilterTameDeathsBox" Content="Tame deaths"/>
@@ -344,7 +338,6 @@
                         </UniformGrid>
                     </GroupBox>
 
-                    <!-- Overlay -->
                     <GroupBox Header="Overlay" BorderThickness="0.5" Margin="0,6,0,0" HorizontalAlignment="Stretch">
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="ShowOcrDetailsCheck"
@@ -354,12 +347,10 @@
                         </StackPanel>
                     </GroupBox>
 
-                    <!-- Bottom buttons -->
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,4">
                         <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" Width="90" Margin="0,0,8,0"/>
                         <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click" Width="140"/>
                     </StackPanel>
-
                 </StackPanel>
             </ScrollViewer>
         </Grid>
