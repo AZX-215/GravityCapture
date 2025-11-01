@@ -18,21 +18,16 @@
 
     <Grid Background="#FF16191F">
 
-        <!-- Whole window rows -->
+        <!-- window rows -->
         <Grid.RowDefinitions>
-            <!-- 0: tab buttons -->
-            <RowDefinition Height="64"/>
-            <!-- 1: banner -->
-            <RowDefinition Height="110"/>
-            <!-- 2: capture-toolbar row (server/tribe/buttons) -->
-            <RowDefinition Height="Auto"/>
-            <!-- 3: page host -->
-            <RowDefinition Height="*"/>
-            <!-- 4: status -->
-            <RowDefinition Height="28"/>
+            <RowDefinition Height="64"/>   <!-- tabs -->
+            <RowDefinition Height="110"/>  <!-- banner -->
+            <RowDefinition Height="Auto"/> <!-- capture toolbar -->
+            <RowDefinition Height="*"/>    <!-- page host -->
+            <RowDefinition Height="28"/>   <!-- status -->
         </Grid.RowDefinitions>
 
-        <!-- ========== TABS (Capture / Settings) ========== -->
+        <!-- ================= TABS ================= -->
         <StackPanel Grid.Row="0"
                     Orientation="Horizontal"
                     HorizontalAlignment="Center"
@@ -60,7 +55,7 @@
                     BorderThickness="0" />
         </StackPanel>
 
-        <!-- ========== BANNER ========== -->
+        <!-- ================= BANNER ================= -->
         <Border Grid.Row="1"
                 Background="#FF1B1E24"
                 BorderBrush="#FF0F1013"
@@ -75,10 +70,15 @@
                    Margin="0,6,0,6"/>
         </Border>
 
-        <!-- ========== CAPTURE TOOLBAR (top of capture page) ========== -->
+        <!-- ================= CAPTURE TOOLBAR ================= -->
+        <!-- real two-row grid, no overlap -->
         <Grid x:Name="CaptureToolbar"
               Grid.Row="2"
               Margin="14,4,14,4">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -86,17 +86,18 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Server label -->
+            <!-- row 0 -->
             <TextBlock Text="Server"
-                       Grid.Column="0"
+                       Grid.Row="0" Grid.Column="0"
                        Foreground="Red"
                        FontFamily="Microsoft YaHei UI"
                        FontSize="14"
                        VerticalAlignment="Center"
                        Margin="0,0,6,0"/>
-            <!-- Server box -->
+
             <TextBox x:Name="ServerBox"
-                     Grid.Column="1"
+                     Grid.Row="0" Grid.Column="1"
+                     MinWidth="240"
                      Height="28"
                      Margin="0,0,12,0"
                      Background="Black"
@@ -104,73 +105,61 @@
                      VerticalContentAlignment="Center"
                      TextChanged="ServerBox_TextChanged"/>
 
-            <!-- Tribe label -->
             <TextBlock Text="Tribe"
-                       Grid.Column="2"
+                       Grid.Row="0" Grid.Column="2"
                        Foreground="Red"
                        FontFamily="Microsoft YaHei UI"
                        FontSize="14"
                        VerticalAlignment="Center"
                        Margin="0,0,6,0"/>
 
-            <!-- Tribe box -->
             <TextBox x:Name="TribeBox"
-                     Grid.Column="3"
+                     Grid.Row="0" Grid.Column="3"
+                     MinWidth="240"
                      Height="28"
                      Background="Black"
                      Foreground="White"
                      VerticalContentAlignment="Center"
                      TextChanged="TribeBox_TextChanged"/>
 
-            <!-- Row for buttons under the textboxes -->
-            <Grid Grid.ColumnSpan="4" Margin="0,32,0,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
+            <!-- row 1: toolbar buttons -->
+            <WrapPanel Grid.Row="1" Grid.ColumnSpan="4"
+                       Margin="0,6,0,0"
+                       Orientation="Horizontal">
                 <Button x:Name="StartBtn"
-                        Grid.Column="0"
                         Content="Start"
+                        Click="StartBtn_Click"
                         Width="70"
                         Height="26"
-                        Margin="0,4,6,0"
-                        Click="StartBtn_Click"/>
+                        Margin="0,0,6,0"/>
                 <Button x:Name="StopBtn"
-                        Grid.Column="1"
                         Content="Stop"
+                        Click="StopBtn_Click"
                         Width="70"
                         Height="26"
-                        Margin="0,4,12,0"
-                        Click="StopBtn_Click"/>
+                        Margin="0,0,12,0"/>
                 <Button x:Name="SelectCropBtn"
-                        Grid.Column="2"
                         Content="Select Log Area..."
+                        Click="SelectCropBtn_Click"
                         Width="150"
                         Height="26"
-                        Margin="0,4,6,0"
-                        Click="SelectCropBtn_Click"/>
+                        Margin="0,0,6,0"/>
                 <Button x:Name="OcrCropBtn"
-                        Grid.Column="3"
                         Content="OCR Crop → Paste"
+                        Click="OcrCropBtn_Click"
                         Width="150"
                         Height="26"
-                        Margin="0,4,6,0"
-                        Click="OcrCropBtn_Click"/>
+                        Margin="0,0,6,0"/>
                 <Button x:Name="OcrAndPostNowBtn"
-                        Grid.Column="4"
                         Content="OCR &amp; Post Visible Now"
+                        Click="OcrAndPostNowBtn_Click"
                         Width="170"
                         Height="26"
-                        Margin="0,4,0,0"
-                        Click="OcrAndPostNowBtn_Click"/>
-            </Grid>
+                        Margin="0,0,0,0"/>
+            </WrapPanel>
         </Grid>
 
-        <!-- ========== PAGE HOST ========== -->
+        <!-- ================= PAGE HOST ================= -->
         <Grid Grid.Row="3" Margin="8,2,8,4" x:Name="PageHost">
 
             <!-- ===== Capture page ===== -->
@@ -220,7 +209,7 @@
                     </Grid>
                 </GroupBox>
 
-                <!-- RIGHT: 2 stacked boxes + button -->
+                <!-- RIGHT: stacked boxes -->
                 <Grid Grid.Column="1">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
@@ -269,7 +258,7 @@
                         </Grid>
                     </GroupBox>
 
-                    <!-- Send pasted button -->
+                    <!-- Send button -->
                     <Button x:Name="SendPastedBtn"
                             Grid.Row="2"
                             Content="Send Pasted Logs"
@@ -284,11 +273,16 @@
             <!-- ===== Settings page ===== -->
             <ScrollViewer x:Name="SettingsPage"
                           Visibility="Collapsed"
-                          VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="6">
+                          Grid.Row="0"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Margin="0"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch">
+                <StackPanel Margin="6" HorizontalAlignment="Stretch" MaxWidth="760">
 
                     <!-- API credentials -->
-                    <GroupBox Header="API credentials" BorderThickness="0.5">
+                    <GroupBox Header="API credentials" BorderThickness="0.5" HorizontalAlignment="Stretch">
                         <Grid Margin="4">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -312,7 +306,7 @@
                     </GroupBox>
 
                     <!-- Endpoint paths -->
-                    <GroupBox Header="Endpoint paths" BorderThickness="0.5" Margin="0,6,0,0">
+                    <GroupBox Header="Endpoint paths" BorderThickness="0.5" Margin="0,6,0,0" HorizontalAlignment="Stretch">
                         <Grid Margin="4">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -336,7 +330,7 @@
                     </GroupBox>
 
                     <!-- Filters -->
-                    <GroupBox Header="Filters" BorderThickness="0.5" Margin="0,6,0,0">
+                    <GroupBox Header="Filters" BorderThickness="0.5" Margin="0,6,0,0" HorizontalAlignment="Stretch">
                         <UniformGrid Columns="2">
                             <CheckBox x:Name="FilterTameDeathsBox" Content="Tame deaths"/>
                             <CheckBox x:Name="FilterTamesStarvingBox" Content="Tames starving to death"/>
@@ -351,7 +345,7 @@
                     </GroupBox>
 
                     <!-- Overlay -->
-                    <GroupBox Header="Overlay" BorderThickness="0.5" Margin="0,6,0,0">
+                    <GroupBox Header="Overlay" BorderThickness="0.5" Margin="0,6,0,0" HorizontalAlignment="Stretch">
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="ShowOcrDetailsCheck"
                                       Content="Show OCR details overlay on Capture"
@@ -360,8 +354,8 @@
                         </StackPanel>
                     </GroupBox>
 
-                    <!-- Bottom buttons on Settings -->
-                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <!-- Bottom buttons -->
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,4">
                         <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" Width="90" Margin="0,0,8,0"/>
                         <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click" Width="140"/>
                     </StackPanel>
@@ -370,7 +364,7 @@
             </ScrollViewer>
         </Grid>
 
-        <!-- ========== STATUS BAR ========== -->
+        <!-- ================= STATUS ================= -->
         <Border Grid.Row="4"
                 BorderBrush="#FF2B2F36"
                 BorderThickness="0,1,0,0"
