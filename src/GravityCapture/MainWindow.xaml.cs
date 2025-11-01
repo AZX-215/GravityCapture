@@ -6,7 +6,6 @@ using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
@@ -22,10 +21,15 @@ namespace GravityCapture
     public partial class MainWindow : Window
     {
         private const double Aspect = 16.0 / 10.0;
+
         private readonly JsonSerializerOptions _json = new() { WriteIndented = true };
-        private readonly string SettingsDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GravityCapture");
-        private readonly string SettingsFile;
+
+        private readonly string _settingsDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "GravityCapture");
+
+        private readonly string _settingsFile;
+        private readonly string _overlayFile;
 
         private AppSettings _settings = AppSettings.Load();
         private DispatcherTimer? _timer;
@@ -36,21 +40,26 @@ namespace GravityCapture
         public MainWindow()
         {
             InitializeComponent();
-            SettingsFile = Path.Combine(SettingsDir, "global.json");
+
+            _settingsFile = Path.Combine(_settingsDir, "global.json");
+            _overlayFile = Path.Combine(_settingsDir, "overlay.json");
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
             LoadSettingsIntoUi();
+            LoadOverlayPreference();
+            ShowCapturePage();
+
             StartArkPolling();
             SetStatus("Ready.");
-            // make sure first tab is capture
-            TopTabs.SelectedIndex = 0;
-            CapturePage.Visibility = Visibility.Visible;
-            SettingsPage.Visibility = Visibility.Collapsed;
         }
 
-        private void Window_Closing(object? sender, CancelEventArgs e) => TrySaveFromUi();
+        private void Window_Closing(object? sender, CancelEventArgs e)
+        {
+            TrySaveFromUi();
+            SaveOverlayPreference();
+        }
 
         private void Window_SourceInitialized(object? sender, EventArgs e)
         {
@@ -78,7 +87,8 @@ namespace GravityCapture
             }
         }
 
-        // ---------- settings ----------
+        // ================= settings =================
+
         private void LoadSettingsIntoUi()
         {
             ChannelBox.Text = _settings.Image?.ChannelId ?? "";
@@ -104,23 +114,6 @@ namespace GravityCapture
 
             if (_settings.UseCrop && _settings.CropW > 0 && _settings.CropH > 0)
                 _selectedScreenRect = new System.Drawing.Rectangle(_settings.CropX, _settings.CropY, _settings.CropW, _settings.CropH);
-
-            // load persisted overlay flag from the same global.json
-            try
-            {
-                if (File.Exists(SettingsFile))
-                {
-                    var node = JsonNode.Parse(File.ReadAllText(SettingsFile)) as JsonObject;
-                    _showOcrOverlay = (bool?)node?["ShowOcrOverlay"] ?? false;
-                }
-            }
-            catch
-            {
-                _showOcrOverlay = false;
-            }
-
-            ShowOcrDetailsCheck.IsChecked = _showOcrOverlay;
-            OcrDetailsOverlay.Visibility = _showOcrOverlay ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private bool TrySaveFromUi()
@@ -152,11 +145,8 @@ namespace GravityCapture
                 _settings.Filters.TribematesDemolishing = FilterTribeDemolishBox.IsChecked == true;
                 _settings.Filters.TribematesFreezingTames = FilterTribeFreezeTamesBox.IsChecked == true;
 
-                var root = JsonSerializer.SerializeToNode(_settings, _json) as JsonObject ?? new JsonObject();
-                root["ShowOcrOverlay"] = ShowOcrDetailsCheck.IsChecked == true;
-
-                Directory.CreateDirectory(SettingsDir);
-                File.WriteAllText(SettingsFile, root.ToJsonString(_json));
+                Directory.CreateDirectory(_settingsDir);
+                File.WriteAllText(_settingsFile, JsonSerializer.Serialize(_settings, _json));
 
                 return true;
             }
@@ -173,7 +163,37 @@ namespace GravityCapture
                 SetStatus("Saved.");
         }
 
-        // ---------- ARK window polling ----------
+        // ================ overlay preference (separate tiny file) ================
+        private sealed class OverlayDto { public bool Show { get; set; } }
+
+        private void LoadOverlayPreference()
+        {
+            try
+            {
+                if (File.Exists(_overlayFile))
+                {
+                    var dto = JsonSerializer.Deserialize<OverlayDto>(File.ReadAllText(_overlayFile));
+                    _showOcrOverlay = dto?.Show ?? false;
+                }
+            }
+            catch { _showOcrOverlay = false; }
+
+            ShowOcrDetailsCheck.IsChecked = _showOcrOverlay;
+            OcrDetailsOverlay.Visibility = _showOcrOverlay ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void SaveOverlayPreference()
+        {
+            try
+            {
+                Directory.CreateDirectory(_settingsDir);
+                var dto = new OverlayDto { Show = _showOcrOverlay };
+                File.WriteAllText(_overlayFile, JsonSerializer.Serialize(dto, _json));
+            }
+            catch { }
+        }
+
+        // ================= ARK window polling =================
         private void StartArkPolling()
         {
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -208,14 +228,11 @@ namespace GravityCapture
             return (found, title);
         }
 
-        // ---------- Buttons ----------
+        // ================= Buttons =================
+
         private void StartBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (_selectedScreenRect == null)
-            {
-                SetStatus("Select log area first.");
-                return;
-            }
+            if (_selectedScreenRect == null) { SetStatus("Select log area first."); return; }
 
             _timer ??= new DispatcherTimer();
             _timer.Interval = TimeSpan.FromMilliseconds(_settings.IntervalMinutes > 0 ? _settings.IntervalMinutes * 60_000 : 2500);
@@ -236,192 +253,85 @@ namespace GravityCapture
             var overlay = new RegionSelectorWindow(_arkHwnd);
             if (overlay.ShowDialog() == true)
             {
-                _selectedScreenRect = overlay.SelectedArea;
-                if (_selectedScreenRect != null)
-                {
-                    _settings.UseCrop = true;
-                    _settings.CropX = _selectedScreenRect.Value.X;
-                    _settings.CropY = _selectedScreenRect.Value.Y;
-                    _settings.CropW = _selectedScreenRect.Value.Width;
-                    _settings.CropH = _selectedScreenRect.Value.Height;
-                    TrySaveFromUi();
-                }
+                _selectedScreenRect = overlay.SelectedRect;
+
+                _settings.UseCrop = true;
+                _settings.CropX = _selectedScreenRect.Value.X;
+                _settings.CropY = _selectedScreenRect.Value.Y;
+                _settings.CropW = _selectedScreenRect.Value.Width;
+                _settings.CropH = _selectedScreenRect.Value.Height;
+                TrySaveFromUi();
+
+                SetStatus($"Area set: {_selectedScreenRect.Value.Width}×{_selectedScreenRect.Value.Height} @ {_selectedScreenRect.Value.X},{_selectedScreenRect.Value.Y}");
             }
         }
 
         private async void OcrCropBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (_selectedScreenRect == null)
-            {
-                SetStatus("Select log area first.");
-                return;
-            }
-
-            var bmp = ScreenGrabber.Grab(_selectedScreenRect.Value);
-            LivePreview.Source = ToBitmapSource(bmp);
-
-            var ocr = new OcrClient(_settings);
-            var text = await ocr.OcrAsync(bmp);
-            Clipboard.SetText(text ?? string.Empty);
-            SetStatus("OCR text copied to clipboard.");
-        }
-
-        private async void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
-        {
-            if (_selectedScreenRect == null)
-            {
-                SetStatus("Select log area first.");
-                return;
-            }
-
-            var bmp = ScreenGrabber.Grab(_selectedScreenRect.Value);
-            LivePreview.Source = ToBitmapSource(bmp);
-
-            var client = new GravityClient(_settings);
-            await client.SendScreenshotAsync(bmp);
-            await client.OcrAndPostAsync(bmp);
-
-            SetStatus("OCR & post done.");
-        }
-
-        private void ApiEchoText_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            ApiEchoText.ScrollToEnd();
-        }
-
-        private void SendParsedBtn_Click(object sender, RoutedEventArgs e)
-        {
-            var text = LogLineBox.Text;
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                SetStatus("No text to send.");
-                return;
-            }
-
-            var client = new GravityClient(_settings);
-            _ = client.SendLogLinesAsync(text);
-            SetStatus("Sent pasted logs.");
-        }
-
-        private void SaveDebugBtn_Click(object sender, RoutedEventArgs e)
-        {
+            if (_selectedScreenRect == null) { SetStatus("Select log area first."); return; }
             try
             {
-                var sfd = new SaveFileDialog
+                using var bmp = CaptureScreenRect(_selectedScreenRect.Value);
+                LivePreview.Source = BmpToSource(bmp);
+
+                var jpeg = EncodeJpeg(bmp, 100);
+                using var api = new ProbingApiClient(_settings);
+                var (ok, body) = await api.OcrOnlyAsync(jpeg);
+                ApiEchoText.Text = body;
+
+                if (!ok)
                 {
-                    Filter = "ZIP files (*.zip)|*.zip",
-                    FileName = "gravity-capture-debug.zip"
-                };
-                if (sfd.ShowDialog() == true)
+                    using var ms = new MemoryStream();
+                    bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                    ms.Position = 0;
+                    var remote = new RemoteOcrService(_settings);
+                    var resp = await remote.ExtractAsync(ms, default);
+                    var textJoined = resp?.TextJoined ?? "";
+                    body = string.IsNullOrWhiteSpace(textJoined) ? "{\"error\":\"OCR failed\"}" : JsonSerializer.Serialize(resp);
+                    ok = !string.IsNullOrWhiteSpace(textJoined);
+                    ApiEchoText.Text = body;
+                }
+
+                if (ok)
                 {
-                    using var fs = File.Open(sfd.FileName, FileMode.Create);
-                    using var zip = new ZipArchive(fs, ZipArchiveMode.Create);
-
-                    // settings
-                    if (File.Exists(SettingsFile))
-                        zip.CreateEntryFromFile(SettingsFile, "global.json");
-
-                    // window state
-                    var appData = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                        "GravityCapture");
-                    var winState = Path.Combine(appData, "window.json");
-                    if (File.Exists(winState))
-                        zip.CreateEntryFromFile(winState, "window.json");
-
-                    SetStatus("Debug ZIP saved.");
+                    var text = TryExtractText(body);
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        LogLineBox.Text = text;
+                        if (_showOcrOverlay)
+                        {
+                            OcrDetailsText.Text = text;
+                            OcrDetailsOverlay.Visibility = Visibility.Visible;
+                        }
+                    }
+                    SetStatus("OCR returned");
+                }
+                else
+                {
+                    SetStatus("OCR failed");
                 }
             }
             catch (Exception ex)
             {
-                SetStatus($"Debug ZIP failed: {ex.Message}");
+                ApiEchoText.Text = ex.Message;
+                SetStatus("OCR error: " + ex.Message);
             }
         }
 
-        private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e)
+        private async void OcrAndPostNowBtn_Click(object sender, RoutedEventArgs e)
         {
-            _showOcrOverlay = ShowOcrDetailsCheck.IsChecked == true;
-            OcrDetailsOverlay.Visibility = _showOcrOverlay ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        private void ServerBox_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            // optional live save
-        }
-
-        private void TribeBox_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            // optional live save
-        }
-
-        private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (TopTabs.SelectedIndex == 0)
+            if (_selectedScreenRect == null) { SetStatus("Select log area first."); return; }
+            try
             {
-                CapturePage.Visibility = Visibility.Visible;
-                SettingsPage.Visibility = Visibility.Collapsed;
+                using var bmp = CaptureScreenRect(_selectedScreenRect.Value);
+                LivePreview.Source = BmpToSource(bmp);
+
+                var jpeg = EncodeJpeg(bmp, 100);
+                using var api = new ProbingApiClient(_settings);
+                var (ok, body) = await api.PostScreenshotAsync(jpeg, postVisible: true);
+                ApiEchoText.Text = body;
+                SetStatus(ok ? "Posted screenshot" : "Post failed");
             }
-            else
+            catch (Exception ex)
             {
-                CapturePage.Visibility = Visibility.Collapsed;
-                SettingsPage.Visibility = Visibility.Visible;
-            }
-        }
-
-        private void SetStatus(string text) => StatusText.Text = text;
-
-        private void OnPreviewTick(object? sender, EventArgs e)
-        {
-            if (_selectedScreenRect == null) return;
-
-            var bmp = ScreenGrabber.Grab(_selectedScreenRect.Value);
-            LivePreview.Source = ToBitmapSource(bmp);
-
-            if (_showOcrOverlay)
-            {
-                var ocr = new OcrClient(_settings);
-                _ = ocr.OcrAsync(bmp).ContinueWith(t =>
-                {
-                    var txt = t.Result ?? string.Empty;
-                    Dispatcher.Invoke(() => OcrDetailsText.Text = txt);
-                });
-            }
-        }
-
-        private static BitmapSource ToBitmapSource(System.Drawing.Bitmap bmp)
-        {
-            using var ms = new MemoryStream();
-            bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-            ms.Position = 0;
-            var src = new BitmapImage();
-            src.BeginInit();
-            src.CacheOption = BitmapCacheOption.OnLoad;
-            src.StreamSource = ms;
-            src.EndInit();
-            src.Freeze();
-            return src;
-        }
-
-        // p/invoke ---------------------------------
-        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-
-        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
-
-        [DllImport("user32.dll")]
-        private static extern bool IsWindowVisible(IntPtr hWnd);
-
-        private static string GetWindowText(IntPtr hWnd)
-        {
-            var sb = new StringBuilder(512);
-            _ = GetWindowText(hWnd, sb, sb.Capacity);
-            return sb.ToString();
-        }
-
-        [DllImport("dwmapi.dll")]
-        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
-    }
-}
+                ApiEchoText.Text = ex.M
