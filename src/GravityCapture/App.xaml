@@ -1,152 +1,286 @@
-<Application x:Class="GravityCapture.App"
-             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             StartupUri="MainWindow.xaml">
-  <Application.Resources>
-    <SolidColorBrush x:Key="BgColor"            Color="#1C1E22"/>
-    <SolidColorBrush x:Key="CardColor"          Color="#24272D"/>
-    <SolidColorBrush x:Key="InputBgColor"       Color="#000000"/>
-    <SolidColorBrush x:Key="InputBorderColor"   Color="#3A404A"/>
-    <SolidColorBrush x:Key="TextBrush"          Color="#D0D0D0"/>
-    <SolidColorBrush x:Key="TextMutedBrush"     Color="#B9C0CC"/>
+<Window
+  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  xmlns:av="http://schemas.microsoft.com/expression/blend/2008"
+  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+  mc:Ignorable="av"
+  x:Class="GravityCapture.MainWindow"
+  Title="Gravity Capture"
+  MinWidth="820" MinHeight="920"
+  MaxWidth="820" MaxHeight="920"
+  Background="{x:Null}"
+  Loaded="Window_Loaded"
+  Closing="Window_Closing"
+  SourceInitialized="Window_SourceInitialized"
+  SizeChanged="Window_SizeChanged"
+  HorizontalContentAlignment="Stretch"
+  VerticalContentAlignment="Stretch">
 
-    <Style TargetType="Window">
-      <Setter Property="Background" Value="{DynamicResource BgColor}"/>
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-      <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
-      <Setter Property="SnapsToDevicePixels" Value="True"/>
-    </Style>
+  <Grid Background="#FF16191F">
+    <!-- content + status bar -->
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="26"/>
+    </Grid.RowDefinitions>
 
-    <Style TargetType="GroupBox">
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-      <Setter Property="Background" Value="{DynamicResource BgColor}"/>
-      <Setter Property="Padding" Value="6"/>
-      <Setter Property="Margin"  Value="8"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="GroupBox">
-            <Grid>
+    <!-- MAIN CONTENT -->
+    <TabControl Grid.Row="0"
+                SelectionChanged="TabControl_SelectionChanged"
+                SelectedIndex="0"
+                IsSynchronizedWithCurrentItem="True"
+                Padding="0"
+                BorderThickness="0"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Stretch"
+                Height="Auto"
+                Width="800">
+
+      <!-- ========== Capture ========== -->
+      <TabItem Header="Capture" FontWeight="Bold" Padding="0" SnapsToDevicePixels="True">
+        <TabItem.Effect><DropShadowEffect/></TabItem.Effect>
+
+        <Grid>
+          <Grid.Background>
+            <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
+              <GradientStop Color="Black"/>
+              <GradientStop Color="#FF16191F" Offset="0.412"/>
+            </LinearGradientBrush>
+          </Grid.Background>
+
+          <!-- rows: banner, toolbar, fill -->
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+          </Grid.RowDefinitions>
+
+          <!-- Banner -->
+          <Border Grid.Row="0" Width="820" VerticalAlignment="Bottom">
+            <Image Height="56" Margin="12,6" Stretch="Uniform"
+                   Source="Assets/Gravity_Capture_App_Banner.png"/>
+          </Border>
+
+          <!-- Toolbar -->
+          <Border Grid.Row="1" Width="820" VerticalAlignment="Bottom">
+            <WrapPanel ItemHeight="32" VerticalAlignment="Top" Height="104">
+              <TextBlock Text="Server" Margin="9,0,9,0" Foreground="Red" FontSize="14" Height="22" VerticalAlignment="Bottom">
+                <TextBlock.Effect><DropShadowEffect/></TextBlock.Effect>
+              </TextBlock>
+              <TextBox x:Name="ServerBox" Width="320" Margin="9,0,9,0"
+                       TextChanged="ServerBox_TextChanged" Height="28" Background="Black"
+                       VerticalContentAlignment="Center" VerticalAlignment="Bottom">
+                <TextBox.Effect><DropShadowEffect/></TextBox.Effect>
+              </TextBox>
+
+              <TextBlock Text="Tribe" Margin="9,0,9,0" Foreground="Red" FontSize="14" Height="22" VerticalAlignment="Bottom">
+                <TextBlock.Effect><DropShadowEffect/></TextBlock.Effect>
+              </TextBlock>
+              <TextBox x:Name="TribeBox" Width="320" Padding="6"
+                       ScrollViewer.CanContentScroll="True" Height="28" Margin="9,0,9,0"
+                       TextChanged="TribeBox_TextChanged" Background="Black"
+                       VerticalContentAlignment="Center" VerticalAlignment="Bottom">
+                <TextBox.Effect><DropShadowEffect/></TextBox.Effect>
+              </TextBox>
+
+              <Button x:Name="StartBtn" Content="Start" Click="StartBtn_Click" Margin="60,0,4,0" Width="55" Height="22">
+                <Button.Effect><DropShadowEffect/></Button.Effect>
+              </Button>
+              <Button x:Name="StopBtn" Content="Stop" Click="StopBtn_Click" Margin="4,0,60,0" Width="55" Height="22">
+                <Button.Effect><DropShadowEffect/></Button.Effect>
+              </Button>
+              <Button x:Name="SelectCropBtn" Content="Select Log Area..." Click="SelectCropBtn_Click" Width="164" Height="22" Margin="8,0,4,0">
+                <Button.Effect><DropShadowEffect/></Button.Effect>
+              </Button>
+
+              <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click" Width="164" Height="22" Margin="4,0,4,0" BorderThickness="1">
+                <Button.Effect><DropShadowEffect/></Button.Effect>
+              </Button>
+              <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click"
+                      Padding="9,0,9,0" Margin="4,0,8,0" Height="22" Width="164" BorderThickness="1">
+                <Button.Effect><DropShadowEffect/></Button.Effect>
+              </Button>
+
+              <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click"
+                      Width="216" Height="22" Margin="10,4,10,4">
+                <Button.Effect><DropShadowEffect/></Button.Effect>
+              </Button>
+            </WrapPanel>
+          </Border>
+
+          <!-- main 2-column area -->
+          <Grid Grid.Row="2" Margin="16,12,16,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: Live Preview -->
+            <GroupBox Header="Live Preview" Margin="0,0,16,0" BorderThickness="0"
+                      FontWeight="Bold" Background="#FF16191F"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+              <GroupBox.Effect><DropShadowEffect/></GroupBox.Effect>
+
+              <!-- scale to fit -->
+              <Grid Background="Black" ClipToBounds="True">
+                <Viewbox Stretch="Uniform" StretchDirection="Both" Margin="8" ClipToBounds="True">
+                  <Image x:Name="LivePreview" Stretch="Fill"/>
+                </Viewbox>
+
+                <!-- overlay hidden -->
+                <Border x:Name="OcrDetailsOverlay" Background="Black" Visibility="Collapsed" Margin="8" CornerRadius="2">
+                  <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="OcrDetailsText" FontSize="12" Foreground="#FF2B2F36"/>
+                  </ScrollViewer>
+                </Border>
+              </Grid>
+            </GroupBox>
+
+            <!-- Right: split -->
+            <Grid Grid.Column="1">
               <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
-              </Grid.RowDefinitions>
-              <Border Grid.Row="0" CornerRadius="6,6,0,0"
-                      Background="#1A000000"
-                      BorderBrush="{DynamicResource InputBorderColor}"
-                      BorderThickness="0,1,0,0" Padding="8,4,8,4">
-                <ContentPresenter ContentSource="Header"/>
-              </Border>
-              <Border Grid.Row="1" CornerRadius="0,0,6,6"
-                      Background="{TemplateBinding Background}"
-                      BorderBrush="{DynamicResource InputBorderColor}"
-                      BorderThickness="1">
-                <ContentPresenter Margin="8,6,8,8"/>
-              </Border>
-            </Grid>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style TargetType="Button">
-      <Setter Property="Padding" Value="10,6"/>
-      <Setter Property="Margin"  Value="6"/>
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-      <Setter Property="Background" Value="#2B2F36"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource InputBorderColor}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="Bd" CornerRadius="8"
-                    Background="{TemplateBinding Background}"
-                    BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#343A44"/>
-              </Trigger>
-              <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#3E4551"/>
-              </Trigger>
-              <Trigger Property="IsEnabled" Value="False">
-                <Setter Property="Opacity" Value="0.55"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style TargetType="TextBox">
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-      <Setter Property="Background" Value="{DynamicResource InputBgColor}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource InputBorderColor}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="6,4"/>
-      <Setter Property="Margin"  Value="6"/>
-    </Style>
-
-    <!-- Tabs: bigger, centered, close to banner -->
-    <Style TargetType="TabControl">
-      <Setter Property="Background" Value="#16191F"/>
-      <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="Padding" Value="0"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="TabControl">
-            <Grid SnapsToDevicePixels="True">
-              <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>  <!-- headers -->
-                <RowDefinition Height="Auto"/>  <!-- template banner row -->
-                <RowDefinition Height="*"/>     <!-- content -->
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
               </Grid.RowDefinitions>
 
-              <TabPanel Grid.Row="0" IsItemsHost="True"
-                        HorizontalAlignment="Center"
-                        Margin="0,2,0,6"/>
+              <!-- API Echo -->
+              <GroupBox x:Name="API_Echo_Box" Grid.Row="0" Header="API Echo"
+                        BorderThickness="0" Background="#FF16191F" Padding="0" Margin="0,0,0,12"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <Grid Margin="8">
+                  <TextBox x:Name="ApiEchoText"
+                           AcceptsReturn="True"
+                           IsReadOnly="True"
+                           TextChanged="ApiEchoText_TextChanged"
+                           BorderThickness="0.5"
+                           Padding="6"
+                           HorizontalAlignment="Stretch"
+                           VerticalAlignment="Stretch"/>
+                </Grid>
+              </GroupBox>
 
-              <Border Grid.Row="1" Visibility="Collapsed"/>
+              <!-- Tribe Log Output -->
+              <GroupBox x:Name="Tribe_Log_Output_Box" Grid.Row="1" Header="Tribe Log Text Output Testing"
+                        BorderThickness="0" Background="#FF16191F" Padding="0" Margin="0,0,0,12"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <Grid Margin="8">
+                  <TextBox x:Name="LogLineBox"
+                           AcceptsReturn="True"
+                           Background="Black"
+                           BorderThickness="0.5"
+                           Padding="6"
+                           HorizontalAlignment="Stretch"
+                           VerticalAlignment="Stretch"/>
+                </Grid>
+              </GroupBox>
 
-              <Border Grid.Row="2" Background="{TemplateBinding Background}">
-                <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent"/>
-              </Border>
+              <!-- Send button -->
+              <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center">
+                <Button x:Name="SendPastedBtn"
+                        Content="Send Pasted Logs"
+                        Click="SendParsedBtn_Click"
+                        Height="32"
+                        Width="200"/>
+              </StackPanel>
             </Grid>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
+          </Grid>
+        </Grid>
+      </TabItem>
 
-      <Setter Property="ItemContainerStyle">
-        <Setter.Value>
-          <Style TargetType="TabItem">
-            <Setter Property="Height"   Value="44"/>
-            <Setter Property="MinWidth" Value="160"/>
-            <Setter Property="Padding"  Value="96,10"/>
-            <Setter Property="Margin"   Value="6,2,6,2"/>
-            <Setter Property="Template">
-              <Setter.Value>
-                <ControlTemplate TargetType="TabItem">
-                  <Border x:Name="Bd" CornerRadius="10"
-                          Background="#2B2F36"
-                          BorderBrush="{DynamicResource InputBorderColor}"
-                          BorderThickness="1" Padding="{TemplateBinding Padding}">
-                    <ContentPresenter ContentSource="Header"
-                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                  </Border>
-                  <ControlTemplate.Triggers>
-                    <Trigger Property="IsSelected" Value="True">
-                      <Setter TargetName="Bd" Property="Background" Value="#383E49"/>
-                      <Setter Property="Panel.ZIndex" Value="1"/>
-                    </Trigger>
-                  </ControlTemplate.Triggers>
-                </ControlTemplate>
-              </Setter.Value>
-            </Setter>
-          </Style>
-        </Setter.Value>
-      </Setter>
-    </Style>
-  </Application.Resources>
-</Application>
+      <!-- ========== Settings ========== -->
+      <TabItem Header="Settings" FontWeight="Bold" Padding="0" SnapsToDevicePixels="True">
+        <TabItem.Effect><DropShadowEffect/></TabItem.Effect>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Width="800" Height="750" HorizontalAlignment="Center" VerticalAlignment="Center">
+          <StackPanel Margin="8" Orientation="Vertical">
+            <GroupBox Header="API credentials" BorderThickness="0.5">
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="180"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="Channel ID" Grid.Row="0" Grid.Column="0" Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                <TextBox x:Name="ChannelBox" Grid.Row="0" Grid.Column="1"/>
+
+                <TextBlock Text="API Base URL" Grid.Row="1" Grid.Column="0" Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                <TextBox x:Name="ApiUrlBox" Grid.Row="1" Grid.Column="1"/>
+
+                <TextBlock Text="API Key" Grid.Row="2" Grid.Column="0" Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                <PasswordBox x:Name="ApiKeyBox" Grid.Row="2" Grid.Column="1"/>
+              </Grid>
+            </GroupBox>
+
+            <GroupBox Header="Endpoint paths" BorderThickness="0.5">
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="180"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="OCR path:" Grid.Row="0" Grid.Column="0" Foreground="{DynamicResource TextMutedBrush}"/>
+                <TextBox x:Name="OcrPathBox" Grid.Row="0" Grid.Column="1"/>
+
+                <TextBlock Text="Screenshot ingest path:" Grid.Row="1" Grid.Column="0" Foreground="{DynamicResource TextMutedBrush}"/>
+                <TextBox x:Name="ScreenshotPathBox" Grid.Row="1" Grid.Column="1"/>
+
+                <TextBlock Text="Log-line ingest path:" Grid.Row="2" Grid.Column="0" Foreground="{DynamicResource TextMutedBrush}"/>
+                <TextBox x:Name="LogLinePathBox" Grid.Row="2" Grid.Column="1"/>
+              </Grid>
+            </GroupBox>
+
+            <GroupBox Header="Filters" BorderThickness="0.5">
+              <UniformGrid Columns="2">
+                <CheckBox x:Name="FilterTameDeathsBox"            Content="Tame deaths"/>
+                <CheckBox x:Name="FilterTamesStarvingBox"          Content="Tames starving to death"/>
+                <CheckBox x:Name="FilterStructDestroyedBox"        Content="Structures destroyed"/>
+                <CheckBox x:Name="FilterStructAutoDecayBox"        Content="Structures auto decay"/>
+                <CheckBox x:Name="FilterTribeMateDeathsBox"        Content="Tribemate deaths"/>
+                <CheckBox x:Name="FilterTribeKillsEnemyTamesBox"   Content="Tribe kills enemy tames"/>
+                <CheckBox x:Name="FilterEnemyPlayerKillsBox"       Content="Enemy player kills"/>
+                <CheckBox x:Name="FilterTribeDemolishBox"          Content="Tribemates demolishing structures"/>
+                <CheckBox x:Name="FilterTribeFreezeTamesBox"       Content="Tribemates freezing tames"/>
+              </UniformGrid>
+            </GroupBox>
+
+            <GroupBox Header="Overlay" BorderThickness="0.5">
+              <StackPanel Orientation="Horizontal">
+                <CheckBox x:Name="ShowOcrDetailsCheck"
+                          Content="Show OCR details overlay on Capture"
+                          Checked="ShowOcrDetailsCheck_Changed"
+                          Unchecked="ShowOcrDetailsCheck_Changed"/>
+              </StackPanel>
+            </GroupBox>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+              <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" BorderThickness="0"/>
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
+
+    <!-- STATUS BAR restored -->
+    <Border Grid.Row="1"
+            Background="#202329"
+            BorderBrush="#FF2B2F36"
+            BorderThickness="0,1,0,0"
+            Padding="6,3,6,3">
+      <TextBlock x:Name="StatusText"
+                 FontFamily="Microsoft YaHei"
+                 FontSize="12"
+                 Foreground="#FFD0D0D0"
+                 Text="Ready"/>
+    </Border>
+  </Grid>
+</Window>
