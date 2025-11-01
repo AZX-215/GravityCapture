@@ -17,440 +17,378 @@
     VerticalContentAlignment="Stretch">
 
     <Grid Background="#FF16191F">
+
+        <!-- Whole window rows -->
         <Grid.RowDefinitions>
-            <!-- tabs -->
+            <!-- 0: tab buttons -->
+            <RowDefinition Height="64"/>
+            <!-- 1: banner -->
+            <RowDefinition Height="110"/>
+            <!-- 2: capture-toolbar row (server/tribe/buttons) -->
             <RowDefinition Height="Auto"/>
-            <!-- banner -->
-            <RowDefinition Height="Auto"/>
-            <!-- capture toolbar -->
-            <RowDefinition Height="Auto"/>
-            <!-- page content -->
+            <!-- 3: page host -->
             <RowDefinition Height="*"/>
-            <!-- status bar -->
-            <RowDefinition Height="Auto"/>
+            <!-- 4: status -->
+            <RowDefinition Height="28"/>
         </Grid.RowDefinitions>
 
-        <!-- 1. TABS -->
-        <TabControl x:Name="TopTabs"
-                    Grid.Row="0"
-                    SelectionChanged="TabControl_SelectionChanged"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    Margin="0,8,0,6"
+        <!-- ========== TABS (Capture / Settings) ========== -->
+        <StackPanel Grid.Row="0"
+                    Orientation="Horizontal"
                     HorizontalAlignment="Center"
-                    Width="520"
-                    Height="50">
-            <TabItem Header="Capture"
-                     FontWeight="Bold"
-                     Background="#FF2B2F36" />
-            <TabItem Header="Settings"
-                     FontWeight="Bold"
-                     Background="#FF2B2F36" />
-        </TabControl>
+                    VerticalAlignment="Center"
+                    Margin="0,6,0,0"
+                    Height="48">
+            <Button x:Name="CaptureTabButton"
+                    Content="Capture"
+                    Click="CaptureTabButton_Click"
+                    Width="180"
+                    Height="44"
+                    FontSize="14"
+                    Margin="0,0,12,0"
+                    Background="#FF3A3F47"
+                    Foreground="White"
+                    BorderThickness="0"
+                    CornerRadius="12,12,0,0" />
+            <Button x:Name="SettingsTabButton"
+                    Content="Settings"
+                    Click="SettingsTabButton_Click"
+                    Width="180"
+                    Height="44"
+                    FontSize="14"
+                    Background="#FF2E333A"
+                    Foreground="White"
+                    BorderThickness="0"
+                    CornerRadius="0,12,12,0" />
+        </StackPanel>
 
-        <!-- 2. BANNER -->
+        <!-- ========== BANNER ========== -->
         <Border Grid.Row="1"
-                Background="#FF101014"
-                Height="82"
-                Margin="0,0,0,6">
-            <Image Source="/GravityCapture;component/Images/Gravity_Capture_App_Banner.png"
-                   Height="70"
+                Background="#FF1B1E24"
+                BorderBrush="#FF0F1013"
+                BorderThickness="0,2,0,2"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Center">
+            <Image Source="pack://application:,,,/Assets/Gravity_Capture_App_Banner.png"
                    HorizontalAlignment="Center"
-                   VerticalAlignment="Center"/>
+                   VerticalAlignment="Center"
+                   Stretch="Uniform"
+                   Height="82"
+                   Margin="0,6,0,6"/>
         </Border>
 
-        <!-- 3. TOOLBAR (capture controls) -->
-        <Border Grid.Row="2"
-                Width="820"
-                HorizontalAlignment="Center"
-                Background="Transparent"
-                Margin="0,0,0,6">
-            <WrapPanel ItemHeight="32"
-                       VerticalAlignment="Top"
-                       Height="96"
-                       Margin="0,0,0,0">
-                <TextBlock Text="Server"
-                           Margin="9,0,9,0"
-                           Foreground="Red"
-                           FontFamily="Microsoft YaHei UI"
-                           FontSize="14"
-                           VerticalAlignment="Bottom">
-                    <TextBlock.Effect>
-                        <DropShadowEffect/>
-                    </TextBlock.Effect>
-                </TextBlock>
-
-                <TextBox x:Name="ServerBox"
-                         Width="320"
-                         Margin="9,0,9,0"
-                         Height="28"
-                         Background="Black"
-                         VerticalContentAlignment="Center"
-                         VerticalAlignment="Bottom"
-                         TextChanged="ServerBox_TextChanged">
-                    <TextBox.Effect>
-                        <DropShadowEffect/>
-                    </TextBox.Effect>
-                </TextBox>
-
-                <TextBlock Text="Tribe"
-                           Margin="9,0,9,0"
-                           Foreground="Red"
-                           FontFamily="Microsoft YaHei UI"
-                           FontSize="14"
-                           VerticalAlignment="Bottom">
-                    <TextBlock.Effect>
-                        <DropShadowEffect/>
-                    </TextBlock.Effect>
-                </TextBlock>
-
-                <TextBox x:Name="TribeBox"
-                         Width="320"
-                         Margin="9,0,9,0"
-                         Height="28"
-                         Background="Black"
-                         VerticalContentAlignment="Center"
-                         VerticalAlignment="Bottom"
-                         TextChanged="TribeBox_TextChanged">
-                    <TextBox.Effect>
-                        <DropShadowEffect/>
-                    </TextBox.Effect>
-                </TextBox>
-
-                <Button x:Name="StartBtn"
-                        Content="Start"
-                        Click="StartBtn_Click"
-                        Margin="60,0,4,0"
-                        Width="55"
-                        Height="22"
-                        VerticalAlignment="Bottom">
-                    <Button.Effect>
-                        <DropShadowEffect/>
-                    </Button.Effect>
-                </Button>
-
-                <Button x:Name="StopBtn"
-                        Content="Stop"
-                        Click="StopBtn_Click"
-                        Margin="4,0,60,0"
-                        Width="55"
-                        Height="22"
-                        VerticalAlignment="Bottom">
-                    <Button.Effect>
-                        <DropShadowEffect/>
-                    </Button.Effect>
-                </Button>
-
-                <Button x:Name="SelectCropBtn"
-                        Content="Select Log Area..."
-                        Click="SelectCropBtn_Click"
-                        Width="164"
-                        Height="22"
-                        Margin="8,0,4,0"
-                        VerticalAlignment="Bottom">
-                    <Button.Effect>
-                        <DropShadowEffect/>
-                    </Button.Effect>
-                </Button>
-
-                <Button x:Name="OcrCropBtn"
-                        Content="OCR Crop → Paste"
-                        Click="OcrCropBtn_Click"
-                        Width="164"
-                        Height="22"
-                        Margin="4,0,4,0"
-                        VerticalAlignment="Bottom">
-                    <Button.Effect>
-                        <DropShadowEffect/>
-                    </Button.Effect>
-                </Button>
-
-                <Button x:Name="OcrAndPostNowBtn"
-                        Content="OCR &amp; Post Visible Now"
-                        Click="OcrAndPostNowBtn_Click"
-                        Width="164"
-                        Height="22"
-                        Margin="4,0,8,0"
-                        VerticalAlignment="Bottom">
-                    <Button.Effect>
-                        <DropShadowEffect/>
-                    </Button.Effect>
-                </Button>
-
-                <!-- NOTE: Save debug ZIP moved to Settings tab -->
-            </WrapPanel>
-        </Border>
-
-        <!-- 4A. CAPTURE PAGE -->
-        <Grid x:Name="CapturePage"
-              Grid.Row="3"
-              Margin="8,0,8,8">
+        <!-- ========== CAPTURE TOOLBAR (top of capture page) ========== -->
+        <!-- moved Save debug ZIP out of here -->
+        <Grid x:Name="CaptureToolbar"
+              Grid.Row="2"
+              Margin="14,4,14,4">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="1.25*"/>
-                <ColumnDefinition Width="0.75*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- LEFT: Live Preview -->
-            <GroupBox Header="Live Preview"
-                      Grid.Column="0"
-                      Margin="0,0,8,0"
-                      BorderThickness="0"
-                      FontFamily="Microsoft YaHei UI"
-                      Foreground="#FFD0D0D0"
-                      FontWeight="Bold"
-                      Background="#FF16191F">
-                <GroupBox.Effect>
-                    <DropShadowEffect/>
-                </GroupBox.Effect>
+            <!-- Server label -->
+            <TextBlock Text="Server"
+                       Grid.Column="0"
+                       Foreground="Red"
+                       FontFamily="Microsoft YaHei UI"
+                       FontSize="14"
+                       VerticalAlignment="Center"
+                       Margin="0,0,6,0"/>
+            <!-- Server box -->
+            <TextBox x:Name="ServerBox"
+                     Grid.Column="1"
+                     Height="28"
+                     Margin="0,0,12,0"
+                     Background="Black"
+                     Foreground="White"
+                     VerticalContentAlignment="Center"
+                     TextChanged="ServerBox_TextChanged"/>
 
-                <Border Background="Black"
-                        Margin="4"
-                        CornerRadius="3"
-                        BorderBrush="#442B2F36"
-                        BorderThickness="1">
-                    <Grid>
-                        <!-- SCALE TO FIT -->
-                        <Viewbox Stretch="Uniform"
-                                 HorizontalAlignment="Stretch"
-                                 VerticalAlignment="Stretch">
-                            <Image x:Name="LivePreview"
-                                   Stretch="Uniform"
-                                   ClipToBounds="True"
-                                   Margin="4"/>
-                        </Viewbox>
+            <!-- Tribe label -->
+            <TextBlock Text="Tribe"
+                       Grid.Column="2"
+                       Foreground="Red"
+                       FontFamily="Microsoft YaHei UI"
+                       FontSize="14"
+                       VerticalAlignment="Center"
+                       Margin="0,0,6,0"/>
 
-                        <!-- OCR overlay (can be shown/hidden) -->
-                        <Border x:Name="OcrDetailsOverlay"
-                                Background="Black"
-                                Opacity="0.85"
-                                CornerRadius="2"
-                                Margin="4"
-                                Visibility="Collapsed">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                <TextBlock x:Name="OcrDetailsText"
-                                           FontFamily="Microsoft YaHei Light"
-                                           FontSize="12"
-                                           Foreground="#FF2B2F36"
-                                           TextWrapping="Wrap"/>
-                            </ScrollViewer>
-                        </Border>
-                    </Grid>
-                </Border>
-            </GroupBox>
+            <!-- Tribe box -->
+            <TextBox x:Name="TribeBox"
+                     Grid.Column="3"
+                     Height="28"
+                     Background="Black"
+                     Foreground="White"
+                     VerticalContentAlignment="Center"
+                     TextChanged="TribeBox_TextChanged"/>
 
-            <!-- RIGHT: API Echo + Tribe Log + Button -->
-            <Grid Grid.Column="1">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
+            <!-- Row for buttons under the textboxes -->
+            <Grid Grid.ColumnSpan="4" Margin="0,32,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-                <!-- API ECHO -->
-                <GroupBox x:Name="API_Echo_Box"
-                          Grid.Row="0"
-                          Header="API Echo"
-                          FontFamily="Microsoft YaHei UI"
-                          BorderThickness="0"
-                          Foreground="#FFD0D0D0"
-                          FontWeight="Bold"
-                          Background="#FF16191F"
-                          Margin="0,0,0,6">
-                    <TextBox x:Name="ApiEchoText"
-                             Margin="6"
-                             FontFamily="Microsoft YaHei UI"
-                             FontSize="12"
-                             AcceptsReturn="True"
-                             IsReadOnly="True"
-                             TextChanged="ApiEchoText_TextChanged"
-                             BorderThickness="0.5"
-                             VerticalAlignment="Stretch"
-                             HorizontalAlignment="Stretch"/>
-                </GroupBox>
-
-                <!-- TRIBE LOG BOX -->
-                <GroupBox x:Name="Tribe_Log_Output_Box"
-                          Grid.Row="1"
-                          Header="Tribe Log Text Output Testing"
-                          FontFamily="Microsoft YaHei UI"
-                          BorderThickness="0"
-                          Foreground="White"
-                          FontWeight="Bold"
-                          Background="#FF16191F"
-                          Margin="0,0,0,6">
-                    <Grid>
-                        <TextBox x:Name="LogLineBox"
-                                 Margin="6"
-                                 FontFamily="Microsoft YaHei UI"
-                                 FontSize="12"
-                                 AcceptsReturn="True"
-                                 BorderThickness="0"
-                                 Background="Black"
-                                 VerticalAlignment="Stretch"
-                                 TextWrapping="Wrap"/>
-                    </Grid>
-                </GroupBox>
-
-                <!-- SEND BUTTON -->
-                <Button x:Name="SendPastedBtn"
-                        Grid.Row="2"
-                        Content="Send Pasted Logs"
-                        Click="SendParsedBtn_Click"
-                        Width="180"
-                        Height="34"
+                <Button x:Name="StartBtn"
+                        Grid.Column="0"
+                        Content="Start"
+                        Width="70"
+                        Height="26"
+                        Margin="0,4,6,0"
+                        Click="StartBtn_Click"/>
+                <Button x:Name="StopBtn"
+                        Grid.Column="1"
+                        Content="Stop"
+                        Width="70"
+                        Height="26"
+                        Margin="0,4,12,0"
+                        Click="StopBtn_Click"/>
+                <Button x:Name="SelectCropBtn"
+                        Grid.Column="2"
+                        Content="Select Log Area..."
+                        Width="150"
+                        Height="26"
+                        Margin="0,4,6,0"
+                        Click="SelectCropBtn_Click"/>
+                <Button x:Name="OcrCropBtn"
+                        Grid.Column="3"
+                        Content="OCR Crop → Paste"
+                        Width="150"
+                        Height="26"
+                        Margin="0,4,6,0"
+                        Click="OcrCropBtn_Click"/>
+                <Button x:Name="OcrAndPostNowBtn"
+                        Grid.Column="4"
+                        Content="OCR &amp; Post Visible Now"
+                        Width="170"
+                        Height="26"
                         Margin="0,4,0,0"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Center">
-                    <Button.Effect>
-                        <DropShadowEffect/>
-                    </Button.Effect>
-                </Button>
+                        Click="OcrAndPostNowBtn_Click"/>
             </Grid>
         </Grid>
 
-        <!-- 4B. SETTINGS PAGE -->
-        <ScrollViewer x:Name="SettingsPage"
-                      Grid.Row="3"
-                      Visibility="Collapsed"
-                      VerticalScrollBarVisibility="Auto"
-                      Margin="8,0,8,8">
-            <StackPanel Orientation="Vertical" Margin="0,0,0,8">
+        <!-- ========== PAGE HOST ========== -->
+        <Grid Grid.Row="3" Margin="8,2,8,4" x:Name="PageHost">
 
-                <GroupBox Header="API credentials" BorderThickness="0.5">
-                    <GroupBox.Effect>
-                        <DropShadowEffect/>
-                    </GroupBox.Effect>
-                    <Grid Margin="4">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="180"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
+            <!-- ===== Capture page ===== -->
+            <Grid x:Name="CapturePage" Visibility="Visible">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3*"/>
+                    <ColumnDefinition Width="2*"/>
+                </Grid.ColumnDefinitions>
 
-                        <TextBlock Text="Channel ID"
-                                   Grid.Row="0" Grid.Column="0"
-                                   Foreground="{DynamicResource TextMutedBrush}"
-                                   VerticalAlignment="Center"
-                                   HorizontalAlignment="Center"/>
-                        <TextBox x:Name="ChannelBox" Grid.Row="0" Grid.Column="1"/>
-
-                        <TextBlock Text="API Base URL"
-                                   Grid.Row="1" Grid.Column="0"
-                                   Foreground="{DynamicResource TextMutedBrush}"
-                                   VerticalAlignment="Center"
-                                   HorizontalAlignment="Center"/>
-                        <TextBox x:Name="ApiUrlBox" Grid.Row="1" Grid.Column="1"/>
-
-                        <TextBlock Text="API Key"
-                                   Grid.Row="2" Grid.Column="0"
-                                   Foreground="{DynamicResource TextMutedBrush}"
-                                   VerticalAlignment="Center"
-                                   HorizontalAlignment="Center"/>
-                        <PasswordBox x:Name="ApiKeyBox" Grid.Row="2" Grid.Column="1"/>
+                <!-- LEFT: Live preview -->
+                <GroupBox Header="Live Preview"
+                          Grid.Column="0"
+                          Margin="0,0,10,0"
+                          FontFamily="Microsoft YaHei UI"
+                          Foreground="#FFD0D0D0"
+                          Background="#FF1E2025"
+                          BorderThickness="0.5"
+                          BorderBrush="#FF394049">
+                    <Grid Margin="6" ClipToBounds="True">
+                        <!-- actual preview box -->
+                        <Border Background="Black"
+                                BorderBrush="#FF2B2F36"
+                                BorderThickness="1"
+                                CornerRadius="2"
+                                Margin="0,18,0,0"
+                                ClipToBounds="True">
+                            <Grid>
+                                <Image x:Name="LivePreview"
+                                       Stretch="Uniform"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       SnapsToDevicePixels="True"/>
+                                <!-- OCR overlay -->
+                                <Border x:Name="OcrDetailsOverlay"
+                                        Background="#CC000000"
+                                        Margin="4"
+                                        CornerRadius="2"
+                                        Visibility="Collapsed"
+                                        VerticalAlignment="Stretch"
+                                        HorizontalAlignment="Stretch">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <TextBlock x:Name="OcrDetailsText"
+                                                   FontFamily="Consolas"
+                                                   FontSize="12"
+                                                   Foreground="#FFF3F3F3"
+                                                   TextWrapping="Wrap"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Grid>
+                        </Border>
                     </Grid>
                 </GroupBox>
 
-                <GroupBox Header="Endpoint paths" BorderThickness="0.5" Margin="0,8,0,0">
-                    <GroupBox.Effect>
-                        <DropShadowEffect/>
-                    </GroupBox.Effect>
-                    <Grid Margin="4">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="180"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
+                <!-- RIGHT: 2 stacked boxes + button -->
+                <Grid Grid.Column="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-                        <TextBlock Text="OCR path:"
-                                   Grid.Row="0" Grid.Column="0"
-                                   Foreground="{DynamicResource TextMutedBrush}"/>
-                        <TextBox x:Name="OcrPathBox" Grid.Row="0" Grid.Column="1"/>
+                    <!-- API Echo -->
+                    <GroupBox x:Name="API_Echo_Box"
+                              Grid.Row="0"
+                              Header="API Echo"
+                              FontFamily="Microsoft YaHei UI"
+                              Foreground="#FFD0D0D0"
+                              Background="#FF1E2025"
+                              BorderThickness="0.5"
+                              BorderBrush="#FF394049"
+                              Margin="0,0,0,8">
+                        <TextBox x:Name="ApiEchoText"
+                                 Margin="6"
+                                 Background="Black"
+                                 Foreground="White"
+                                 Height="Auto"
+                                 VerticalScrollBarVisibility="Auto"
+                                 AcceptsReturn="True"
+                                 TextChanged="ApiEchoText_TextChanged"/>
+                    </GroupBox>
 
-                        <TextBlock Text="Screenshot ingest path:"
-                                   Grid.Row="1" Grid.Column="0"
-                                   Foreground="{DynamicResource TextMutedBrush}"/>
-                        <TextBox x:Name="ScreenshotPathBox" Grid.Row="1" Grid.Column="1"/>
+                    <!-- Tribe log text output -->
+                    <GroupBox x:Name="Tribe_Log_Output_Box"
+                              Grid.Row="1"
+                              Header="Tribe Log Text Output Testing"
+                              FontFamily="Microsoft YaHei UI"
+                              Foreground="#FFD0D0D0"
+                              Background="#FF1E2025"
+                              BorderThickness="0.5"
+                              BorderBrush="#FF394049"
+                              Margin="0,0,0,8">
+                        <Grid>
+                            <TextBox x:Name="LogLineBox"
+                                     Margin="6"
+                                     Background="Black"
+                                     Foreground="White"
+                                     AcceptsReturn="True"
+                                     VerticalScrollBarVisibility="Auto"
+                                     TextWrapping="Wrap"
+                                     MinHeight="120"/>
+                        </Grid>
+                    </GroupBox>
 
-                        <TextBlock Text="Log-line ingest path:"
-                                   Grid.Row="2" Grid.Column="0"
-                                   Foreground="{DynamicResource TextMutedBrush}"/>
-                        <TextBox x:Name="LogLinePathBox" Grid.Row="2" Grid.Column="1"/>
-                    </Grid>
-                </GroupBox>
+                    <!-- Send pasted button -->
+                    <Button x:Name="SendPastedBtn"
+                            Grid.Row="2"
+                            Content="Send Pasted Logs"
+                            Width="180"
+                            Height="34"
+                            HorizontalAlignment="Right"
+                            Margin="0,0,6,0"
+                            Click="SendPastedBtn_Click"/>
+                </Grid>
+            </Grid>
 
-                <GroupBox Header="Filters" BorderThickness="0.5" Margin="0,8,0,0">
-                    <GroupBox.Effect>
-                        <DropShadowEffect/>
-                    </GroupBox.Effect>
-                    <UniformGrid Columns="2">
-                        <CheckBox x:Name="FilterTameDeathsBox"            Content="Tame deaths"/>
-                        <CheckBox x:Name="FilterTamesStarvingBox"          Content="Tames starving to death"/>
-                        <CheckBox x:Name="FilterStructDestroyedBox"        Content="Structures destroyed"/>
-                        <CheckBox x:Name="FilterStructAutoDecayBox"        Content="Structures auto decay"/>
-                        <CheckBox x:Name="FilterTribeMateDeathsBox"        Content="Tribemate deaths"/>
-                        <CheckBox x:Name="FilterTribeKillsEnemyTamesBox"   Content="Tribe kills enemy tames"/>
-                        <CheckBox x:Name="FilterEnemyPlayerKillsBox"       Content="Enemy player kills"/>
-                        <CheckBox x:Name="FilterTribeDemolishBox"          Content="Tribemates demolishing structures"/>
-                        <CheckBox x:Name="FilterTribeFreezeTamesBox"       Content="Tribemates freezing tames"/>
-                    </UniformGrid>
-                </GroupBox>
+            <!-- ===== Settings page ===== -->
+            <ScrollViewer x:Name="SettingsPage"
+                          Visibility="Collapsed"
+                          VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="6">
 
-                <GroupBox Header="Overlay" BorderThickness="0.5" Margin="0,8,0,0">
-                    <GroupBox.Effect>
-                        <DropShadowEffect/>
-                    </GroupBox.Effect>
-                    <StackPanel Orientation="Horizontal" Margin="6,2,6,6">
-                        <CheckBox x:Name="ShowOcrDetailsCheck"
-                                  Content="Show OCR details overlay on Capture"
-                                  Checked="ShowOcrDetailsCheck_Changed"
-                                  Unchecked="ShowOcrDetailsCheck_Changed"/>
+                    <!-- API credentials -->
+                    <GroupBox Header="API credentials" BorderThickness="0.5">
+                        <Grid Margin="4">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Text="Channel ID" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Foreground="#FFB5B9C0"/>
+                            <TextBox x:Name="ChannelBox" Grid.Row="0" Grid.Column="1"/>
+
+                            <TextBlock Text="API Base URL" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Foreground="#FFB5B9C0"/>
+                            <TextBox x:Name="ApiUrlBox" Grid.Row="1" Grid.Column="1"/>
+
+                            <TextBlock Text="API Key" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Foreground="#FFB5B9C0"/>
+                            <PasswordBox x:Name="ApiKeyBox" Grid.Row="2" Grid.Column="1"/>
+                        </Grid>
+                    </GroupBox>
+
+                    <!-- Endpoint paths -->
+                    <GroupBox Header="Endpoint paths" BorderThickness="0.5" Margin="0,6,0,0">
+                        <Grid Margin="4">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Text="OCR path:" Grid.Row="0" Grid.Column="0" Foreground="#FFB5B9C0"/>
+                            <TextBox x:Name="OcrPathBox" Grid.Row="0" Grid.Column="1"/>
+
+                            <TextBlock Text="Screenshot ingest path:" Grid.Row="1" Grid.Column="0" Foreground="#FFB5B9C0"/>
+                            <TextBox x:Name="ScreenshotPathBox" Grid.Row="1" Grid.Column="1"/>
+
+                            <TextBlock Text="Log-line ingest path:" Grid.Row="2" Grid.Column="0" Foreground="#FFB5B9C0"/>
+                            <TextBox x:Name="LogLinePathBox" Grid.Row="2" Grid.Column="1"/>
+                        </Grid>
+                    </GroupBox>
+
+                    <!-- Filters -->
+                    <GroupBox Header="Filters" BorderThickness="0.5" Margin="0,6,0,0">
+                        <UniformGrid Columns="2">
+                            <CheckBox x:Name="FilterTameDeathsBox" Content="Tame deaths"/>
+                            <CheckBox x:Name="FilterTamesStarvingBox" Content="Tames starving to death"/>
+                            <CheckBox x:Name="FilterStructDestroyedBox" Content="Structures destroyed"/>
+                            <CheckBox x:Name="FilterStructAutoDecayBox" Content="Structures auto decay"/>
+                            <CheckBox x:Name="FilterTribeMateDeathsBox" Content="Tribemate deaths"/>
+                            <CheckBox x:Name="FilterTribeKillsEnemyTamesBox" Content="Tribe kills enemy tames"/>
+                            <CheckBox x:Name="FilterEnemyPlayerKillsBox" Content="Enemy player kills"/>
+                            <CheckBox x:Name="FilterTribeDemolishBox" Content="Tribemates demolishing structures"/>
+                            <CheckBox x:Name="FilterTribeFreezeTamesBox" Content="Tribemates freezing tames"/>
+                        </UniformGrid>
+                    </GroupBox>
+
+                    <!-- Overlay -->
+                    <GroupBox Header="Overlay" BorderThickness="0.5" Margin="0,6,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <CheckBox x:Name="ShowOcrDetailsCheck"
+                                      Content="Show OCR details overlay on Capture"
+                                      Checked="ShowOcrDetailsCheck_Changed"
+                                      Unchecked="ShowOcrDetailsCheck_Changed"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <!-- Bottom buttons on Settings -->
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" Width="90" Margin="0,0,8,0"/>
+                        <!-- moved here -->
+                        <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click" Width="140"/>
                     </StackPanel>
-                </GroupBox>
 
-                <!-- Save debug ZIP moved here -->
-                <Button x:Name="SaveDebugBtn"
-                        Content="Save debug ZIP"
-                        Click="SaveDebugBtn_Click"
-                        Width="160"
-                        Margin="0,10,0,0">
-                    <Button.Effect>
-                        <DropShadowEffect/>
-                    </Button.Effect>
-                </Button>
-
-                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                    <Button x:Name="SaveBtn"
-                            Content="Save"
-                            Click="SaveBtn_Click"
-                            BorderThickness="0">
-                        <Button.Effect>
-                            <DropShadowEffect/>
-                        </Button.Effect>
-                    </Button>
                 </StackPanel>
+            </ScrollViewer>
+        </Grid>
 
-            </StackPanel>
-        </ScrollViewer>
-
-        <!-- 5. STATUS BAR -->
+        <!-- ========== STATUS BAR ========== -->
         <Border Grid.Row="4"
                 BorderBrush="#FF2B2F36"
-                CornerRadius="2,2,0,0"
-                Margin="0,0,0,0"
-                Background="#FF1A1D23"
-                Height="28">
+                BorderThickness="0,1,0,0"
+                Background="#FF1B1E24"
+                Padding="6,4,6,2">
             <TextBlock x:Name="StatusText"
-                       FontFamily="Microsoft YaHei"
-                       Margin="6,4,0,0"
                        Foreground="White"
+                       FontFamily="Segoe UI"
+                       FontSize="11"
                        Text=""/>
         </Border>
     </Grid>
