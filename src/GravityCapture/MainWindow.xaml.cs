@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;              // <— added
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using GravityCapture.Models;
@@ -43,6 +44,10 @@ namespace GravityCapture
             LoadSettingsIntoUi();
             StartArkPolling();
             SetStatus("Ready.");
+
+            // show capture page by default
+            CapturePage.Visibility = Visibility.Visible;
+            SettingsPage.Visibility = Visibility.Collapsed;
         }
 
         private void Window_Closing(object? sender, CancelEventArgs e) => TrySaveFromUi();
@@ -251,7 +256,11 @@ namespace GravityCapture
                     if (!string.IsNullOrWhiteSpace(text))
                     {
                         LogLineBox.Text = text;
-                        if (_showOcrOverlay) { OcrDetailsText.Text = text; OcrDetailsOverlay.Visibility = Visibility.Visible; }
+                        if (_showOcrOverlay)
+                        {
+                            OcrDetailsText.Text = text;
+                            OcrDetailsOverlay.Visibility = Visibility.Visible;
+                        }
                     }
                     SetStatus("OCR returned");
                 }
@@ -306,7 +315,6 @@ namespace GravityCapture
             }
         }
 
-        // NEW: keep XAML compatibility (Click="SendPastedBtn_Click")
         private void SendPastedBtn_Click(object sender, RoutedEventArgs e) => SendParsedBtn_Click(sender, e);
 
         private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e)
@@ -431,14 +439,6 @@ namespace GravityCapture
             return SplitArkTribeLogs(raw);
         }
 
-        /// <summary>
-        /// Normalize OCR text into Ark-style entries.
-        /// Each entry:
-        /// - starts with "Day " (case-insensitive)
-        /// - ends with "!"
-        /// Multi-line entries are collapsed into one line.
-        /// A blank line is inserted between entries.
-        /// </summary>
         private static string SplitArkTribeLogs(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
@@ -474,13 +474,11 @@ namespace GravityCapture
 
                 if (startsWithDay)
                 {
-                    // start of a new entry
                     FlushCurrent();
                     current.Append(line.Trim());
                 }
                 else
                 {
-                    // continuation of current entry
                     if (current.Length > 0)
                         current.Append(' ').Append(line.Trim());
                     else
@@ -489,18 +487,35 @@ namespace GravityCapture
 
                 if (endsWithBang)
                 {
-                    // explicit end
                     FlushCurrent();
                 }
             }
 
-            // trailing entry
             FlushCurrent();
 
             return sb.ToString().TrimEnd();
         }
 
         private void SetStatus(string s) => StatusText.Text = s;
+
+        // ----- tab buttons -----
+        private void CaptureTabButton_Click(object sender, RoutedEventArgs e)
+        {
+            CapturePage.Visibility = Visibility.Visible;
+            SettingsPage.Visibility = Visibility.Collapsed;
+
+            CaptureTabButton.Background = new SolidColorBrush(Color.FromRgb(58, 63, 71));  // active
+            SettingsTabButton.Background = new SolidColorBrush(Color.FromRgb(46, 51, 58));  // inactive
+        }
+
+        private void SettingsTabButton_Click(object sender, RoutedEventArgs e)
+        {
+            CapturePage.Visibility = Visibility.Collapsed;
+            SettingsPage.Visibility = Visibility.Visible;
+
+            CaptureTabButton.Background = new SolidColorBrush(Color.FromRgb(46, 51, 58));  // inactive
+            SettingsTabButton.Background = new SolidColorBrush(Color.FromRgb(58, 63, 71));  // active
+        }
 
         // Win32
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
@@ -519,23 +534,18 @@ namespace GravityCapture
 
         private void ApiEchoText_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
         {
-
         }
 
         private void ServerBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
         {
-
         }
 
         private void TabControl_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
         {
-
         }
 
         private void TribeBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-            // You can add logic here to handle tribe box text changes if needed.
-            // Example: string tribeName = (sender as TextBox)?.Text;
         }
     }
 
