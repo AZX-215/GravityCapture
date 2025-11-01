@@ -17,11 +17,15 @@
   VerticalContentAlignment="Stretch">
 
   <Grid Background="#FF16191F">
+    <!-- content + status bar -->
     <Grid.RowDefinitions>
       <RowDefinition Height="*"/>
+      <RowDefinition Height="26"/>
     </Grid.RowDefinitions>
 
-    <TabControl SelectionChanged="TabControl_SelectionChanged"
+    <!-- MAIN CONTENT -->
+    <TabControl Grid.Row="0"
+                SelectionChanged="TabControl_SelectionChanged"
                 SelectedIndex="0"
                 IsSynchronizedWithCurrentItem="True"
                 Padding="0"
@@ -43,7 +47,7 @@
             </LinearGradientBrush>
           </Grid.Background>
 
-          <!-- rows: Banner / Toolbar / Content fills rest -->
+          <!-- rows: banner, toolbar, fill -->
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -62,14 +66,19 @@
               <TextBlock Text="Server" Margin="9,0,9,0" Foreground="Red" FontSize="14" Height="22" VerticalAlignment="Bottom">
                 <TextBlock.Effect><DropShadowEffect/></TextBlock.Effect>
               </TextBlock>
-              <TextBox x:Name="ServerBox" Width="320" Margin="9,0,9,0" TextChanged="ServerBox_TextChanged" Height="28" Background="Black" VerticalContentAlignment="Center" VerticalAlignment="Bottom">
+              <TextBox x:Name="ServerBox" Width="320" Margin="9,0,9,0"
+                       TextChanged="ServerBox_TextChanged" Height="28" Background="Black"
+                       VerticalContentAlignment="Center" VerticalAlignment="Bottom">
                 <TextBox.Effect><DropShadowEffect/></TextBox.Effect>
               </TextBox>
 
               <TextBlock Text="Tribe" Margin="9,0,9,0" Foreground="Red" FontSize="14" Height="22" VerticalAlignment="Bottom">
                 <TextBlock.Effect><DropShadowEffect/></TextBlock.Effect>
               </TextBlock>
-              <TextBox x:Name="TribeBox" Width="320" Padding="6" ScrollViewer.CanContentScroll="True" Height="28" Margin="9,0,9,0" TextChanged="TribeBox_TextChanged" Background="Black" VerticalContentAlignment="Center" VerticalAlignment="Bottom">
+              <TextBox x:Name="TribeBox" Width="320" Padding="6"
+                       ScrollViewer.CanContentScroll="True" Height="28" Margin="9,0,9,0"
+                       TextChanged="TribeBox_TextChanged" Background="Black"
+                       VerticalContentAlignment="Center" VerticalAlignment="Bottom">
                 <TextBox.Effect><DropShadowEffect/></TextBox.Effect>
               </TextBox>
 
@@ -86,36 +95,38 @@
               <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Click="OcrCropBtn_Click" Width="164" Height="22" Margin="4,0,4,0" BorderThickness="1">
                 <Button.Effect><DropShadowEffect/></Button.Effect>
               </Button>
-              <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click" Padding="9,0,9,0" Margin="4,0,8,0" Height="22" Width="164" BorderThickness="1">
+              <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Click="OcrAndPostNowBtn_Click"
+                      Padding="9,0,9,0" Margin="4,0,8,0" Height="22" Width="164" BorderThickness="1">
                 <Button.Effect><DropShadowEffect/></Button.Effect>
               </Button>
 
-              <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click" Width="216" Height="22" Margin="10,4,10,4">
+              <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click"
+                      Width="216" Height="22" Margin="10,4,10,4">
                 <Button.Effect><DropShadowEffect/></Button.Effect>
               </Button>
             </WrapPanel>
           </Border>
 
-          <!-- Content -->
+          <!-- main 2-column area -->
           <Grid Grid.Row="2" Margin="16,12,16,16">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*"/>
               <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- LEFT: Live Preview fills full height -->
+            <!-- Left: Live Preview -->
             <GroupBox Header="Live Preview" Margin="0,0,16,0" BorderThickness="0"
                       FontWeight="Bold" Background="#FF16191F"
                       HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
               <GroupBox.Effect><DropShadowEffect/></GroupBox.Effect>
 
-              <!-- Viewbox guarantees scale-to-fit; no overflow -->
+              <!-- scale to fit -->
               <Grid Background="Black" ClipToBounds="True">
                 <Viewbox Stretch="Uniform" StretchDirection="Both" Margin="8" ClipToBounds="True">
                   <Image x:Name="LivePreview" Stretch="Fill"/>
                 </Viewbox>
 
-                <!-- overlay starts hidden -->
+                <!-- overlay hidden -->
                 <Border x:Name="OcrDetailsOverlay" Background="Black" Visibility="Collapsed" Margin="8" CornerRadius="2">
                   <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <TextBlock x:Name="OcrDetailsText" FontSize="12" Foreground="#FF2B2F36"/>
@@ -124,7 +135,7 @@
               </Grid>
             </GroupBox>
 
-            <!-- RIGHT: API Echo (top half) / Tribe Log (bottom half) / Button -->
+            <!-- Right: split -->
             <Grid Grid.Column="1">
               <Grid.RowDefinitions>
                 <RowDefinition Height="*"/>
@@ -132,29 +143,44 @@
                 <RowDefinition Height="Auto"/>
               </Grid.RowDefinitions>
 
-              <GroupBox x:Name="API_Echo_Box" Grid.Row="0" Header="API Echo" BorderThickness="0"
-                        Background="#FF16191F" Padding="0" Margin="0,0,0,12"
+              <!-- API Echo -->
+              <GroupBox x:Name="API_Echo_Box" Grid.Row="0" Header="API Echo"
+                        BorderThickness="0" Background="#FF16191F" Padding="0" Margin="0,0,0,12"
                         HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                 <Grid Margin="8">
-                  <TextBox x:Name="ApiEchoText" AcceptsReturn="True" IsReadOnly="True"
-                           TextChanged="ApiEchoText_TextChanged" BorderThickness="0.5" Padding="6"
-                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                  <TextBox x:Name="ApiEchoText"
+                           AcceptsReturn="True"
+                           IsReadOnly="True"
+                           TextChanged="ApiEchoText_TextChanged"
+                           BorderThickness="0.5"
+                           Padding="6"
+                           HorizontalAlignment="Stretch"
+                           VerticalAlignment="Stretch"/>
                 </Grid>
               </GroupBox>
 
+              <!-- Tribe Log Output -->
               <GroupBox x:Name="Tribe_Log_Output_Box" Grid.Row="1" Header="Tribe Log Text Output Testing"
                         BorderThickness="0" Background="#FF16191F" Padding="0" Margin="0,0,0,12"
                         HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                 <Grid Margin="8">
-                  <TextBox x:Name="LogLineBox" AcceptsReturn="True"
-                           Background="Black" BorderThickness="0.5" Padding="6"
-                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                  <TextBox x:Name="LogLineBox"
+                           AcceptsReturn="True"
+                           Background="Black"
+                           BorderThickness="0.5"
+                           Padding="6"
+                           HorizontalAlignment="Stretch"
+                           VerticalAlignment="Stretch"/>
                 </Grid>
               </GroupBox>
 
-              <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,0">
-                <Button x:Name="SendPastedBtn" Content="Send Pasted Logs"
-                        Click="SendParsedBtn_Click" Height="32" Width="200"/>
+              <!-- Send button -->
+              <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center">
+                <Button x:Name="SendPastedBtn"
+                        Content="Send Pasted Logs"
+                        Click="SendParsedBtn_Click"
+                        Height="32"
+                        Width="200"/>
               </StackPanel>
             </Grid>
           </Grid>
@@ -243,5 +269,18 @@
         </ScrollViewer>
       </TabItem>
     </TabControl>
+
+    <!-- STATUS BAR restored -->
+    <Border Grid.Row="1"
+            Background="#202329"
+            BorderBrush="#FF2B2F36"
+            BorderThickness="0,1,0,0"
+            Padding="6,3,6,3">
+      <TextBlock x:Name="StatusText"
+                 FontFamily="Microsoft YaHei"
+                 FontSize="12"
+                 Foreground="#FFD0D0D0"
+                 Text="Ready"/>
+    </Border>
   </Grid>
 </Window>
