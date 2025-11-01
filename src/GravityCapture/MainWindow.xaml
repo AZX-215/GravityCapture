@@ -17,275 +17,221 @@
     VerticalContentAlignment="Stretch">
 
     <Grid Background="#FF16191F">
-
-        <!-- window rows -->
         <Grid.RowDefinitions>
-            <RowDefinition Height="64"/>   <!-- tabs -->
-            <RowDefinition Height="110"/>  <!-- banner -->
-            <RowDefinition Height="Auto"/> <!-- capture toolbar -->
-            <RowDefinition Height="*"/>    <!-- page host -->
-            <RowDefinition Height="28"/>   <!-- status -->
+            <!-- 0: tabs -->
+            <RowDefinition Height="70"/>
+            <!-- 1: banner -->
+            <RowDefinition Height="115"/>
+            <!-- 2: capture toolbar -->
+            <RowDefinition Height="90"/>
+            <!-- 3: page body (capture/settings) -->
+            <RowDefinition Height="*"/>
+            <!-- 4: status -->
+            <RowDefinition Height="26"/>
         </Grid.RowDefinitions>
 
-        <!-- ================= TABS ================= -->
-        <Grid Grid.Row="0"
-              Margin="0,6,0,0"
-              HorizontalAlignment="Center"
-              VerticalAlignment="Center"
-              Height="48"
-              Width="420">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
+        <!-- tabs row -->
+        <Border Grid.Row="0" Background="#252931">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,4,0,0">
+                <Button x:Name="CaptureTabButton"
+                        Width="180"
+                        Height="42"
+                        Margin="0,0,18,0"
+                        Background="#3A3F47"
+                        Foreground="White"
+                        FontSize="14"
+                        FontWeight="SemiBold"
+                        BorderThickness="0"
+                        Click="CaptureTabButton_Click"
+                        Cursor="Hand"
+                        HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center">
+                    Capture
+                </Button>
 
-            <Button x:Name="CaptureTabButton"
-                    Grid.Column="0"
-                    Content="Capture"
-                    Click="CaptureTabButton_Click"
-                    Margin="0,0,12,0"
-                    Height="44"
-                    HorizontalAlignment="Stretch"
-                    VerticalAlignment="Center"
-                    FontSize="14"
-                    Background="#FF3A3F47"
-                    Foreground="White"
-                    BorderThickness="0" />
-
-            <Button x:Name="SettingsTabButton"
-                    Grid.Column="1"
-                    Content="Settings"
-                    Click="SettingsTabButton_Click"
-                    Margin="12,0,0,0"
-                    Height="44"
-                    HorizontalAlignment="Stretch"
-                    VerticalAlignment="Center"
-                    FontSize="14"
-                    Background="#FF2E333A"
-                    Foreground="White"
-                    BorderThickness="0" />
-        </Grid>
-
-        <!-- ================= BANNER ================= -->
-        <Border Grid.Row="1"
-                Background="#FF1B1E24"
-                BorderBrush="#FF0F1013"
-                BorderThickness="0,2,0,2"
-                HorizontalAlignment="Stretch"
-                VerticalAlignment="Center">
-            <Image Source="pack://application:,,,/Assets/Gravity_Capture_App_Banner.png"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   Stretch="Uniform"
-                   Height="82"
-                   Margin="0,6,0,6"/>
+                <Button x:Name="SettingsTabButton"
+                        Width="180"
+                        Height="42"
+                        Margin="0"
+                        Background="#2E333A"
+                        Foreground="White"
+                        FontSize="14"
+                        FontWeight="SemiBold"
+                        BorderThickness="0"
+                        Click="SettingsTabButton_Click"
+                        Cursor="Hand"
+                        HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center">
+                    Settings
+                </Button>
+            </StackPanel>
         </Border>
 
-        <!-- ================= CAPTURE TOOLBAR ================= -->
-        <Grid x:Name="CaptureToolbar"
-              Grid.Row="2"
-              Margin="14,4,14,4">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+        <!-- banner row -->
+        <Border Grid.Row="1" Background="#1F232A" BorderBrush="#1F232A" BorderThickness="0,0,0,3">
+            <Image Source="Assets/Gravity_Capture_App_Banner.png"
+                   Width="280"
+                   Height="90"
+                   Stretch="Uniform"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"/>
+        </Border>
+
+        <!-- capture toolbar row -->
+        <Border Grid.Row="2" Background="#FF16191F" Padding="8,4,8,4">
+            <StackPanel Orientation="Vertical">
+                <!-- row 1 -->
+                <Grid Margin="0,2,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Text="Server" Foreground="#FFD60000" VerticalAlignment="Center" FontWeight="Bold" Margin="0,0,6,0"/>
+                    <TextBox x:Name="ServerBox"
+                             Grid.Column="1"
+                             Height="26"
+                             Background="Black"
+                             Foreground="White"
+                             BorderBrush="#3A3F47"
+                             TextChanged="ServerBox_TextChanged"
+                             VerticalContentAlignment="Center"
+                             Margin="0,0,16,0"/>
+
+                    <TextBlock Grid.Column="2" Text="Tribe" Foreground="#FFD60000" VerticalAlignment="Center" FontWeight="Bold" Margin="0,0,6,0"/>
+                    <TextBox x:Name="TribeBox"
+                             Grid.Column="3"
+                             Height="26"
+                             Background="Black"
+                             Foreground="White"
+                             BorderBrush="#3A3F47"
+                             TextChanged="TribeBox_TextChanged"
+                             VerticalContentAlignment="Center"/>
+                </Grid>
+
+                <!-- row 2: buttons -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,0,0,0">
+                    <Button x:Name="StartBtn" Content="Start" Width="60" Height="26" Margin="0,0,6,0" Click="StartBtn_Click"/>
+                    <Button x:Name="StopBtn" Content="Stop" Width="60" Height="26" Margin="0,0,14,0" Click="StopBtn_Click"/>
+
+                    <Button x:Name="SelectCropBtn" Content="Select Log Area..." Width="140" Height="26" Margin="0,0,6,0" Click="SelectCropBtn_Click"/>
+                    <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Width="140" Height="26" Margin="0,0,6,0" Click="OcrCropBtn_Click"/>
+                    <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Width="170" Height="26" Margin="0,0,0,0" Click="OcrAndPostNowBtn_Click"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- capture page -->
+        <Grid x:Name="CapturePage" Grid.Row="3" Margin="8,4,8,4">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="3.3*"/>
+                <ColumnDefinition Width="2.2*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- row 0 -->
-            <TextBlock Text="Server"
-                       Grid.Row="0" Grid.Column="0"
-                       Foreground="Red"
-                       FontFamily="Microsoft YaHei UI"
-                       FontSize="14"
-                       VerticalAlignment="Center"
-                       Margin="0,0,6,0"/>
-            <TextBox x:Name="ServerBox"
-                     Grid.Row="0" Grid.Column="1"
-                     MinWidth="240"
-                     Height="28"
-                     Margin="0,0,12,0"
-                     Background="Black"
-                     Foreground="White"
-                     VerticalContentAlignment="Center"
-                     TextChanged="ServerBox_TextChanged"/>
-            <TextBlock Text="Tribe"
-                       Grid.Row="0" Grid.Column="2"
-                       Foreground="Red"
-                       FontFamily="Microsoft YaHei UI"
-                       FontSize="14"
-                       VerticalAlignment="Center"
-                       Margin="0,0,6,0"/>
-            <TextBox x:Name="TribeBox"
-                     Grid.Row="0" Grid.Column="3"
-                     MinWidth="240"
-                     Height="28"
-                     Background="Black"
-                     Foreground="White"
-                     VerticalContentAlignment="Center"
-                     TextChanged="TribeBox_TextChanged"/>
+            <!-- left: live preview -->
+            <GroupBox Header="Live Preview"
+                      Margin="0,0,10,0"
+                      BorderThickness="1"
+                      BorderBrush="#2E333A"
+                      Foreground="White"
+                      FontWeight="SemiBold"
+                      Background="#1B1E24">
+                <Grid Background="#000000" Margin="6">
+                    <Image x:Name="LivePreview"
+                           Stretch="Uniform"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           SnapsToDevicePixels="True"/>
 
-            <!-- row 1 -->
-            <WrapPanel Grid.Row="1" Grid.ColumnSpan="4"
-                       Margin="0,6,0,0"
-                       Orientation="Horizontal">
-                <Button x:Name="StartBtn"
-                        Content="Start"
-                        Click="StartBtn_Click"
-                        Width="70"
-                        Height="26"
-                        Margin="0,0,6,0"/>
-                <Button x:Name="StopBtn"
-                        Content="Stop"
-                        Click="StopBtn_Click"
-                        Width="70"
-                        Height="26"
-                        Margin="0,0,12,0"/>
-                <Button x:Name="SelectCropBtn"
-                        Content="Select Log Area..."
-                        Click="SelectCropBtn_Click"
-                        Width="150"
-                        Height="26"
-                        Margin="0,0,6,0"/>
-                <Button x:Name="OcrCropBtn"
-                        Content="OCR Crop → Paste"
-                        Click="OcrCropBtn_Click"
-                        Width="150"
-                        Height="26"
-                        Margin="0,0,6,0"/>
-                <Button x:Name="OcrAndPostNowBtn"
-                        Content="OCR &amp; Post Visible Now"
-                        Click="OcrAndPostNowBtn_Click"
-                        Width="170"
-                        Height="26"
-                        Margin="0,0,0,0"/>
-            </WrapPanel>
-        </Grid>
+                    <!-- OCR overlay (stays transparent if disabled) -->
+                    <Border x:Name="OcrDetailsOverlay"
+                            Background="#00000000"
+                            Visibility="Collapsed"
+                            Margin="4"
+                            CornerRadius="4">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <TextBlock x:Name="OcrDetailsText"
+                                       FontSize="12"
+                                       Foreground="White"
+                                       TextWrapping="Wrap"/>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+            </GroupBox>
 
-        <!-- ================= PAGE HOST ================= -->
-        <Grid Grid.Row="3" Margin="8,2,8,4" x:Name="PageHost">
+            <!-- right side -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-            <!-- ===== Capture page ===== -->
-            <Grid x:Name="CapturePage" Visibility="Visible">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="3*"/>
-                    <ColumnDefinition Width="2*"/>
-                </Grid.ColumnDefinitions>
-
-                <!-- LEFT: Live preview -->
-                <GroupBox Header="Live Preview"
-                          Grid.Column="0"
-                          Margin="0,0,10,0"
-                          FontFamily="Microsoft YaHei UI"
-                          Foreground="#FFD0D0D0"
-                          Background="#FF1E2025"
-                          BorderThickness="0.5"
-                          BorderBrush="#FF394049">
-                    <Grid Margin="6" ClipToBounds="True">
-                        <Border Background="Black"
-                                BorderBrush="#FF2B2F36"
-                                BorderThickness="1"
-                                Margin="0,18,0,0"
-                                ClipToBounds="True">
-                            <Grid>
-                                <Image x:Name="LivePreview"
-                                       Stretch="Uniform"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       SnapsToDevicePixels="True"/>
-                                <!-- overlay now clear -->
-                                <Border x:Name="OcrDetailsOverlay"
-                                        Background="Transparent"
-                                        Margin="4"
-                                        Visibility="Collapsed"
-                                        VerticalAlignment="Stretch"
-                                        HorizontalAlignment="Stretch">
-                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                        <TextBlock x:Name="OcrDetailsText"
-                                                   FontFamily="Consolas"
-                                                   FontSize="12"
-                                                   Foreground="#FFF3F3F3"
-                                                   TextWrapping="Wrap"/>
-                                    </ScrollViewer>
-                                </Border>
-                            </Grid>
-                        </Border>
-                    </Grid>
+                <!-- API Echo -->
+                <GroupBox x:Name="API_Echo_Box"
+                          Grid.Row="0"
+                          Header="API Echo"
+                          Margin="0,0,0,8"
+                          BorderThickness="1"
+                          BorderBrush="#2E333A"
+                          Background="#1B1E24"
+                          Foreground="White"
+                          FontWeight="SemiBold">
+                    <TextBox x:Name="ApiEchoText"
+                             Margin="6"
+                             Background="Black"
+                             Foreground="White"
+                             BorderThickness="0.5"
+                             TextChanged="ApiEchoText_TextChanged"
+                             AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto"/>
                 </GroupBox>
 
-                <!-- RIGHT: stacked boxes -->
-                <Grid Grid.Column="1">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
+                <!-- Tribe Log Output -->
+                <GroupBox x:Name="Tribe_Log_Output_Box"
+                          Grid.Row="1"
+                          Header="Tribe Log Text Output Testing"
+                          Margin="0,0,0,8"
+                          BorderThickness="1"
+                          BorderBrush="#2E333A"
+                          Background="#1B1E24"
+                          Foreground="White"
+                          FontWeight="SemiBold">
+                    <TextBox x:Name="LogLineBox"
+                             Margin="6"
+                             Background="Black"
+                             Foreground="White"
+                             BorderThickness="0"
+                             AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto"
+                             Height="140"/>
+                </GroupBox>
 
-                    <GroupBox x:Name="API_Echo_Box"
-                              Grid.Row="0"
-                              Header="API Echo"
-                              FontFamily="Microsoft YaHei UI"
-                              Foreground="#FFD0D0D0"
-                              Background="#FF1E2025"
-                              BorderThickness="0.5"
-                              BorderBrush="#FF394049"
-                              Margin="0,0,0,8">
-                        <TextBox x:Name="ApiEchoText"
-                                 Margin="6"
-                                 Background="Black"
-                                 Foreground="White"
-                                 VerticalScrollBarVisibility="Auto"
-                                 AcceptsReturn="True"
-                                 TextChanged="ApiEchoText_TextChanged"/>
-                    </GroupBox>
-
-                    <GroupBox x:Name="Tribe_Log_Output_Box"
-                              Grid.Row="1"
-                              Header="Tribe Log Text Output Testing"
-                              FontFamily="Microsoft YaHei UI"
-                              Foreground="#FFD0D0D0"
-                              Background="#FF1E2025"
-                              BorderThickness="0.5"
-                              BorderBrush="#FF394049"
-                              Margin="0,0,0,8">
-                        <Grid>
-                            <TextBox x:Name="LogLineBox"
-                                     Margin="6"
-                                     Background="Black"
-                                     Foreground="White"
-                                     AcceptsReturn="True"
-                                     VerticalScrollBarVisibility="Auto"
-                                     TextWrapping="Wrap"
-                                     MinHeight="120"/>
-                        </Grid>
-                    </GroupBox>
-
-                    <Button x:Name="SendPastedBtn"
-                            Grid.Row="2"
-                            Content="Send Pasted Logs"
-                            Width="180"
-                            Height="34"
-                            HorizontalAlignment="Right"
-                            Margin="0,0,6,0"
-                            Click="SendPastedBtn_Click"/>
-                </Grid>
+                <!-- send button -->
+                <Button x:Name="SendPastedBtn"
+                        Grid.Row="2"
+                        Content="Send Pasted Logs"
+                        Width="180"
+                        Height="28"
+                        HorizontalAlignment="Right"
+                        Margin="0,0,0,2"
+                        Click="SendPastedBtn_Click"/>
             </Grid>
+        </Grid>
 
-            <!-- ===== Settings page ===== -->
-            <ScrollViewer x:Name="SettingsPage"
-                          Visibility="Collapsed"
-                          VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled"
-                          Margin="0"
-                          HorizontalAlignment="Stretch"
-                          VerticalAlignment="Stretch">
-                <StackPanel Margin="6" HorizontalAlignment="Stretch" MaxWidth="760">
+        <!-- settings page -->
+        <Grid x:Name="SettingsPage" Grid.Row="3" Visibility="Collapsed" Margin="8,4,8,4">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Orientation="Vertical" Margin="0,0,0,4" >
 
-                    <GroupBox Header="API credentials" BorderThickness="0.5" HorizontalAlignment="Stretch">
+                    <!-- API credentials -->
+                    <GroupBox Header="API credentials"
+                              BorderThickness="0.5"
+                              Foreground="White"
+                              Background="#1B1E24"
+                              Margin="0,0,0,6">
                         <Grid Margin="4">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -293,20 +239,27 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="160"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
 
-                            <TextBlock Text="Channel ID" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Foreground="#FFB5B9C0"/>
-                            <TextBox x:Name="ChannelBox" Grid.Row="0" Grid.Column="1"/>
-                            <TextBlock Text="API Base URL" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Foreground="#FFB5B9C0"/>
-                            <TextBox x:Name="ApiUrlBox" Grid.Row="1" Grid.Column="1"/>
-                            <TextBlock Text="API Key" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Foreground="#FFB5B9C0"/>
-                            <PasswordBox x:Name="ApiKeyBox" Grid.Row="2" Grid.Column="1"/>
+                            <TextBlock Text="Channel ID" Grid.Row="0" Grid.Column="0" Foreground="White" VerticalAlignment="Center"/>
+                            <TextBox x:Name="ChannelBox" Grid.Row="0" Grid.Column="1" Background="Black" Foreground="White"/>
+
+                            <TextBlock Text="API Base URL" Grid.Row="1" Grid.Column="0" Foreground="White" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                            <TextBox x:Name="ApiUrlBox" Grid.Row="1" Grid.Column="1" Background="Black" Foreground="White" Margin="0,4,0,0"/>
+
+                            <TextBlock Text="API Key" Grid.Row="2" Grid.Column="0" Foreground="White" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                            <PasswordBox x:Name="ApiKeyBox" Grid.Row="2" Grid.Column="1" Background="Black" Foreground="White" Margin="0,4,0,0"/>
                         </Grid>
                     </GroupBox>
 
-                    <GroupBox Header="Endpoint paths" BorderThickness="0.5" Margin="0,6,0,0" HorizontalAlignment="Stretch">
+                    <!-- endpoints -->
+                    <GroupBox Header="Endpoint paths"
+                              BorderThickness="0.5"
+                              Foreground="White"
+                              Background="#1B1E24"
+                              Margin="0,0,0,6">
                         <Grid Margin="4">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -314,59 +267,83 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="160"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
 
-                            <TextBlock Text="OCR path:" Grid.Row="0" Grid.Column="0" Foreground="#FFB5B9C0"/>
-                            <TextBox x:Name="OcrPathBox" Grid.Row="0" Grid.Column="1"/>
-                            <TextBlock Text="Screenshot ingest path:" Grid.Row="1" Grid.Column="0" Foreground="#FFB5B9C0"/>
-                            <TextBox x:Name="ScreenshotPathBox" Grid.Row="1" Grid.Column="1"/>
-                            <TextBlock Text="Log-line ingest path:" Grid.Row="2" Grid.Column="0" Foreground="#FFB5B9C0"/>
-                            <TextBox x:Name="LogLinePathBox" Grid.Row="2" Grid.Column="1"/>
+                            <TextBlock Text="OCR path:" Grid.Row="0" Grid.Column="0" Foreground="White" VerticalAlignment="Center"/>
+                            <TextBox x:Name="OcrPathBox" Grid.Row="0" Grid.Column="1" Background="Black" Foreground="White"/>
+
+                            <TextBlock Text="Screenshot ingest path:" Grid.Row="1" Grid.Column="0" Foreground="White" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                            <TextBox x:Name="ScreenshotPathBox" Grid.Row="1" Grid.Column="1" Background="Black" Foreground="White" Margin="0,4,0,0"/>
+
+                            <TextBlock Text="Log-line ingest path:" Grid.Row="2" Grid.Column="0" Foreground="White" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                            <TextBox x:Name="LogLinePathBox" Grid.Row="2" Grid.Column="1" Background="Black" Foreground="White" Margin="0,4,0,0"/>
                         </Grid>
                     </GroupBox>
 
-                    <GroupBox Header="Filters" BorderThickness="0.5" Margin="0,6,0,0" HorizontalAlignment="Stretch">
-                        <UniformGrid Columns="2">
-                            <CheckBox x:Name="FilterTameDeathsBox" Content="Tame deaths"/>
-                            <CheckBox x:Name="FilterTamesStarvingBox" Content="Tames starving to death"/>
-                            <CheckBox x:Name="FilterStructDestroyedBox" Content="Structures destroyed"/>
-                            <CheckBox x:Name="FilterStructAutoDecayBox" Content="Structures auto decay"/>
-                            <CheckBox x:Name="FilterTribeMateDeathsBox" Content="Tribemate deaths"/>
-                            <CheckBox x:Name="FilterTribeKillsEnemyTamesBox" Content="Tribe kills enemy tames"/>
-                            <CheckBox x:Name="FilterEnemyPlayerKillsBox" Content="Enemy player kills"/>
-                            <CheckBox x:Name="FilterTribeDemolishBox" Content="Tribemates demolishing structures"/>
-                            <CheckBox x:Name="FilterTribeFreezeTamesBox" Content="Tribemates freezing tames"/>
+                    <!-- filters -->
+                    <GroupBox Header="Filters"
+                              BorderThickness="0.5"
+                              Foreground="White"
+                              Background="#1B1E24"
+                              Margin="0,0,0,6">
+                        <GroupBox.Resources>
+                            <Style TargetType="CheckBox">
+                                <Setter Property="Foreground" Value="White"/>
+                            </Style>
+                        </GroupBox.Resources>
+                        <UniformGrid Columns="2" Margin="4">
+                            <CheckBox x:Name="FilterTameDeathsBox"            Content="Tame deaths"/>
+                            <CheckBox x:Name="FilterTamesStarvingBox"          Content="Tames starving to death"/>
+                            <CheckBox x:Name="FilterStructDestroyedBox"        Content="Structures destroyed"/>
+                            <CheckBox x:Name="FilterStructAutoDecayBox"        Content="Structures auto decay"/>
+                            <CheckBox x:Name="FilterTribeMateDeathsBox"        Content="Tribemate deaths"/>
+                            <CheckBox x:Name="FilterTribeKillsEnemyTamesBox"   Content="Tribe kills enemy tames"/>
+                            <CheckBox x:Name="FilterEnemyPlayerKillsBox"       Content="Enemy player kills"/>
+                            <CheckBox x:Name="FilterTribeDemolishBox"          Content="Tribemates demolishing structures"/>
+                            <CheckBox x:Name="FilterTribeFreezeTamesBox"       Content="Tribemates freezing tames"/>
                         </UniformGrid>
                     </GroupBox>
 
-                    <GroupBox Header="Overlay" BorderThickness="0.5" Margin="0,6,0,0" HorizontalAlignment="Stretch">
-                        <StackPanel Orientation="Horizontal">
+                    <!-- overlay -->
+                    <GroupBox Header="Overlay"
+                              BorderThickness="0.5"
+                              Foreground="White"
+                              Background="#1B1E24"
+                              Margin="0,0,0,6">
+                        <StackPanel Orientation="Horizontal" Margin="4">
                             <CheckBox x:Name="ShowOcrDetailsCheck"
                                       Content="Show OCR details overlay on Capture"
                                       Checked="ShowOcrDetailsCheck_Changed"
-                                      Unchecked="ShowOcrDetailsCheck_Changed"/>
+                                      Unchecked="ShowOcrDetailsCheck_Changed"
+                                      Foreground="White"/>
                         </StackPanel>
                     </GroupBox>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,10,0,4">
-                        <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click" Width="90" Margin="0,0,8,0"/>
-                        <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Click="SaveDebugBtn_Click" Width="140"/>
+                    <!-- actions -->
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,4">
+                        <Button x:Name="SaveBtn"
+                                Content="Save"
+                                Width="90"
+                                Height="28"
+                                Margin="0,0,8,0"
+                                Click="SaveBtn_Click"/>
+                        <Button x:Name="SaveDebugBtn"
+                                Content="Save debug ZIP"
+                                Width="140"
+                                Height="28"
+                                Click="SaveDebugBtn_Click"/>
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
 
-        <!-- ================= STATUS ================= -->
-        <Border Grid.Row="4"
-                BorderBrush="#FF2B2F36"
-                BorderThickness="0,1,0,0"
-                Background="#FF1B1E24"
-                Padding="6,4,6,2">
+        <!-- status bar -->
+        <Border Grid.Row="4" BorderBrush="#FF2B2F36" Background="#FF16191F" Padding="4,0,4,0">
             <TextBlock x:Name="StatusText"
+                       VerticalAlignment="Center"
                        Foreground="White"
-                       FontFamily="Segoe UI"
                        FontSize="11"
                        Text=""/>
         </Border>
