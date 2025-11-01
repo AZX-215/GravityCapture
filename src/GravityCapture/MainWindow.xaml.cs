@@ -21,15 +21,10 @@ namespace GravityCapture
     public partial class MainWindow : Window
     {
         private const double Aspect = 16.0 / 10.0;
-
         private readonly JsonSerializerOptions _json = new() { WriteIndented = true };
-
-        private readonly string _settingsDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "GravityCapture");
-
-        private readonly string _settingsFile;
-        private readonly string _overlayFile;
+        private readonly string SettingsDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GravityCapture");
+        private readonly string SettingsFile;
 
         private AppSettings _settings = AppSettings.Load();
         private DispatcherTimer? _timer;
@@ -40,26 +35,17 @@ namespace GravityCapture
         public MainWindow()
         {
             InitializeComponent();
-
-            _settingsFile = Path.Combine(_settingsDir, "global.json");
-            _overlayFile = Path.Combine(_settingsDir, "overlay.json");
+            SettingsFile = Path.Combine(SettingsDir, "global.json");
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
             LoadSettingsIntoUi();
-            LoadOverlayPreference();
-            ShowCapturePage();
-
             StartArkPolling();
             SetStatus("Ready.");
         }
 
-        private void Window_Closing(object? sender, CancelEventArgs e)
-        {
-            TrySaveFromUi();
-            SaveOverlayPreference();
-        }
+        private void Window_Closing(object? sender, CancelEventArgs e) => TrySaveFromUi();
 
         private void Window_SourceInitialized(object? sender, EventArgs e)
         {
@@ -87,8 +73,7 @@ namespace GravityCapture
             }
         }
 
-        // ================= settings =================
-
+        // ---------- settings ----------
         private void LoadSettingsIntoUi()
         {
             ChannelBox.Text = _settings.Image?.ChannelId ?? "";
@@ -145,9 +130,8 @@ namespace GravityCapture
                 _settings.Filters.TribematesDemolishing = FilterTribeDemolishBox.IsChecked == true;
                 _settings.Filters.TribematesFreezingTames = FilterTribeFreezeTamesBox.IsChecked == true;
 
-                Directory.CreateDirectory(_settingsDir);
-                File.WriteAllText(_settingsFile, JsonSerializer.Serialize(_settings, _json));
-
+                Directory.CreateDirectory(SettingsDir);
+                File.WriteAllText(SettingsFile, JsonSerializer.Serialize(_settings, _json));
                 return true;
             }
             catch (Exception ex)
@@ -163,37 +147,7 @@ namespace GravityCapture
                 SetStatus("Saved.");
         }
 
-        // ================ overlay preference (separate tiny file) ================
-        private sealed class OverlayDto { public bool Show { get; set; } }
-
-        private void LoadOverlayPreference()
-        {
-            try
-            {
-                if (File.Exists(_overlayFile))
-                {
-                    var dto = JsonSerializer.Deserialize<OverlayDto>(File.ReadAllText(_overlayFile));
-                    _showOcrOverlay = dto?.Show ?? false;
-                }
-            }
-            catch { _showOcrOverlay = false; }
-
-            ShowOcrDetailsCheck.IsChecked = _showOcrOverlay;
-            OcrDetailsOverlay.Visibility = _showOcrOverlay ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        private void SaveOverlayPreference()
-        {
-            try
-            {
-                Directory.CreateDirectory(_settingsDir);
-                var dto = new OverlayDto { Show = _showOcrOverlay };
-                File.WriteAllText(_overlayFile, JsonSerializer.Serialize(dto, _json));
-            }
-            catch { }
-        }
-
-        // ================= ARK window polling =================
+        // ---------- ARK window polling ----------
         private void StartArkPolling()
         {
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -228,8 +182,7 @@ namespace GravityCapture
             return (found, title);
         }
 
-        // ================= Buttons =================
-
+        // ---------- Buttons ----------
         private void StartBtn_Click(object sender, RoutedEventArgs e)
         {
             if (_selectedScreenRect == null) { SetStatus("Select log area first."); return; }
@@ -298,11 +251,7 @@ namespace GravityCapture
                     if (!string.IsNullOrWhiteSpace(text))
                     {
                         LogLineBox.Text = text;
-                        if (_showOcrOverlay)
-                        {
-                            OcrDetailsText.Text = text;
-                            OcrDetailsOverlay.Visibility = Visibility.Visible;
-                        }
+                        if (_showOcrOverlay) { OcrDetailsText.Text = text; OcrDetailsOverlay.Visibility = Visibility.Visible; }
                     }
                     SetStatus("OCR returned");
                 }
@@ -357,17 +306,14 @@ namespace GravityCapture
             }
         }
 
-        // XAML compatibility
+        // NEW: keep XAML compatibility (Click="SendPastedBtn_Click")
         private void SendPastedBtn_Click(object sender, RoutedEventArgs e) => SendParsedBtn_Click(sender, e);
 
         private void ShowOcrDetailsCheck_Changed(object sender, RoutedEventArgs e)
         {
             _showOcrOverlay = ShowOcrDetailsCheck.IsChecked == true;
             OcrDetailsOverlay.Visibility = _showOcrOverlay ? Visibility.Visible : Visibility.Collapsed;
-            if (!_showOcrOverlay)
-                OcrDetailsText.Text = "";
-
-            SaveOverlayPreference();
+            if (!_showOcrOverlay) OcrDetailsText.Text = "";
         }
 
         private void SaveDebugBtn_Click(object sender, RoutedEventArgs e)
@@ -384,9 +330,7 @@ namespace GravityCapture
                 using (var sw = new StreamWriter(textEntry.Open())) sw.Write(LogLineBox.Text ?? "");
                 var cropEntry = zip.CreateEntry("crop.txt");
                 using (var sw = new StreamWriter(cropEntry.Open()))
-                    sw.Write(_selectedScreenRect.HasValue
-                        ? $"{_selectedScreenRect.Value.X},{_selectedScreenRect.Value.Y},{_selectedScreenRect.Value.Width},{_selectedScreenRect.Value.Height}"
-                        : "unset");
+                    sw.Write(_selectedScreenRect.HasValue ? $"{_selectedScreenRect.Value.X},{_selectedScreenRect.Value.Y},{_selectedScreenRect.Value.Width},{_selectedScreenRect.Value.Height}" : "unset");
                 if (_selectedScreenRect != null)
                 {
                     using var bmp = CaptureScreenRect(_selectedScreenRect.Value);
@@ -402,7 +346,7 @@ namespace GravityCapture
             }
         }
 
-        // ================= preview timer =================
+        // ---------- preview ----------
         private void OnPreviewTick(object? sender, EventArgs e)
         {
             if (_selectedScreenRect == null) return;
@@ -417,39 +361,12 @@ namespace GravityCapture
             }
         }
 
-        // ================= page switching =================
-        private void ShowCapturePage()
-        {
-            CapturePage.Visibility = Visibility.Visible;
-            SettingsPage.Visibility = Visibility.Collapsed;
-            CaptureToolbar.Visibility = Visibility.Visible;
-
-            CaptureTabButton.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#FF3A3F47");
-            SettingsTabButton.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#FF2E333A");
-        }
-
-        private void ShowSettingsPage()
-        {
-            CapturePage.Visibility = Visibility.Collapsed;
-            SettingsPage.Visibility = Visibility.Visible;
-            CaptureToolbar.Visibility = Visibility.Collapsed;
-
-            CaptureTabButton.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#FF2E333A");
-            SettingsTabButton.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#FF3A3F47");
-        }
-
-        private void CaptureTabButton_Click(object sender, RoutedEventArgs e) => ShowCapturePage();
-
-        private void SettingsTabButton_Click(object sender, RoutedEventArgs e) => ShowSettingsPage();
-
-        // ================= helpers =================
+        // ---------- helpers ----------
         private static Bitmap CaptureScreenRect(System.Drawing.Rectangle r)
         {
-            var bmp = new Bitmap(Math.Max(1, r.Width), Math.Max(1, r.Height),
-                System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            var bmp = new Bitmap(Math.Max(1, r.Width), Math.Max(1, r.Height), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
             using var g = Graphics.FromImage(bmp);
-            g.CopyFromScreen(new System.Drawing.Point(r.X, r.Y), System.Drawing.Point.Empty, r.Size,
-                System.Drawing.CopyPixelOperation.SourceCopy);
+            g.CopyFromScreen(new System.Drawing.Point(r.X, r.Y), System.Drawing.Point.Empty, r.Size, System.Drawing.CopyPixelOperation.SourceCopy);
             return bmp;
         }
 
@@ -458,9 +375,7 @@ namespace GravityCapture
             using var ms = new MemoryStream();
             var encoder = GetJpegEncoder();
             var eps = new System.Drawing.Imaging.EncoderParameters(1);
-            eps.Param[0] = new System.Drawing.Imaging.EncoderParameter(
-                System.Drawing.Imaging.Encoder.Quality,
-                Math.Clamp(quality, 1, 100));
+            eps.Param[0] = new System.Drawing.Imaging.EncoderParameter(System.Drawing.Imaging.Encoder.Quality, Math.Clamp(quality, 1, 100));
             bmp.Save(ms, encoder, eps);
             return ms.ToArray();
         }
@@ -488,20 +403,101 @@ namespace GravityCapture
 
         private static string TryExtractText(string body)
         {
+            string raw = body;
+
             try
             {
                 using var doc = JsonDocument.Parse(body);
-                if (doc.RootElement.TryGetProperty("text", out var t)) return t.GetString() ?? body;
+                if (doc.RootElement.TryGetProperty("text", out var t))
+                {
+                    raw = t.GetString() ?? body;
+                    return SplitArkTribeLogs(raw);
+                }
+
                 if (doc.RootElement.TryGetProperty("lines", out var lines) && lines.ValueKind == JsonValueKind.Array)
                 {
                     var sb = new StringBuilder();
                     foreach (var ln in lines.EnumerateArray())
                         if (ln.TryGetProperty("text", out var lt)) sb.AppendLine(lt.GetString());
-                    return sb.ToString().Trim();
+                    raw = sb.ToString().Trim();
+                    return SplitArkTribeLogs(raw);
                 }
             }
-            catch { }
-            return body;
+            catch
+            {
+                // fall through and return raw
+            }
+
+            return SplitArkTribeLogs(raw);
+        }
+
+        /// <summary>
+        /// Normalize OCR text into Ark-style entries.
+        /// Each entry:
+        /// - starts with "Day " (case-insensitive)
+        /// - ends with "!"
+        /// Multi-line entries are collapsed into one line.
+        /// A blank line is inserted between entries.
+        /// </summary>
+        private static string SplitArkTribeLogs(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return text ?? string.Empty;
+
+            text = text.Replace("\r\n", "\n").Replace("\r", "\n");
+            var lines = text.Split('\n');
+
+            var sb = new StringBuilder();
+            var current = new StringBuilder();
+
+            void FlushCurrent()
+            {
+                if (current.Length == 0) return;
+                var chunk = current.ToString().Trim();
+                if (chunk.Length == 0)
+                {
+                    current.Clear();
+                    return;
+                }
+                sb.AppendLine(chunk);
+                sb.AppendLine();
+                current.Clear();
+            }
+
+            foreach (var rawLine in lines)
+            {
+                var line = rawLine.TrimEnd();
+                if (line.Length == 0) continue;
+
+                bool startsWithDay = line.StartsWith("Day ", StringComparison.OrdinalIgnoreCase);
+                bool endsWithBang = line.EndsWith("!", StringComparison.Ordinal);
+
+                if (startsWithDay)
+                {
+                    // start of a new entry
+                    FlushCurrent();
+                    current.Append(line.Trim());
+                }
+                else
+                {
+                    // continuation of current entry
+                    if (current.Length > 0)
+                        current.Append(' ').Append(line.Trim());
+                    else
+                        current.Append(line.Trim());
+                }
+
+                if (endsWithBang)
+                {
+                    // explicit end
+                    FlushCurrent();
+                }
+            }
+
+            // trailing entry
+            FlushCurrent();
+
+            return sb.ToString().TrimEnd();
         }
 
         private void SetStatus(string s) => StatusText.Text = s;
@@ -521,10 +517,26 @@ namespace GravityCapture
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
-        private void ApiEchoText_TextChanged(object sender, TextChangedEventArgs e) { }
-        private void ServerBox_TextChanged(object sender, TextChangedEventArgs e) { }
-        private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e) { }
-        private void TribeBox_TextChanged(object sender, TextChangedEventArgs e) { }
+        private void ApiEchoText_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+
+        }
+
+        private void ServerBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+
+        }
+
+        private void TabControl_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+
+        }
+
+        private void TribeBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            // You can add logic here to handle tribe box text changes if needed.
+            // Example: string tribeName = (sender as TextBox)?.Text;
+        }
     }
 
     internal sealed class ProbingApiClient : IDisposable
