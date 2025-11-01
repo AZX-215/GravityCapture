@@ -9,7 +9,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
-using System.Windows.Media;              // <— added
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using GravityCapture.Models;
@@ -45,7 +45,6 @@ namespace GravityCapture
             StartArkPolling();
             SetStatus("Ready.");
 
-            // show capture page by default
             CapturePage.Visibility = Visibility.Visible;
             SettingsPage.Visibility = Visibility.Collapsed;
         }
@@ -433,7 +432,6 @@ namespace GravityCapture
             }
             catch
             {
-                // fall through and return raw
             }
 
             return SplitArkTribeLogs(raw);
@@ -504,8 +502,8 @@ namespace GravityCapture
             CapturePage.Visibility = Visibility.Visible;
             SettingsPage.Visibility = Visibility.Collapsed;
 
-            CaptureTabButton.Background = new SolidColorBrush(Color.FromRgb(58, 63, 71));  // active
-            SettingsTabButton.Background = new SolidColorBrush(Color.FromRgb(46, 51, 58));  // inactive
+            CaptureTabButton.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(58, 63, 71));   // active
+            SettingsTabButton.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(46, 51, 58));  // inactive
         }
 
         private void SettingsTabButton_Click(object sender, RoutedEventArgs e)
@@ -513,8 +511,8 @@ namespace GravityCapture
             CapturePage.Visibility = Visibility.Collapsed;
             SettingsPage.Visibility = Visibility.Visible;
 
-            CaptureTabButton.Background = new SolidColorBrush(Color.FromRgb(46, 51, 58));  // inactive
-            SettingsTabButton.Background = new SolidColorBrush(Color.FromRgb(58, 63, 71));  // active
+            CaptureTabButton.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(46, 51, 58));  // inactive
+            SettingsTabButton.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(58, 63, 71)); // active
         }
 
         // Win32
@@ -532,21 +530,13 @@ namespace GravityCapture
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
-        private void ApiEchoText_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
-        {
-        }
+        private void ApiEchoText_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) { }
 
-        private void ServerBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
-        {
-        }
+        private void ServerBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) { }
 
-        private void TabControl_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-        {
-        }
+        private void TabControl_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) { }
 
-        private void TribeBox_TextChanged(object sender, TextChangedEventArgs e)
-        {
-        }
+        private void TribeBox_TextChanged(object sender, TextChangedEventArgs e) { }
     }
 
     internal sealed class ProbingApiClient : IDisposable
