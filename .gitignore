@@ -12,16 +12,17 @@ publish/
 *.pdb
 *.nupkg
 *.snupkg
-
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
 # OS
 .DS_Store
 Thumbs.db
-
 build/Output/
-
 n**/bin/
-
 n**/obj/
-
 n**/publish/
+
 
