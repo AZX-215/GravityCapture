@@ -1,326 +1,308 @@
 # api_main.py
 # FastAPI service for Gravity Capture (stage API)
-# - Stable OCR endpoint aliases
-# - Joined `text` field in the response
-# - Compatible /ingest endpoints used by the desktop app
+# Goals:
+# - OCR screenshots (ARK Tribe Log)
+# - Split into one event per Tribe Log line
+# - Insert into Postgres with de-dupe
+# - Post to Discord via webhook with color-coded embeds
+# - Ping @Gravity OPS only for selected CRITICAL categories (Option B)
 
 from __future__ import annotations
 
-import io
-import os
-import sys
-import traceback
-from typing import Any, Dict, List, Optional, Tuple
+import asyncio
+from typing import Any, Dict, Optional
 
-from fastapi import (
-    FastAPI,
-    File,
-    UploadFile,
-    HTTPException,
-    Request,
-    Body,
-    Form,
-)
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
-# ---------- optional dependencies ----------
-# We try EasyOCR first, then pytesseract, else return 501
-EASYOCR_READER = None
-EASYOCR_ERR: Optional[str] = None
-PYTESSERACT_AVAILABLE = False
-PYTESSERACT_ERR: Optional[str] = None
-
-try:
-    import easyocr  # type: ignore
-    # suppress stdout from easyocr initialization
-    try:
-        EASYOCR_READER = easyocr.Reader(["en"], gpu=False, verbose=False)
-    except Exception as _e:
-        EASYOCR_ERR = f"easyocr init failed: {_e}"
-except Exception as _e:
-    EASYOCR_ERR = f"easyocr import failed: {_e}"
-
-try:
-    import pytesseract  # type: ignore
-    from pytesseract import Output  # type: ignore
-
-    PYTESSERACT_AVAILABLE = True
-except Exception as _e:
-    PYTESSERACT_ERR = f"pytesseract import failed: {_e}"
-
-try:
-    from PIL import Image  # type: ignore
-except Exception:
-    raise RuntimeError("Pillow is required")
-
-try:
-    import numpy as np  # type: ignore
-except Exception:
-    np = None  # only needed for easyocr
+from config import Settings
+from db import Db
+from discord_webhook import DiscordWebhookClient
+from ocr.router import extract_text
+from tribelog.parser import stitch_wrapped_lines, parse_header_lines
+from tribelog.classify import classify_event
 
 
-# ---------- environment ----------
-APP_ENV = os.getenv("ENVIRONMENT", "stage")
-LOG_POSTING_ENABLED = os.getenv("LOG_POSTING_ENABLED", "false").lower() == "true"
-DISCORD_WEBHOOK = os.getenv("ALERT_DISCORD_WEBHOOK_URL", "").strip()
-GL_SHARED_SECRET = os.getenv("GL_SHARED_SECRET", "").strip()
-
-# httpx only used if webhook present
-HTTPX_AVAILABLE = False
-try:
-    import httpx  # type: ignore
-
-    HTTPX_AVAILABLE = True
-except Exception:
-    pass
+def _require_key(settings: Settings, x_gl_key: Optional[str], x_api_key: Optional[str]) -> None:
+    # If no secret is configured, allow requests (useful for local dev).
+    if not settings.gl_shared_secret:
+        return
+    key = (x_gl_key or x_api_key or "").strip()
+    if not key or key != settings.gl_shared_secret:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-# ---------- models ----------
-class LogLineIngest(BaseModel):
-    line: str
-    server: Optional[str] = ""
-    tribe: Optional[str] = ""
+def create_app() -> FastAPI:
+    settings = Settings.from_env()
 
+    app = FastAPI(title="Gravity Capture Stage API", version="2.0")
 
-# ---------- app ----------
-app = FastAPI(title="Gravity Capture Stage API", version="1.2.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    app.state.settings = settings
+    app.state.db = Db(dsn=settings.database_url)
+    app.state.webhook = DiscordWebhookClient(
+        webhook_url=settings.alert_discord_webhook_url,
+        post_delay_seconds=settings.post_delay_seconds,
+    ) if settings.alert_discord_webhook_url else None
 
+    @app.on_event("startup")
+    async def _startup() -> None:
+        if not settings.database_url:
+            # allow running /extract without DB
+            return
+        await app.state.db.start()
 
-# ---------- utils ----------
-def _avg(values: List[float]) -> Optional[float]:
-    vals = [v for v in values if v is not None]
-    if not vals:
-        return None
-    return float(sum(vals) / len(vals))
-
-
-def _pil_from_bytes(b: bytes) -> Image.Image:
-    try:
-        return Image.open(io.BytesIO(b)).convert("RGB")
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid image bytes")
-
-
-def _easyocr_extract(img: Image.Image) -> Tuple[str, Optional[float], List[Dict[str, Any]]]:
-    if EASYOCR_READER is None:
-        raise HTTPException(status_code=501, detail=EASYOCR_ERR or "easyocr not available")
-    if np is None:
-        raise HTTPException(status_code=501, detail="numpy not available for easyocr")
-    arr = np.array(img)
-    # result: list of [bbox, text, conf]
-    result = EASYOCR_READER.readtext(arr, detail=1, paragraph=False)
-    lines: List[Dict[str, Any]] = []
-    confs: List[float] = []
-    texts: List[str] = []
-    for item in result:
+    @app.on_event("shutdown")
+    async def _shutdown() -> None:
         try:
-            bbox, text, conf = item
-        except Exception:
-            # older formats
-            bbox, text, conf = item[0], item[1], item[2] if len(item) > 2 else None
-        texts.append(text or "")
-        if conf is not None:
-            try:
-                confs.append(float(conf))
-            except Exception:
-                pass
-        lines.append({"text": text or "", "conf": None if conf is None else float(conf), "bbox": bbox})
-    joined = "\n".join([t for t in texts if t]).strip()
-    return joined, _avg(confs), lines
+            if app.state.webhook is not None:
+                await app.state.webhook.aclose()
+        finally:
+            await app.state.db.close()
 
+    @app.get("/")
+    async def root() -> Dict[str, Any]:
+        return {"status": "ok", "service": "gravity-capture-stage-api", "env": settings.environment}
 
-def _tesseract_extract(img: Image.Image) -> Tuple[str, Optional[float], List[Dict[str, Any]]]:
-    if not PYTESSERACT_AVAILABLE:
-        raise HTTPException(status_code=501, detail=PYTESSERACT_ERR or "pytesseract not available")
-    data = pytesseract.image_to_data(img, output_type=Output.DICT)  # type: ignore
-    n = len(data.get("text", []))
-    lines: List[Dict[str, Any]] = []
-    confs: List[float] = []
-    pieces: List[str] = []
-    for i in range(n):
-        txt = (data["text"][i] or "").strip()
-        if not txt:
-            continue
-        try:
-            conf = float(data["conf"][i])
-            # tesseract returns -1 for missing
-            conf = None if conf < 0 else conf
-        except Exception:
-            conf = None
-        if conf is not None:
-            confs.append(conf)
-        bbox = {
-            "x": int(data.get("left", [0])[i]),
-            "y": int(data.get("top", [0])[i]),
-            "w": int(data.get("width", [0])[i]),
-            "h": int(data.get("height", [0])[i]),
+    @app.get("/healthz")
+    async def healthz() -> Dict[str, Any]:
+        return {
+            "status": "ok",
+            "env": settings.environment,
+            "db": "configured" if bool(settings.database_url) else "missing",
+            "webhook": "configured" if bool(settings.alert_discord_webhook_url) else "missing",
+            "ocr_engine": settings.ocr_engine,
         }
-        pieces.append(txt)
-        lines.append({"text": txt, "conf": conf, "bbox": bbox})
-    joined = " ".join(pieces).strip()
-    return joined, _avg(confs), lines
+
+    # ---- OCR-only endpoints (desktop app uses these for preview) ----
+    @app.post("/extract")
+    async def extract_endpoint(
+        file: Optional[UploadFile] = File(default=None),
+        image: Optional[UploadFile] = File(default=None),
+        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
+        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
+        engine: str = Form("auto"),
+    ) -> Dict[str, Any]:
+        _require_key(settings, x_gl_key, x_api_key)
+        up = file or image
+        if up is None:
+            raise HTTPException(status_code=422, detail="missing file")
+        img_bytes = await up.read()
+        return extract_text(img_bytes, engine_hint=(engine or settings.ocr_engine))
+
+    @app.post("/api/extract")
+    async def extract_endpoint_alias(
+        file: Optional[UploadFile] = File(default=None),
+        image: Optional[UploadFile] = File(default=None),
+        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
+        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
+        engine: str = Form("auto"),
+    ) -> Dict[str, Any]:
+        return await extract_endpoint(file=file, image=image, x_gl_key=x_gl_key, x_api_key=x_api_key, engine=engine)
+
+    @app.post("/ocr")
+    async def ocr_endpoint(
+        file: Optional[UploadFile] = File(default=None),
+        image: Optional[UploadFile] = File(default=None),
+        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
+        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
+        engine: str = Form("auto"),
+    ) -> Dict[str, Any]:
+        return await extract_endpoint(file=file, image=image, x_gl_key=x_gl_key, x_api_key=x_api_key, engine=engine)
+
+    @app.post("/ocr/extract")
+    async def ocr_extract_alias(
+        file: Optional[UploadFile] = File(default=None),
+        image: Optional[UploadFile] = File(default=None),
+        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
+        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
+        engine: str = Form("auto"),
+    ) -> Dict[str, Any]:
+        return await extract_endpoint(file=file, image=image, x_gl_key=x_gl_key, x_api_key=x_api_key, engine=engine)
+
+    @app.post("/api/ocr")
+    async def api_ocr_alias(
+        file: Optional[UploadFile] = File(default=None),
+        image: Optional[UploadFile] = File(default=None),
+        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
+        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
+        engine: str = Form("auto"),
+    ) -> Dict[str, Any]:
+        return await extract_endpoint(file=file, image=image, x_gl_key=x_gl_key, x_api_key=x_api_key, engine=engine)
+
+    @app.post("/api/ocr/extract")
+    async def api_ocr_extract_alias(
+        file: Optional[UploadFile] = File(default=None),
+        image: Optional[UploadFile] = File(default=None),
+        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
+        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
+        engine: str = Form("auto"),
+    ) -> Dict[str, Any]:
+        return await extract_endpoint(file=file, image=image, x_gl_key=x_gl_key, x_api_key=x_api_key, engine=engine)
+
+    # ---- Ingest endpoints (insert+post) ----
+    async def _ingest_screenshot_impl(
+        file: Optional[UploadFile],
+        server: str,
+        tribe: str,
+        post_visible: str,
+        x_gl_key: Optional[str],
+        x_api_key: Optional[str],
+    ) -> Dict[str, Any]:
+        _require_key(settings, x_gl_key, x_api_key)
+
+        if not settings.database_url:
+            raise HTTPException(status_code=500, detail="DATABASE_URL not set")
+
+        if file is None:
+            raise HTTPException(status_code=422, detail="missing file")
+        img_bytes = await file.read()
+        ocr = extract_text(img_bytes, engine_hint=settings.ocr_engine)
+
+        # Prefer the line-wise output for event splitting.
+        raw_lines = [str(x).strip() for x in (ocr.get("lines_text") or []) if str(x).strip()]
+        stitched = stitch_wrapped_lines(raw_lines)
+        header_lines = parse_header_lines(stitched)
+
+        events = []
+        for h in header_lines:
+            ev = classify_event(
+                server=server or "unknown",
+                tribe=tribe or "unknown",
+                ark_day=h["ark_day"],
+                ark_time=h["ark_time"],
+                message=h["message"],
+                raw_line=h["raw_line"],
+            )
+            events.append(ev)
+
+        inserted = await app.state.db.insert_events(events)
+
+        posted = 0
+        if settings.log_posting_enabled and app.state.webhook is not None:
+            for ev in inserted:
+                # Option B: only ping for selected categories (even if severity is CRITICAL)
+                do_ping = (
+                    settings.critical_ping_enabled
+                    and ev.severity == "CRITICAL"
+                    and (settings.ping_all_critical or ev.category in settings.ping_categories)
+                )
+                await app.state.webhook.post_event_from_parsed(
+                    ev,
+                    mention_role_id=settings.critical_ping_role_id,
+                    mention=do_ping,
+                    env=settings.environment,
+                )
+                posted += 1
+                if settings.post_delay_seconds > 0:
+                    await asyncio.sleep(settings.post_delay_seconds)
+
+        return {
+            "ok": True,
+            "engine": ocr.get("engine"),
+            "variant": ocr.get("variant"),
+            "ocr_conf": ocr.get("conf"),
+            "total_events": len(events),
+            "inserted_events": len(inserted),
+            "posted_events": posted,
+            "post_visible": str(post_visible or "0"),
+        }
+
+    @app.post("/ingest/screenshot")
+    async def ingest_screenshot(
+        file: Optional[UploadFile] = File(default=None),
+        image: Optional[UploadFile] = File(default=None),
+        server: str = Form("unknown"),
+        tribe: str = Form("unknown"),
+        post_visible: str = Form("0"),
+        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
+        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
+    ) -> Dict[str, Any]:
+        return await _ingest_screenshot_impl(file or image, server, tribe, post_visible, x_gl_key, x_api_key)
+
+    @app.post("/api/ingest/screenshot")
+    async def ingest_screenshot_alias(
+        file: Optional[UploadFile] = File(default=None),
+        image: Optional[UploadFile] = File(default=None),
+        server: str = Form("unknown"),
+        tribe: str = Form("unknown"),
+        post_visible: str = Form("0"),
+        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
+        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
+    ) -> Dict[str, Any]:
+        return await _ingest_screenshot_impl(file or image, server, tribe, post_visible, x_gl_key, x_api_key)
+
+    @app.post("/ingest/log-line")
+    async def ingest_log_line(
+        line: str = Form(...),
+        server: str = Form("unknown"),
+        tribe: str = Form("unknown"),
+        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
+        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
+    ) -> Dict[str, Any]:
+        _require_key(settings, x_gl_key, x_api_key)
+        if not settings.database_url:
+            raise HTTPException(status_code=500, detail="DATABASE_URL not set")
+
+        # allow the app to send a single line (already extracted)
+        stitched = stitch_wrapped_lines([line])
+        header_lines = parse_header_lines(stitched)
+        if not header_lines:
+            return {"ok": False, "error": "no_header"}
+
+        events = []
+        for h in header_lines:
+            events.append(
+                classify_event(
+                    server=server or "unknown",
+                    tribe=tribe or "unknown",
+                    ark_day=h["ark_day"],
+                    ark_time=h["ark_time"],
+                    message=h["message"],
+                    raw_line=h["raw_line"],
+                )
+            )
+
+        inserted = await app.state.db.insert_events(events)
+
+        posted = 0
+        if settings.log_posting_enabled and app.state.webhook is not None:
+            for ev in inserted:
+                do_ping = (
+                    settings.critical_ping_enabled
+                    and ev.severity == "CRITICAL"
+                    and (settings.ping_all_critical or ev.category in settings.ping_categories)
+                )
+                await app.state.webhook.post_event_from_parsed(
+                    ev,
+                    mention_role_id=settings.critical_ping_role_id,
+                    mention=do_ping,
+                    env=settings.environment,
+                )
+                posted += 1
+                if settings.post_delay_seconds > 0:
+                    await asyncio.sleep(settings.post_delay_seconds)
+
+        return {"ok": True, "inserted_events": len(inserted), "posted_events": posted}
+
+    @app.post("/api/ingest/log-line")
+    async def ingest_log_line_alias(
+        line: str = Form(...),
+        server: str = Form("unknown"),
+        tribe: str = Form("unknown"),
+        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
+        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
+    ) -> Dict[str, Any]:
+        return await ingest_log_line(line=line, server=server, tribe=tribe, x_gl_key=x_gl_key, x_api_key=x_api_key)
+
+    return app
 
 
-def extract_text(image_bytes: bytes, engine_hint: str = "auto") -> Dict[str, Any]:
-    img = _pil_from_bytes(image_bytes)
-
-    engine_used = None
-    text: str = ""
-    conf: Optional[float] = None
-    lines: List[Dict[str, Any]] = []
-
-    # choose engine
-    if engine_hint in ("auto", "easyocr"):
-        try:
-            text, conf, lines = _easyocr_extract(img)
-            engine_used = "easyocr"
-        except HTTPException:
-            if engine_hint == "easyocr":
-                raise
-        except Exception as e:
-            # fall back
-            pass
-
-    if engine_used is None and engine_hint in ("auto", "tesseract"):
-        try:
-            text, conf, lines = _tesseract_extract(img)
-            engine_used = "tesseract"
-        except HTTPException:
-            if engine_hint == "tesseract":
-                raise
-        except Exception:
-            pass
-
-    if engine_used is None:
-        # neither available
-        raise HTTPException(
-            status_code=501,
-            detail=(
-                "No OCR engine available. "
-                f"{EASYOCR_ERR or ''} | {PYTESSERACT_ERR or ''}".strip()
-            ),
-        )
-
-    return {
-        "engine": engine_used,
-        "conf": conf,
-        "lines": lines,
-        "text": text,
-    }
-
-
-async def _read_image_from_request(
-    request: Request, file: UploadFile | None, image: UploadFile | None
-) -> bytes:
-    up = file or image
-    if up is not None:
-        ct = (up.content_type or "").lower()
-        if not ct.startswith("image/"):
-            raise HTTPException(status_code=400, detail="Uploaded part must be an image (png, jpeg, webp).")
-        return await up.read()
-
-    # allow raw image bytes
-    ct = (request.headers.get("content-type") or "").lower()
-    if not ct.startswith("image/"):
-        raise HTTPException(
-            status_code=422,
-            detail="No file provided. Send multipart field 'file' or 'image', or raw image bytes with Content-Type: image/*.",
-        )
-    return await request.body()
-
-
-# ---------- routes ----------
-@app.get("/")
-async def root():
-    return {"service": "gravity-capture-stage-api", "env": APP_ENV, "ok": True}
-
-
-@app.get("/healthz")
-async def healthz():
-    return {"ok": True, "env": APP_ENV}
-
-
-# All OCR aliases used by the desktop app or experiments
-@app.post("/extract")
-@app.post("/api/extract")
-@app.post("/ocr")
-@app.post("/ocr/extract")
-@app.post("/api/ocr")
-@app.post("/api/ocr/extract")
-async def ocr_extract(
-    request: Request,
-    file: UploadFile | None = File(None),
-    image: UploadFile | None = File(None),
-    engine: str = "auto",
-):
-    try:
-        data = await _read_image_from_request(request, file, image)
-        res = extract_text(data, engine_hint=engine)
-        return res
-    except HTTPException:
-        raise
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# temporary but compatible ingest handlers
-@app.post("/ingest/screenshot")
-@app.post("/api/ingest/screenshot")
-async def ingest_screenshot(
-    file: UploadFile = File(...),
-    server: str = Form(""),
-    tribe: str = Form(""),
-    post_visible: str = Form("0"),
-):
-    img_bytes = await file.read()
-    ok = True
-    posted = False
-    err: Optional[str] = None
-
-    if LOG_POSTING_ENABLED and DISCORD_WEBHOOK and HTTPX_AVAILABLE:
-        try:
-            content = f"[{APP_ENV}] Screenshot from server='{server}' tribe='{tribe}' visible={post_visible}"
-            files = {"file": (file.filename or "visible.jpg", img_bytes, file.content_type or "image/jpeg")}
-            async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.post(DISCORD_WEBHOOK, data={"content": content}, files=files)
-                posted = r.status_code < 300
-        except Exception as e:
-            err = f"webhook error: {e}"
-
-    return {"ok": ok, "posted": posted, "env": APP_ENV, "error": err}
-
-
-@app.post("/ingest/log-line")
-@app.post("/api/ingest/log-line")
-async def ingest_log_line(payload: LogLineIngest = Body(...)):
-    posted = False
-    err: Optional[str] = None
-
-    if LOG_POSTING_ENABLED and DISCORD_WEBHOOK and HTTPX_AVAILABLE:
-        try:
-            content = f"[{APP_ENV}] {payload.server or ''} / {payload.tribe or ''}\n```\n{payload.line}\n```"
-            async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.post(DISCORD_WEBHOOK, json={"content": content})
-                posted = r.status_code < 300
-        except Exception as e:
-            err = f"webhook error: {e}"
-
-    return {"ok": True, "posted": posted, "env": APP_ENV, "error": err, "echo": payload.dict()}
-
-
-# ---------- uvicorn entry ----------
-if __name__ == "__main__":
-    import uvicorn
-
-    port = int(os.getenv("PORT", "8080"))
-    uvicorn.run("api_main:app", host="0.0.0.0", port=port, reload=False)
+app = create_app()
