@@ -248,20 +248,31 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(RegionText));
 
             var t0 = DateTime.Now;
-            var resp = await _api.SendIngestScreenshotAsync(cap.PngBytes, _settings, ct);
+            
+            using var sendCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            sendCts.CancelAfter(TimeSpan.FromSeconds(60));
+            var sendToken = sendCts.Token;
+var resp = await _api.SendIngestScreenshotAsync(cap.PngBytes, _settings, sendToken);
             var msg = resp;
 
             if (_settings.UseExtractPreview)
             {
-                var ext = await _api.ExtractAsync(cap.PngBytes, _settings, ct);
+                var ext = await _api.ExtractAsync(cap.PngBytes, _settings, sendToken);
                 msg = $"INGEST:\n{resp}\n\nEXTRACT:\n{ext}";
             }
 
-            LastResponse = msg;
-            LastSendSummary = $"Last send: {t0:HH:mm:ss}  |  Rect(px): {cap.PixelRect.Width}×{cap.PixelRect.Height}  |  Ping: {(_settings.CriticalPingEnabled ? "ON" : "OFF")}";
+            LastResponse = msg;            var elapsed = DateTime.Now - t0;
+
+            LastSendSummary = $"Last send: {t0:HH:mm:ss}  |  Region: {cap.PixelRect.Width}x{cap.PixelRect.Height}  |  Screen: {cap.ScreenName}  |  Ping: {(Settings.CriticalPingEnabled ? "on" : "off")}  |  Took: {elapsed.TotalMilliseconds:0} ms";
             StatusText = _isRunning ? "Running" : "Idle";
         }
-        catch (OperationCanceledException)
+                catch (TaskCanceledException)
+        {
+            StatusText = "Timed out";
+            LastResponse = "Timeout after 60s (no response from API).";
+        }
+
+catch (OperationCanceledException)
         {
             LastResponse = "Canceled.";
         }
