@@ -23,6 +23,17 @@ from tribelog.parser import stitch_wrapped_lines, parse_header_lines
 from tribelog.classify import classify_event
 
 
+
+def _parse_boolish(val: Optional[str]) -> Optional[bool]:
+    if val is None:
+        return None
+    v = str(val).strip().lower()
+    if v in {"1", "true", "yes", "y", "on", "enable", "enabled"}:
+        return True
+    if v in {"0", "false", "no", "n", "off", "disable", "disabled"}:
+        return False
+    return None
+
 def _require_key(settings: Settings, x_gl_key: Optional[str], x_api_key: Optional[str]) -> None:
     # If no secret is configured, allow requests (useful for local dev).
     if not settings.gl_shared_secret:
@@ -155,6 +166,8 @@ def create_app() -> FastAPI:
         post_visible: str,
         x_gl_key: Optional[str],
         x_api_key: Optional[str],
+        critical_ping: Optional[str],
+        x_client_critical_ping: Optional[str],
     ) -> Dict[str, Any]:
         _require_key(settings, x_gl_key, x_api_key)
 
@@ -185,6 +198,10 @@ def create_app() -> FastAPI:
 
         inserted = await app.state.db.insert_events(events)
 
+        client_ping = _parse_boolish(critical_ping)
+        if client_ping is None:
+            client_ping = _parse_boolish(x_client_critical_ping)
+
         posted = 0
         if settings.log_posting_enabled and app.state.webhook is not None:
             for ev in inserted:
@@ -194,6 +211,8 @@ def create_app() -> FastAPI:
                     and ev.severity == "CRITICAL"
                     and (settings.ping_all_critical or ev.category in settings.ping_categories)
                 )
+                if client_ping is False:
+                    do_ping = False
                 await app.state.webhook.post_event_from_parsed(
                     ev,
                     mention_role_id=settings.critical_ping_role_id,
@@ -222,10 +241,12 @@ def create_app() -> FastAPI:
         server: str = Form("unknown"),
         tribe: str = Form("unknown"),
         post_visible: str = Form("0"),
+        critical_ping: Optional[str] = Form(default=None),
+        x_client_critical_ping: Optional[str] = Header(default=None, alias="X-Client-Critical-Ping"),
         x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
         x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
     ) -> Dict[str, Any]:
-        return await _ingest_screenshot_impl(file or image, server, tribe, post_visible, x_gl_key, x_api_key)
+        return await _ingest_screenshot_impl(file or image, server, tribe, post_visible, x_gl_key, x_api_key, critical_ping, x_client_critical_ping)
 
     @app.post("/api/ingest/screenshot")
     async def ingest_screenshot_alias(
@@ -234,10 +255,12 @@ def create_app() -> FastAPI:
         server: str = Form("unknown"),
         tribe: str = Form("unknown"),
         post_visible: str = Form("0"),
+        critical_ping: Optional[str] = Form(default=None),
+        x_client_critical_ping: Optional[str] = Header(default=None, alias="X-Client-Critical-Ping"),
         x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
         x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
     ) -> Dict[str, Any]:
-        return await _ingest_screenshot_impl(file or image, server, tribe, post_visible, x_gl_key, x_api_key)
+        return await _ingest_screenshot_impl(file or image, server, tribe, post_visible, x_gl_key, x_api_key, critical_ping, x_client_critical_ping)
 
     @app.post("/ingest/log-line")
     async def ingest_log_line(
