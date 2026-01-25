@@ -18,6 +18,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private AppSettings _settings = new();
 
+    private readonly DispatcherTimer _saveTimer;
+
     private DispatcherTimer? _timer;
     private bool _isRunning;
     private bool _isBusy;
@@ -42,6 +44,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public MainViewModel()
     {
+        _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(650) };
+        _saveTimer.Tick += (_, _) =>
+        {
+            _saveTimer.Stop();
+            try { _store.Save(_settings); } catch { /* ignore */ }
+        };
+
         StartCommand = new RelayCommand(Start, () => !_isRunning);
         StopCommand = new RelayCommand(Stop, () => _isRunning);
         SendOnceCommand = new RelayCommand(async () => await SendOnceAsync(), () => !_isBusy);
@@ -76,25 +85,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string ApiBaseUrl
     {
         get => _settings.ApiBaseUrl;
-        set { _settings.ApiBaseUrl = value ?? ""; OnPropertyChanged(); }
+        set { _settings.ApiBaseUrl = value ?? ""; ScheduleSave(); OnPropertyChanged(); }
     }
 
     public string SharedSecret
     {
         get => _settings.SharedSecret;
-        set { _settings.SharedSecret = value ?? ""; OnPropertyChanged(); }
+        set { _settings.SharedSecret = value ?? ""; ScheduleSave(); OnPropertyChanged(); }
     }
 
     public string ServerName
     {
         get => _settings.ServerName;
-        set { _settings.ServerName = value ?? "unknown"; OnPropertyChanged(); }
+        set { _settings.ServerName = value ?? "unknown"; ScheduleSave(); OnPropertyChanged(); }
     }
 
     public string TribeName
     {
         get => _settings.TribeName;
-        set { _settings.TribeName = value ?? "unknown"; OnPropertyChanged(); }
+        set { _settings.TribeName = value ?? "unknown"; ScheduleSave(); OnPropertyChanged(); }
     }
 
     public string IntervalSecondsText
@@ -104,20 +113,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (int.TryParse(value, out var n))
                 _settings.IntervalSeconds = Math.Clamp(n, 2, 3600);
-            OnPropertyChanged();
+            ScheduleSave(); OnPropertyChanged();
         }
     }
 
     public bool CriticalPingEnabled
     {
         get => _settings.CriticalPingEnabled;
-        set { _settings.CriticalPingEnabled = value; OnPropertyChanged(); }
+        set { _settings.CriticalPingEnabled = value; ScheduleSave(); OnPropertyChanged(); }
     }
 
     public bool UseExtractPreview
     {
         get => _settings.UseExtractPreview;
-        set { _settings.UseExtractPreview = value; OnPropertyChanged(); }
+        set { _settings.UseExtractPreview = value; ScheduleSave(); OnPropertyChanged(); }
     }
 
     public string RegionText
@@ -170,6 +179,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         get => _busyText;
         private set { _busyText = value; OnPropertyChanged(); }
+    }
+
+    private void ScheduleSave()
+    {
+        _saveTimer.Stop();
+        _saveTimer.Start();
     }
 
     private void Start()
@@ -229,6 +244,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             // persist last-used screen if available
             _settings.CaptureScreenDeviceName = cap.ScreenName;
+            ScheduleSave();
             OnPropertyChanged(nameof(RegionText));
 
             var t0 = DateTime.Now;
@@ -276,6 +292,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _settings.CaptureRegion = w.SelectedRegion ?? _settings.CaptureRegion;
             _settings.CaptureScreenDeviceName = w.SelectedScreenDeviceName ?? _settings.CaptureScreenDeviceName;
             _settings.CaptureRegion.Clamp();
+            ScheduleSave();
 
             OnPropertyChanged(nameof(RegionText));
             LastSendSummary = "Region calibrated.";

@@ -7,6 +7,9 @@ This folder contains a Windows WPF desktop app that:
 - Optional debug call: `POST /extract`
 
 ## Build
+
+If you see duplicate-type build errors (e.g., AppSettings/ApiClient defined twice), you likely extracted a new patch on top of older files that were not overwritten. Fix: delete the entire `src/GravityCapture` folder and replace it from the zip, or run `CLEANUP_IF_BUILD_ERRORS.ps1` then rebuild.
+
 - Requires Visual Studio 2022 or `dotnet` SDK 8.x (Windows)
 - Open `GravityCapture.sln` and Run
 
