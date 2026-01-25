@@ -1,11 +1,9 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
-    "builder": "DOCKERFILE",
-    "dockerfilePath": "stage_api/Dockerfile",
-    "watchPatterns": ["stage_api/**"]
+    "builder": "DOCKERFILE"
   },
   "deploy": {
-    "startCommand": "/bin/sh -c \"exec uvicorn api_main:app --host 0.0.0.0 --port $PORT\""
+    "startCommand": "uvicorn api_main:app --host 0.0.0.0 --port $PORT"
   }
 }
