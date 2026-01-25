@@ -248,11 +248,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(RegionText));
 
             var t0 = DateTime.Now;
-            
+
             using var sendCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             sendCts.CancelAfter(TimeSpan.FromSeconds(60));
             var sendToken = sendCts.Token;
-var resp = await _api.SendIngestScreenshotAsync(cap.PngBytes, _settings, sendToken);
+
+            var resp = await _api.SendIngestScreenshotAsync(cap.PngBytes, _settings, sendToken);
             var msg = resp;
 
             if (_settings.UseExtractPreview)
@@ -261,19 +262,26 @@ var resp = await _api.SendIngestScreenshotAsync(cap.PngBytes, _settings, sendTok
                 msg = $"INGEST:\n{resp}\n\nEXTRACT:\n{ext}";
             }
 
-            LastResponse = msg;            var elapsed = DateTime.Now - t0;
-
-            LastSendSummary = $"Last send: {t0:HH:mm:ss}  |  Region: {cap.PixelRect.Width}x{cap.PixelRect.Height}  |  Screen: {cap.ScreenName}  |  Ping: {(Settings.CriticalPingEnabled ? "on" : "off")}  |  Took: {elapsed.TotalMilliseconds:0} ms";
+            LastResponse = msg;
+            LastSendSummary = $"Last send: {t0:HH:mm:ss}  |  Rect(px): {cap.PixelRect.Width}×{cap.PixelRect.Height}  |  Ping: {(_settings.CriticalPingEnabled ? "ON" : "OFF")}";
             StatusText = _isRunning ? "Running" : "Idle";
         }
-                catch (TaskCanceledException)
+        catch (TaskCanceledException)
         {
-            StatusText = "Timed out";
-            LastResponse = "Timeout after 60s (no response from API).";
+            if (ct.IsCancellationRequested)
+            {
+                StatusText = "Canceled";
+                LastResponse = "Canceled.";
+            }
+            else
+            {
+                StatusText = "Timed out";
+                LastResponse = "Timeout after 60s (no response from API).";
+            }
         }
-
-catch (OperationCanceledException)
+        catch (OperationCanceledException)
         {
+            StatusText = "Canceled";
             LastResponse = "Canceled.";
         }
         catch (Exception ex)
