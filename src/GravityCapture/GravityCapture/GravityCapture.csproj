@@ -7,7 +7,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <UseSystemDrawing>true</UseSystemDrawing>
     <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <ImplicitUsings>disable</ImplicitUsings>
     <ApplicationIcon>Assets\GravityCapture.ico</ApplicationIcon>
     <AssemblyName>GravityCapture</AssemblyName>
     <RootNamespace>GravityCapture</RootNamespace>

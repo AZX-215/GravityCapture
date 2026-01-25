@@ -9,7 +9,7 @@ namespace GravityCapture.Views;
 
 public partial class RegionCalibratorWindow : Window
 {
-    private Point _start;
+    private System.Windows.Point _start;
     private bool _dragging;
 
     public NormalizedRect? SelectedRegion { get; private set; }
@@ -34,7 +34,7 @@ public partial class RegionCalibratorWindow : Window
 
         Loaded += (_, _) =>
         {
-            // Use WPF primary screen dimensions (DIPs).
+            // Use WPF primary screen dimensions (DIPs). (This is fine for selecting a normalized region.)
             Left = 0;
             Top = 0;
             Width = SystemParameters.PrimaryScreenWidth;
@@ -54,7 +54,7 @@ public partial class RegionCalibratorWindow : Window
         RootCanvas.CaptureMouse();
     }
 
-    private void OnMouseMove(object sender, MouseEventArgs e)
+    private void OnMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
         if (!_dragging) return;
 

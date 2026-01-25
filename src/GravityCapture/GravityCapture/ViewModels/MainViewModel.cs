@@ -8,7 +8,6 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using GravityCapture.Models;
 using GravityCapture.Services;
-
 namespace GravityCapture.ViewModels;
 
 public sealed class MainViewModel : INotifyPropertyChanged
@@ -269,7 +268,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             var w = new Views.RegionCalibratorWindow(_settings.CaptureRegion, _settings.CaptureScreenDeviceName);
-            w.Owner = Application.Current?.MainWindow;
+            w.Owner = System.Windows.Application.Current?.MainWindow;
             var ok = w.ShowDialog() ?? false;
             if (!ok)
                 return;
