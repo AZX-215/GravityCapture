@@ -1,6 +1,0 @@
-[phases.setup]
-aptPkgs = ["tesseract-ocr", "tesseract-ocr-eng", "libgl1", "libglib2.0-0", "libgomp1"]
-
-[variables]
-PORT = "8080"
-ENVIRONMENT = "stage"
