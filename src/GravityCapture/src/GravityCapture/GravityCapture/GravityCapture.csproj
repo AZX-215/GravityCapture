@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseSystemDrawing>true</UseSystemDrawing>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <ApplicationIcon>Assets\GravityCapture.ico</ApplicationIcon>
+    <AssemblyName>GravityCapture</AssemblyName>
+    <RootNamespace>GravityCapture</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\GravityCapture.ico" />
+    <Resource Include="Assets\GravityCapture.png" />
+  </ItemGroup>
+
+</Project>

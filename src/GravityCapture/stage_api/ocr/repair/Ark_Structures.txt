@@ -1,0 +1,448 @@
+Adobe Beam
+Adobe Behemoth Cellar Door
+Adobe Behemoth Gate
+Adobe Behemoth Gateway
+Adobe Ceiling
+Adobe Cellar Door
+Adobe Doors & Windows
+Adobe Double Doorway
+Adobe Doorway
+Adobe Fence Foundation
+Adobe Fence Support
+Adobe Foundation
+Adobe Gate
+Adobe Gateway
+Adobe Half Beam
+Adobe Half Pillar
+Adobe Half Railing
+Adobe Hatchframe
+Adobe Ladder
+Adobe Large Cellar Door
+Adobe Large Wall
+Adobe Pillar
+Adobe Quarter Ceiling
+Adobe Quarter Foundation
+Adobe Quarter Ramp
+Adobe Quarter Roof
+Adobe Quarter Stairs
+Adobe Quarter Wall
+Adobe Railing
+Adobe Ramp
+Adobe Ramp Corner
+Adobe Roof
+Adobe Staircase
+Adobe Stairs
+Adobe Trapdoor
+Adobe Triangle Ceiling
+Adobe Triangle Foundation
+Adobe Triangle Roof
+Adobe Wall
+Adobe Window
+Adobe Windowframe
+Advanced Workbench
+Air Conditioner
+Alchemy Table
+Ammo Box
+APS Mailbox
+Ark Anniversary Cake
+Artifact Pedestal
+Auto Turret
+Baker’s Oven
+Ballista Turret
+Barrel of Gunpowder
+Barrel Storage
+BattleRig
+Battlerig Garage
+Bee Hive
+Beer Barrel
+Behemoth Adobe Dinosaur Gate
+Behemoth Adobe Dinosaur Gateway
+Behemoth Gate
+Behemoth Gateway
+Behemoth Reinforced Dinosaur Gate
+Behemoth Stone Dinosaur Gateway
+Behemoth Tek Gate
+Behemoth Tek Gateway
+Big Bonfire
+Big Campfire
+Big Fence – Opening
+Big Fence – Post
+Big Fence – Section
+Big Stone Fence
+Birch Barricade
+Birthday Cake
+Bladewasp Hive
+Bookshelf
+Brazier
+Brick Ceiling
+Brick Dinosaur Gate
+Brick Dinosaur Gateway
+Brick Doorframe
+Brick Fence Foundation
+Brick Fence Support
+Brick Foundation
+Brick Gateway
+Brick Pillar
+Brick Ramp
+Brick Roof
+Brick Stairs
+Brick Wall
+Brick Window
+Brick Windowframe
+Bunk Bed
+Bunny Egg
+Buried Hex-Infected Junk
+Buried Treasure Chest
+Campfire
+Candle
+Canoe
+Cannon
+Catapult Turret
+Charge Node
+Chemistry Bench
+Clockface
+Cloning Chamber
+Compost Bin
+Construction Table
+Cooking Pot
+Cooking Station
+Covered Wooden Cabinet
+Cryofridge
+Crystal Wyvern Queen Flag
+Delivery Crate
+Dinghy
+Dinosaur Gate
+Dinosaur Gateway
+Display Case
+Dragon Flag
+Dye Table
+Dye Vat
+Egg Incubator
+Electrical Cable Intersection
+Electrical Generator
+Electrical Outlet
+Element Node
+Elevator Track
+Embryo Incubator
+Fabricator
+Feeding Trough
+Fenrisúlfr Flag
+Fermenting Barrel
+Firewood Holder
+Fish Basket
+Fish Trap
+Flexible Electrical Cable
+Flower
+Fossil Pile
+Fractalis Flag
+Fruit Press
+Gas Forge
+Gas Pump
+Gas Station
+Giganotosaurus Pit
+Giga Spike Trap
+Glowbulb Lamp
+Griffin Nest
+Half-Behemoth Adobe Gate
+Hatchery
+Heavy Contact Switch
+Hide Sleeping Bag
+Hologram Projector
+Hover Cart
+Ice Block Spawner
+Industrial Cooker
+Industrial Fabricator
+Industrial Forge
+Industrial Generator
+Industrial Grinder
+Industrial Pump
+Industrial Refrigerator
+Irrigation Intake
+Irrigation Intersection
+Irrigation Pipe – Inclined
+Irrigation Pipe – Intake
+Irrigation Pipe – Straight
+Irrigation Pipe – Tap
+Irrigation Pipe – Vertical
+Jump Pad
+Kiln
+King Titan Banner
+Kitchen Sink
+Laboratory Bench
+Large Storage Box
+Launch Pad
+Light Tower
+Loom
+Lost Colony Ancient Gate
+Lost Colony Ancient Gateway
+Lost Colony Cryo Chamber
+Metal Beam
+Metal Behemoth Cellar Door
+Metal Behemoth Gate
+Metal Behemoth Gateway
+Metal Ceiling
+Metal Cellar Door
+Metal Door
+Metal Doorframe
+Metal Fence Foundation
+Metal Fence Support
+Metal Foundation
+Metal Gateway
+Metal Pillar
+Metal Ramp
+Metal Railing
+Metal Roof
+Metal Staircase
+Metal Stairs
+Metal Trapdoor
+Metal Triangle Ceiling
+Metal Triangle Foundation
+Metal Triangle Roof
+Metal Wall
+Metal Window
+Metal Windowframe
+Mortar and Pestle
+Motorboat
+Motorized Cart
+Mount Platform
+Oasis Spring
+Oasis Well
+Oil Pump
+Paint Brush
+Paint Table
+Paracer Platform
+Pause Sphere
+Perimeter Fence
+Petri Dish
+Phoenix Nest
+Plant Species X Turret
+Plasma Generator
+Platform Cart
+Polished Stone Cauldron
+Power Conduit
+Pressure Plate
+Projectile Spike Wall
+Projectile Trap
+Primal Breeze Cave Flag
+Purlovia Pitfall
+Putrid Cauldron
+Quarter Beam
+Quarter Pillar
+Quarter Railing
+Ramp Corner
+Rail Track
+Rain Catcher
+Reinforced Behemoth Gate
+Reinforced Wooden Sign
+Refining Forge
+Remote Turret
+Repeater Fence
+Resource Crate
+Retaining Wall
+Rideable Turret
+Riot Shield
+Rock Shot Trap
+Rolling Log
+Rope Bridge
+Roof Hatch
+Sap Tap
+Scaffold Platform
+Scout Beacon
+Sea Lamprey Cage
+Secret Hatch
+Security Camera
+Self-Charging Station
+Shale Gateway
+Shinehorn Crate
+Shock Pad
+Signal Booster
+Sign Post
+Simple Rail
+Snapshot Screen
+Snow Owl Perch
+Soil Compressor
+Sound Amplifier
+Spike Wall
+Split-Level Foundation
+Sprinkler
+Stalagmite Spike
+Steam Vent
+Storage Box
+Storage Sphere
+Stone Beam
+Stone Behemoth Gate
+Stone Behemoth Gateway
+Stone Ceiling
+Stone Cellar Door
+Stone Dinosaur Gate
+Stone Dinosaur Gateway
+Stone Door
+Stone Doorframe
+Stone Fence Foundation
+Stone Fence Support
+Stone Foundation
+Stone Gateway
+Stone Pillar
+Stone Ramp
+Stone Railing
+Stone Roof
+Stone Staircase
+Stone Stairs
+Stone Trapdoor
+Stone Triangle Ceiling
+Stone Triangle Foundation
+Stone Triangle Roof
+Stone Wall
+Stone Window
+Stone Windowframe
+Stream
+Survivor’s Flag
+Tapejara Perch
+Teleport Beacon
+Tek ATV
+Tek Beam
+Tek Bunker
+Tek Bunker Module
+Tek Ceiling
+Tek Cellar Door
+Tek Chasm Bridge
+Tek Death Platform
+Tek Dinosaur Gate
+Tek Dinosaur Gateway
+Tek Door
+Tek Doorframe
+Tek Fence Foundation
+Tek Fence Support
+Tek Foundation
+Tek Gateway
+Tek Gravity Elevator
+Tek Hatchframe
+Tek Half Beam
+Tek Half Pillar
+Tek Half Railing
+Tek Hinged Door
+Tek Hook Anchor
+Tek Hoversail
+Tek Ladder
+Tek Light
+Tek Platform Saddle
+Tek Pillar
+Tek Ramp
+Tek Railing
+Tek Roof
+Tek Shield Generator
+Tek Skiff
+Tek Staircase
+Tek Stairs
+Tek Trapdoor
+Tek Triangle Ceiling
+Tek Triangle Foundation
+Tek Triangle Roof
+Tek Turret
+Tek Wall
+Tek Window
+Tek Windowframe
+Tek Yutyrannus Statue
+Terracotta Vase
+Thermal Conditioning Unit
+Thermo Lamp
+Thatch Beam
+Thatch Ceiling
+Thatch Door
+Thatch Doorframe
+Thatch Fence Foundation
+Thatch Fence Support
+Thatch Foundation
+Thatch Gateway
+Thatch Pillar
+Thatch Ramp
+Thatch Railing
+Thatch Roof
+Thatch Staircase
+Thatch Stairs
+Thatch Trapdoor
+Thatch Triangle Ceiling
+Thatch Triangle Foundation
+Thatch Triangle Roof
+Thatch Wall
+Thatch Window
+Thatch Windowframe
+Thatch Sign
+Tiki Torch
+Tile Beam
+Tile Ceiling
+Tile Door
+Tile Doorframe
+Tile Fence Foundation
+Tile Fence Support
+Tile Foundation
+Tile Gateway
+Tile Pillar
+Tile Ramp
+Tile Railing
+Tile Roof
+Tile Staircase
+Tile Stairs
+Tile Trapdoor
+Tile Triangle Ceiling
+Tile Triangle Foundation
+Tile Triangle Roof
+Tile Wall
+Tile Window
+Tile Windowframe
+Tile Sign
+Train Cart
+Train Engine
+Treasure Trove Crate
+Tunnel Entrance
+Turret Ammo Box
+Ultra Conveyor
+Unicorn Perch
+Underwater Hatch
+Uranium Silo
+Vial Storage
+Vault Door
+Vault Gateway
+Vault Storage
+Ventilation Shaft
+Video Screen
+Vines Wall
+Velonasaur Perch
+Vines Wall
+Water Tank
+Water Well
+Wet Dresser
+Wild Card Flag
+Wind Turbine
+Wood Beam
+Wooden Behemoth Gate
+Wooden Behemoth Gateway
+Wooden Ceiling
+Wooden Cellar Door
+Wooden Dinosaur Gate
+Wooden Dinosaur Gateway
+Wooden Door
+Wooden Doorframe
+Wooden Fence Foundation
+Wooden Fence Support
+Wooden Foundation
+Wooden Gate
+Wooden Gateway
+Wooden Hatchframe
+Wooden Pillar
+Wooden Ramp
+Wooden Railing
+Wooden Roof
+Wooden Staircase
+Wooden Stairs
+Wooden Trapdoor
+Wooden Triangle Ceiling
+Wooden Triangle Foundation
+Wooden Triangle Roof
+Wooden Wall
+Wooden Window
+Wooden Windowframe
+Wooden Sign
+Xeno Catalyst Chamber
+Yutyrannus Banner
+Zeppelin Platform
