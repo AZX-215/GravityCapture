@@ -6,6 +6,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="av"
     Title="Gravity Capture"
+    Icon="Assets/GravityCapture_Rounded.ico"
     MinWidth="820" MinHeight="920"
     MaxWidth="820" MaxHeight="920"
     Background="{x:Null}"

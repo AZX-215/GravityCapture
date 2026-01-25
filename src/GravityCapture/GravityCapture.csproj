@@ -9,6 +9,7 @@
     <AssemblyName>GravityCapture</AssemblyName>
     <RootNamespace>GravityCapture</RootNamespace>
     <Platforms>AnyCPU</Platforms>
+    <ApplicationIcon>Assets\GravityCapture_Rounded.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
