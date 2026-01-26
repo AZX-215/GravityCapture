@@ -38,6 +38,8 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="10,8"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="MinHeight" Value="42"/>
+            <Setter Property="MinWidth" Value="120"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type TextBox}">
@@ -75,29 +77,31 @@
 
         <!-- Buttons -->
         <Style TargetType="{x:Type Button}">
-            <Setter Property="Background" Value="#16233A"/>
+            <Setter Property="Background" Value="{StaticResource BrushCardBg}"/>
             <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}"/>
             <Setter Property="BorderBrush" Value="{StaticResource BrushStrokeSoft}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="12,9"/>
+            <Setter Property="Padding" Value="16,11"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Cursor" Value="Hand"/>
+                        <Setter Property="MinHeight" Value="42"/>
+            <Setter Property="MinWidth" Value="120"/>
+<Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type Button}">
                         <Border Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="12">
+                                CornerRadius="10">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#1C2E4D"/>
+                                <Setter Property="Background" Value="#1A2230"/>
                                 <Setter Property="BorderBrush" Value="{StaticResource BrushStroke}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Background" Value="#0F1A2E"/>
+                                <Setter Property="Background" Value="#131A25"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.5"/>
@@ -109,13 +113,15 @@
         </Style>
 
         <Style x:Key="PrimaryButton" TargetType="{x:Type Button}" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Background" Value="#1D3D72"/>
-            <Setter Property="BorderBrush" Value="#2C5AA8"/>
+            <Setter Property="Background" Value="{StaticResource BrushCardBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushStrokeSoft}"/>
+                    <Setter Property="BorderThickness" Value="2"/>
         </Style>
 
         <Style x:Key="DangerButton" TargetType="{x:Type Button}" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Background" Value="#3A1A1A"/>
-            <Setter Property="BorderBrush" Value="#6B2B2B"/>
+            <Setter Property="Background" Value="{StaticResource BrushCardBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushStrokeSoft}"/>
+                    <Setter Property="BorderThickness" Value="1"/>
         </Style>
 
         <!-- CheckBox -->

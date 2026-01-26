@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -42,16 +43,30 @@ public sealed class ScreenCaptureService
             g.CopyFromScreen(rect.Left, rect.Top, 0, 0, rect.Size, CopyPixelOperation.SourceCopy);
         }
 
-        byte[] png;
-        using (var ms = new MemoryStream())
-        {
-            bmp.Save(ms, ImageFormat.Png);
-            png = ms.ToArray();
-        }
+        var factor = Math.Clamp(settings.UpscaleFactor <= 0 ? 1 : settings.UpscaleFactor, 1, 4);
 
-        var preview = ToBitmapSource(bmp);
+// Optional upscale to improve OCR clarity. (Keeps capture rect in original screen pixels.)
+using var finalBmp = factor == 1 ? (Bitmap)bmp.Clone() : new Bitmap(rect.Width * factor, rect.Height * factor, PixelFormat.Format32bppArgb);
+if (factor != 1)
+{
+    using var g2 = Graphics.FromImage(finalBmp);
+    g2.CompositingQuality = CompositingQuality.HighQuality;
+    g2.InterpolationMode = InterpolationMode.HighQualityBicubic;
+    g2.PixelOffsetMode = PixelOffsetMode.HighQuality;
+    g2.SmoothingMode = SmoothingMode.None;
+    g2.DrawImage(bmp, new Rectangle(0, 0, finalBmp.Width, finalBmp.Height));
+}
 
-        return new CaptureResult(preview, png, screen.DeviceName, rect);
+byte[] png;
+using (var ms = new MemoryStream())
+{
+    finalBmp.Save(ms, ImageFormat.Png);
+    png = ms.ToArray();
+}
+
+var preview = ToBitmapSource(finalBmp);
+
+return new CaptureResult(preview, png, screen.DeviceName, rect);
     }
 
     private static Screen ResolveScreen(string deviceName)

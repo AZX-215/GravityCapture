@@ -63,7 +63,15 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="16">
 
-                        <TextBlock Text="Settings" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Settings" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Content="Save" Command="{Binding SaveSettingsCommand}" Margin="12,0,0,0"/>
+                        </Grid>
+                        <TextBlock Text="{Binding SaveStatusText}" FontSize="12" Foreground="{StaticResource BrushTextSecondary}" Margin="0,0,0,8" TextWrapping="Wrap"/>
 
                         <TextBlock Text="API Base URL" Foreground="{StaticResource BrushTextSecondary}"/>
                         <TextBox Text="{Binding ApiBaseUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,12"/>
@@ -91,6 +99,10 @@
 
                         <TextBlock Text="Capture Interval (seconds)" Foreground="{StaticResource BrushTextSecondary}"/>
                         <TextBox Text="{Binding IntervalSecondsText, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,10" />
+                        <TextBlock Text="Upscale Factor (1-4)" Foreground="{StaticResource BrushTextSecondary}"/>
+                        <TextBox Text="{Binding UpscaleFactorText, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,10" />
+                        <TextBlock Text="Request Timeout (seconds)" Foreground="{StaticResource BrushTextSecondary}"/>
+                        <TextBox Text="{Binding RequestTimeoutSecondsText, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,10" />
 
                         <CheckBox Content="Enable CRITICAL pings" IsChecked="{Binding CriticalPingEnabled}" Margin="0,4,0,10"/>
 
