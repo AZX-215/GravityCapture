@@ -10,7 +10,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger("gravitycapture")
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +36,37 @@ def _parse_boolish(val: Optional[str]) -> Optional[bool]:
     if v in {"0", "false", "no", "n", "off", "disable", "disabled"}:
         return False
     return None
+
+
+async def _post_events_background(inserted, client_ping: Optional[bool], webhook, settings: Settings) -> int:
+    """Post inserted events to Discord. Runs either inline or as a background task."""
+    posted = 0
+    if not inserted or webhook is None:
+        return 0
+    for ev in inserted:
+        try:
+            # Option B: only ping for selected categories (even if severity is CRITICAL)
+            do_ping = (
+                settings.critical_ping_enabled
+                and ev.severity == "CRITICAL"
+                and (settings.ping_all_critical or ev.category in settings.ping_categories)
+            )
+            if client_ping is False:
+                do_ping = False
+
+            await webhook.post_event_from_parsed(
+                ev,
+                mention_role_id=settings.critical_ping_role_id,
+                mention=do_ping,
+                env=settings.environment,
+            )
+            posted += 1
+            if settings.post_delay_seconds > 0:
+                await asyncio.sleep(settings.post_delay_seconds)
+        except Exception as e:
+            logger.exception("Discord posting failed: %s", e)
+    return posted
+
 
 def _require_key(settings: Settings, x_gl_key: Optional[str], x_api_key: Optional[str]) -> None:
     # If no secret is configured, allow requests (useful for local dev).
@@ -203,25 +237,26 @@ def create_app() -> FastAPI:
             client_ping = _parse_boolish(x_client_critical_ping)
 
         posted = 0
-        if settings.log_posting_enabled and app.state.webhook is not None:
-            for ev in inserted:
-                # Option B: only ping for selected categories (even if severity is CRITICAL)
-                do_ping = (
-                    settings.critical_ping_enabled
-                    and ev.severity == "CRITICAL"
-                    and (settings.ping_all_critical or ev.category in settings.ping_categories)
-                )
-                if client_ping is False:
-                    do_ping = False
-                await app.state.webhook.post_event_from_parsed(
-                    ev,
-                    mention_role_id=settings.critical_ping_role_id,
-                    mention=do_ping,
-                    env=settings.environment,
-                )
-                posted += 1
-                if settings.post_delay_seconds > 0:
-                    await asyncio.sleep(settings.post_delay_seconds)
+        enqueued_events = 0
+        posting_mode = "off"
+
+        allow_post = _parse_boolish(post_visible) is True
+
+        if allow_post and settings.log_posting_enabled and app.state.webhook is not None and inserted:
+            if getattr(settings, "async_posting_enabled", True):
+                posting_mode = "async"
+                enqueued_events = len(inserted)
+
+                async def _runner():
+                    try:
+                        await _post_events_background(inserted, client_ping, app.state.webhook, settings)
+                    except Exception as e:
+                        logger.exception("Background posting task crashed: %s", e)
+
+                asyncio.create_task(_runner())
+            else:
+                posting_mode = "sync"
+                posted = await _post_events_background(inserted, client_ping, app.state.webhook, settings)
 
         return {
             "ok": True,
@@ -231,6 +266,8 @@ def create_app() -> FastAPI:
             "total_events": len(events),
             "inserted_events": len(inserted),
             "posted_events": posted,
+            "posting_mode": posting_mode,
+            "enqueued_events": enqueued_events,
             "post_visible": str(post_visible or "0"),
         }
 
@@ -240,7 +277,7 @@ def create_app() -> FastAPI:
         image: Optional[UploadFile] = File(default=None),
         server: str = Form("unknown"),
         tribe: str = Form("unknown"),
-        post_visible: str = Form("0"),
+        post_visible: str = Form("1"),
         critical_ping: Optional[str] = Form(default=None),
         x_client_critical_ping: Optional[str] = Header(default=None, alias="X-Client-Critical-Ping"),
         x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
@@ -254,7 +291,7 @@ def create_app() -> FastAPI:
         image: Optional[UploadFile] = File(default=None),
         server: str = Form("unknown"),
         tribe: str = Form("unknown"),
-        post_visible: str = Form("0"),
+        post_visible: str = Form("1"),
         critical_ping: Optional[str] = Form(default=None),
         x_client_critical_ping: Optional[str] = Header(default=None, alias="X-Client-Critical-Ping"),
         x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
@@ -296,22 +333,26 @@ def create_app() -> FastAPI:
         inserted = await app.state.db.insert_events(events)
 
         posted = 0
-        if settings.log_posting_enabled and app.state.webhook is not None:
-            for ev in inserted:
-                do_ping = (
-                    settings.critical_ping_enabled
-                    and ev.severity == "CRITICAL"
-                    and (settings.ping_all_critical or ev.category in settings.ping_categories)
-                )
-                await app.state.webhook.post_event_from_parsed(
-                    ev,
-                    mention_role_id=settings.critical_ping_role_id,
-                    mention=do_ping,
-                    env=settings.environment,
-                )
-                posted += 1
-                if settings.post_delay_seconds > 0:
-                    await asyncio.sleep(settings.post_delay_seconds)
+        enqueued_events = 0
+        posting_mode = "off"
+
+        allow_post = _parse_boolish(post_visible) is True
+
+        if allow_post and settings.log_posting_enabled and app.state.webhook is not None and inserted:
+            if getattr(settings, "async_posting_enabled", True):
+                posting_mode = "async"
+                enqueued_events = len(inserted)
+
+                async def _runner():
+                    try:
+                        await _post_events_background(inserted, client_ping, app.state.webhook, settings)
+                    except Exception as e:
+                        logger.exception("Background posting task crashed: %s", e)
+
+                asyncio.create_task(_runner())
+            else:
+                posting_mode = "sync"
+                posted = await _post_events_background(inserted, client_ping, app.state.webhook, settings)
 
         return {"ok": True, "inserted_events": len(inserted), "posted_events": posted}
 
