@@ -41,6 +41,9 @@ class Settings:
     log_posting_enabled: bool
     post_delay_seconds: float
 
+    # If true, Discord posting runs in the background and the API responds immediately.
+    async_posting_enabled: bool
+
     # Pings
     critical_ping_enabled: bool
     critical_ping_role_id: str
@@ -66,6 +69,7 @@ class Settings:
             alert_discord_webhook_url=(os.getenv("ALERT_DISCORD_WEBHOOK_URL") or "").strip(),
             log_posting_enabled=_get_bool("LOG_POSTING_ENABLED", True),
             post_delay_seconds=_get_float("POST_DELAY_SECONDS", 0.8),
+            async_posting_enabled=_get_bool("ASYNC_POSTING_ENABLED", True),
             critical_ping_enabled=_get_bool("CRITICAL_PING_ENABLED", True),
             critical_ping_role_id=(os.getenv("CRITICAL_PING_ROLE_ID") or "1286835166471262249").strip(),
             ping_all_critical=_get_bool("PING_ALL_CRITICAL", False),
