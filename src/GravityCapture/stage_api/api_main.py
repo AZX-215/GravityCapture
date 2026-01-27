@@ -260,6 +260,8 @@ def create_app() -> FastAPI:
 
         return {
             "ok": True,
+            "server": server,
+            "tribe": tribe,
             "engine": ocr.get("engine"),
             "variant": ocr.get("variant"),
             "ocr_conf": ocr.get("conf"),
