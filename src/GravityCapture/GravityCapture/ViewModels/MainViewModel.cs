@@ -345,7 +345,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             else
                 resp = await _api.SendIngestScreenshotAsync(cap.PngBytes, _settings, token);
 
-            LastResponse = resp;
+            var s = (_settings.ServerName ?? "unknown").Trim();
+            var t = (_settings.TribeName ?? "unknown").Trim();
+            LastResponse = $"server={s} (len {s.Length}), tribe={t} (len {t.Length})\n{resp}";
             BusyText = "Idle";
         }
         finally

@@ -25,11 +25,16 @@ public sealed class ApiClient
         file.Headers.ContentType = MediaTypeHeaderValue.Parse("image/png");
         content.Add(file, "image", "tribelog.png");
 
-        content.Add(new StringContent(settings.ServerName ?? "unknown"), "server");
-        content.Add(new StringContent(settings.TribeName ?? "unknown"), "tribe");
+        var server = (settings.ServerName ?? "unknown").Trim();
+        if (string.IsNullOrWhiteSpace(server)) server = "unknown";
+        var tribe = (settings.TribeName ?? "unknown").Trim();
+        if (string.IsNullOrWhiteSpace(tribe)) tribe = "unknown";
 
-        // Desktop sets "post_visible=0" to avoid duplicating visibility logic client-side.
-        content.Add(new StringContent("0"), "post_visible");
+        content.Add(new StringContent(server), "server");
+        content.Add(new StringContent(tribe), "tribe");
+
+        // Default to visible posting unless the server is configured to ignore it.
+        content.Add(new StringContent("1"), "post_visible");
 
         // Client-side ping toggle (server still enforces its own CRITICAL_PING_ENABLED).
         content.Add(new StringContent(settings.CriticalPingEnabled ? "1" : "0"), "critical_ping");
