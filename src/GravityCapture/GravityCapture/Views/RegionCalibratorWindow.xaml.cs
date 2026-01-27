@@ -15,7 +15,11 @@ public partial class RegionCalibratorWindow : Window
     public NormalizedRect? SelectedRegion { get; private set; }
     public string? SelectedScreenDeviceName { get; private set; }
 
-    public RegionCalibratorWindow(NormalizedRect? current, string? currentScreenDeviceName)
+    
+    // Back-compat aliases used by MainViewModel
+    public NormalizedRect ResultRegion => SelectedRegion ?? new NormalizedRect();
+    public string? ResultScreenDeviceName => SelectedScreenDeviceName;
+public RegionCalibratorWindow(NormalizedRect? current, string? currentScreenDeviceName)
     {
         InitializeComponent();
 
