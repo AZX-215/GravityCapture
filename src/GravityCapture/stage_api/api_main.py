@@ -306,6 +306,9 @@ def create_app() -> FastAPI:
         line: str = Form(...),
         server: str = Form("unknown"),
         tribe: str = Form("unknown"),
+        post_visible: str = Form("1"),
+        critical_ping: Optional[str] = Form(default=None),
+        x_client_critical_ping: Optional[str] = Header(default=None, alias="X-Client-Critical-Ping"),
         x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
         x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
     ) -> Dict[str, Any]:
@@ -313,7 +316,6 @@ def create_app() -> FastAPI:
         if not settings.database_url:
             raise HTTPException(status_code=500, detail="DATABASE_URL not set")
 
-        # allow the app to send a single line (already extracted)
         stitched = stitch_wrapped_lines([line])
         header_lines = parse_header_lines(stitched)
         if not header_lines:
@@ -333,6 +335,10 @@ def create_app() -> FastAPI:
             )
 
         inserted = await app.state.db.insert_events(events)
+
+        client_ping = _parse_boolish(critical_ping)
+        if client_ping is None:
+            client_ping = _parse_boolish(x_client_critical_ping)
 
         posted = 0
         enqueued_events = 0
@@ -356,7 +362,17 @@ def create_app() -> FastAPI:
                 posting_mode = "sync"
                 posted = await _post_events_background(inserted, client_ping, app.state.webhook, settings)
 
-        return {"ok": True, "inserted_events": len(inserted), "posted_events": posted}
+        return {
+            "ok": True,
+            "server": server,
+            "tribe": tribe,
+            "total_events": len(events),
+            "inserted_events": len(inserted),
+            "posted_events": posted,
+            "posting_mode": posting_mode,
+            "enqueued_events": enqueued_events,
+            "post_visible": str(post_visible or "0"),
+        }
 
     @app.post("/api/ingest/log-line")
     async def ingest_log_line_alias(
