@@ -338,16 +338,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 return;
             }
 
-            // Optional debug: call /extract for preview. Otherwise ingest.
-            string resp;
+            // Always send /ingest/screenshot for real pipeline work.
+            // Optional debug: also call /extract first so you can see OCR details on the exact crop.
+            string? extractResp = null;
             if (_settings.UseExtractPreview)
-                resp = await _api.ExtractAsync(cap.PngBytes, _settings, token);
-            else
-                resp = await _api.SendIngestScreenshotAsync(cap.PngBytes, _settings, token);
+                extractResp = await _api.ExtractAsync(cap.PngBytes, _settings, token);
+
+            var ingestResp = await _api.SendIngestScreenshotAsync(cap.PngBytes, _settings, token);
 
             var s = (_settings.ServerName ?? "unknown").Trim();
             var t = (_settings.TribeName ?? "unknown").Trim();
-            LastResponse = $"server={s} (len {s.Length}), tribe={t} (len {t.Length})\n{resp}";
+
+            if (!string.IsNullOrWhiteSpace(extractResp))
+            {
+                LastResponse =
+                    $"server={s} (len {s.Length}), tribe={t} (len {t.Length})\n" +
+                    $"--- /extract (debug) ---\n{extractResp}\n\n" +
+                    $"--- /ingest/screenshot ---\n{ingestResp}";
+            }
+            else
+            {
+                LastResponse = $"server={s} (len {s.Length}), tribe={t} (len {t.Length})\n{ingestResp}";
+            }
             BusyText = "Idle";
         }
         finally

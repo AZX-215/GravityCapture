@@ -6,8 +6,8 @@
         xmlns:local="clr-namespace:GravityCapture"
         mc:Ignorable="d"
         Title="Gravity Capture"
-        Height="860" Width="1320"
-        MinHeight="780" MinWidth="1180"
+        Height="860" Width="1060"
+        MinHeight="780" MinWidth="900"
         WindowStartupLocation="CenterScreen"
         Icon="Assets/GravityCapture.ico">
 
@@ -34,8 +34,8 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <Border Width="42" Height="42" CornerRadius="12" BorderBrush="{StaticResource BrushStrokeSoft}" BorderThickness="1" Background="{StaticResource BrushCardBg}">
-                <Image Source="Assets/GravityCapture.png" Stretch="Uniform" Margin="6"/>
+            <Border Width="60" Height="60" CornerRadius="16" BorderBrush="{StaticResource BrushStrokeSoft}" BorderThickness="1" Background="{StaticResource BrushCardBg}">
+                <Image Source="Assets/GravityCapture.png" Stretch="Uniform" Margin="4"/>
             </Border>
 
             <StackPanel Grid.Column="2" VerticalAlignment="Center">
@@ -113,7 +113,7 @@
 
                         <CheckBox Content="Enable CRITICAL pings" IsChecked="{Binding CriticalPingEnabled}" Margin="0,4,0,10"/>
 
-                        <CheckBox Content="Debug: also call /extract (preview only)" IsChecked="{Binding UseExtractPreview}" Margin="0,0,0,16"/>
+                        <CheckBox Content="Debug: also call /extract (preview)" IsChecked="{Binding UseExtractPreview}" Margin="0,0,0,16"/>
 
                         <Border CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12">
                             <StackPanel>
@@ -181,7 +181,7 @@
                         </Border>
                     </Grid>
 
-                    <Border Grid.Row="2" CornerRadius="18" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="#0C111B">
+                    <Border Grid.Row="2" MaxWidth="460" HorizontalAlignment="Center" CornerRadius="18" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="#0C111B">
                         <Grid>
                             <Image Source="{Binding PreviewImage}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                             <TextBlock Text="{Binding PreviewOverlayText}" Foreground="{StaticResource BrushTextSecondary}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14"/>
