@@ -51,52 +51,79 @@ def _ensure_white_bg(binary: np.ndarray) -> np.ndarray:
     return (255 - binary) if binary.mean() < 127 else binary
 
 
+def _percentile_normalize(gray: np.ndarray, p_lo: float = 1.0, p_hi: float = 99.0) -> np.ndarray:
+    """Contrast-normalize a uint8 grayscale image by percentile clipping."""
+    g = gray.astype(np.float32, copy=False)
+    lo = float(np.percentile(g, p_lo))
+    hi = float(np.percentile(g, p_hi))
+    if hi <= lo + 1e-3:
+        return gray
+    g = (np.clip(g, lo, hi) - lo) * (255.0 / (hi - lo))
+    return g.astype(np.uint8)
+
+def _gamma(gray: np.ndarray, gamma: float) -> np.ndarray:
+    """Gamma correction on uint8 grayscale."""
+    if gamma <= 0:
+        return gray
+    inv = 1.0 / gamma
+    table = (np.arange(256, dtype=np.float32) / 255.0) ** inv
+    table = np.clip(table * 255.0, 0, 255).astype(np.uint8)
+    return cv.LUT(gray, table)
+
 def _variant_images(pil_rgb: Image.Image, *, max_w: int = 1920) -> List[Tuple[str, np.ndarray]]:
     """
     Returns list of (variant_name, gray_uint8) images.
-    NOTE: Some variants are binary; we still return uint8 grayscale (0/255).
+
+    Goal: work for BOTH SDR and HDR screenshots.
+    - Avoid hard binarization as the primary path (it can turn ARK UI background into "ink").
+    - Prefer raw/contrast/channel variants first; keep binary variants only as fallback.
     """
     im = _cap_width(pil_rgb, max_w=max_w)
-    np_rgb = _pil_to_np_rgb(im)
+    np_rgb = _pil_to_np_rgb(im)  # uint8 RGB
     np_bgr = cv.cvtColor(np_rgb, cv.COLOR_RGB2BGR)
 
-    # Base grayscale + mild contrast/sharpen
+    # Raw grayscale (often best)
+    raw = cv.cvtColor(np_rgb, cv.COLOR_RGB2GRAY)
+
+    # Max-RGB (helps colored text on dark UI)
+    max_rgb = np.max(np_rgb, axis=2).astype(np.uint8)
+
+    # Percentile normalization (helps HDR/washed captures)
+    hdr_norm = _percentile_normalize(raw, 1.0, 99.0)
+    if int(np.percentile(raw, 99.0)) - int(np.percentile(raw, 1.0)) < 90:
+        hdr_norm = _gamma(hdr_norm, 0.85)
+
+    # CLAHE (good general-purpose)
+    clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    clahe_g = clahe.apply(hdr_norm)
+
+    # Enhanced (moderate contrast + unsharp)
     g_pil = ImageOps.grayscale(im)
-    g_pil = ImageEnhance.Contrast(g_pil).enhance(1.8)
-    g_pil = g_pil.filter(ImageFilter.UnsharpMask(radius=1.2, percent=140, threshold=3))
-    g = np.asarray(g_pil, dtype=np.uint8)
+    g_pil = ImageEnhance.Contrast(g_pil).enhance(1.5)
+    g_pil = g_pil.filter(ImageFilter.UnsharpMask(radius=1.0, percent=120, threshold=3))
+    enhanced = np.asarray(g_pil, dtype=np.uint8)
 
-    # Variant: enhanced grayscale
-    enhanced = g
-
-    # Variant: binary (Otsu)
-    bw = _ensure_white_bg(_otsu(enhanced))
-
-    # Variant: inverted (sometimes HDR)
-    inv = 255 - bw
-
-    # Variant: ARK UI (teal/blue background suppression)
-    # LAB + CLAHE on L, then adaptive threshold.
+    # ARK UI (LAB L-channel contrast + unsharp), NO binarization
     lab = cv.cvtColor(np_bgr, cv.COLOR_BGR2LAB)
     l, a, b = cv.split(lab)
-    clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     l2 = clahe.apply(l)
     lab2 = cv.merge((l2, a, b))
     bgr2 = cv.cvtColor(lab2, cv.COLOR_LAB2BGR)
-    g2 = cv.cvtColor(bgr2, cv.COLOR_BGR2GRAY)
+    ark_g = cv.cvtColor(bgr2, cv.COLOR_BGR2GRAY)
+    blur = cv.GaussianBlur(ark_g, (0, 0), 1.0)
+    ark_ui = cv.addWeighted(ark_g, 1.5, blur, -0.5, 0)
 
-    # unsharp
-    blur = cv.GaussianBlur(g2, (0, 0), 1.0)
-    sharp = cv.addWeighted(g2, 1.6, blur, -0.6, 0)
-
-    ark_bw = cv.adaptiveThreshold(
-        sharp, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 31, 10
-    )
-    ark_bw = _ensure_white_bg(ark_bw)
+    # Binary fallbacks
+    bw = _ensure_white_bg(_otsu(clahe_g))
+    inv = 255 - bw
 
     return [
-        ("ark_ui", ark_bw),
+        ("raw", raw),
+        ("max_rgb", max_rgb),
+        ("clahe", clahe_g),
         ("enhanced", enhanced),
+        ("hdr_norm", hdr_norm),
+        ("ark_ui", ark_ui),
         ("binary", bw),
         ("inverted", inv),
     ]
@@ -161,7 +188,7 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
     variants = _variant_images(pil, max_w=max_w)
 
     # Prefer ARK UI suppression first. In fast mode, try only a small fallback set.
-    preferred = ["ark_ui", "enhanced", "binary", "inverted"]
+    preferred = ["raw", "max_rgb", "clahe", "enhanced", "hdr_norm", "ark_ui", "binary", "inverted"]
     variants.sort(key=lambda t: preferred.index(t[0]) if t[0] in preferred else 999)
     if fast:
         try_max = int(os.getenv("OCR_MAX_VARIANTS_FAST", "2"))
