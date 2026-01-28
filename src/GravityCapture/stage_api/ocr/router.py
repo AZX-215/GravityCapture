@@ -25,6 +25,12 @@ _RX_DAY_HEADER = re.compile(
 )
 
 
+# Critical-ish keywords. Used for variant selection/merge (red/magenta text tends to be critical).
+_RX_CRITICAL = re.compile(
+    r"(?:\bwas killed\b|\bkilled\b|\bdestroyed\b|\bdemolished\b|\bauto-?decay\b|\bremoved from the tribe\b)",
+    re.IGNORECASE,
+)
+
 def _load_pil(image_bytes: bytes) -> Image.Image:
     return Image.open(BytesIO(image_bytes)).convert("RGB")
 
@@ -97,6 +103,19 @@ def _variant_images(pil_rgb: Image.Image, *, max_w: int = 1920) -> List[Tuple[st
     clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     clahe_g = clahe.apply(hdr_norm)
 
+    # Red/Magenta emphasis: helps lines rendered in red/magenta (often kill/critical notifications).
+    # Idea: emphasize pixels where R or B dominates over G (UI teal background tends to be greenish).
+    r = np_rgb[:, :, 0].astype(np.float32)
+    gch = np_rgb[:, :, 1].astype(np.float32)
+    b = np_rgb[:, :, 2].astype(np.float32)
+    rb = np.maximum(r, b)
+    rb_minus_g = rb - 0.85 * gch
+    rb_minus_g = np.clip(rb_minus_g, 0.0, 255.0).astype(np.uint8)
+    rb_minus_g = _percentile_normalize(rb_minus_g, 1.0, 99.0)
+    rb_minus_g = clahe.apply(rb_minus_g)
+    blur_rb = cv.GaussianBlur(rb_minus_g, (0, 0), 1.0)
+    rb_minus_g = cv.addWeighted(rb_minus_g, 1.6, blur_rb, -0.6, 0)
+
     # Enhanced (moderate contrast + unsharp)
     g_pil = ImageOps.grayscale(im)
     g_pil = ImageEnhance.Contrast(g_pil).enhance(1.5)
@@ -119,6 +138,7 @@ def _variant_images(pil_rgb: Image.Image, *, max_w: int = 1920) -> List[Tuple[st
 
     return [
         ("raw", raw),
+        ("rb_minus_g", rb_minus_g),
         ("max_rgb", max_rgb),
         ("clahe", clahe_g),
         ("enhanced", enhanced),
@@ -148,6 +168,54 @@ def _header_hits(lines: List[Line]) -> int:
         if _RX_DAY_HEADER.match(s):
             hits += 1
     return hits
+
+
+def _is_critical_text(s: str) -> bool:
+    return bool(_RX_CRITICAL.search(s or ""))
+
+
+def _critical_hits(lines: List[Line]) -> int:
+    hits = 0
+    for ln in lines:
+        s = (ln.text or "").strip()
+        if not s:
+            continue
+        if _RX_CRITICAL.search(s):
+            hits += 1
+    return hits
+
+
+def _norm_line_key(s: str) -> str:
+    # Aggressive normalization for cross-variant dedupe (OCR differences, whitespace, punctuation).
+    s2 = (s or "").strip().lower()
+    s2 = re.sub(r"\s+", " ", s2)
+    s2 = re.sub(r"[^a-z0-9:]+", "", s2)
+    return s2
+
+
+_RX_DAYTIME = re.compile(r"^\s*(?:Day|Dav|Doy)\s*[,/:\-]?\s*(\d{1,6})\s*[,/ ]+([0-9]{1,2}:[0-9]{2}:[0-9]{2,3})", re.IGNORECASE)
+
+
+def _daytime_key(s: str) -> Optional[Tuple[str, str]]:
+    m = _RX_DAYTIME.match(s or "")
+    if not m:
+        return None
+    return (m.group(1), m.group(2))
+
+
+def _fuzzy_event_key(s: str) -> str:
+    # Used to avoid dupes when merging multiple OCR variants.
+    # Tries to be tolerant of OCR digit noise (coords, ids) while keeping events distinct.
+    dt = _daytime_key(s)
+    if not dt:
+        return _norm_line_key(s)
+    day, tm = dt
+    # Strip the prefix and then drop digits/punctuation for a fuzzy message fingerprint
+    msg = _RX_DAYTIME.sub("", (s or "").lower(), count=1)
+    msg = re.sub(r"\d+", "", msg)
+    msg = re.sub(r"[^a-z]+", "", msg)
+    return f"{day}|{tm}|{msg}"
+
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -188,14 +256,14 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
     variants = _variant_images(pil, max_w=max_w)
 
     # Prefer ARK UI suppression first. In fast mode, try only a small fallback set.
-    preferred = ["raw", "max_rgb", "clahe", "enhanced", "hdr_norm", "ark_ui", "binary", "inverted"]
+    preferred = ["raw", "rb_minus_g", "max_rgb", "clahe", "enhanced", "hdr_norm", "ark_ui", "binary", "inverted"]
     variants.sort(key=lambda t: preferred.index(t[0]) if t[0] in preferred else 999)
     if fast:
         try_max = int(os.getenv("OCR_MAX_VARIANTS_FAST", "2"))
         variants = variants[: max(1, min(len(variants), try_max))]
 
     best: Optional[Dict[str, Any]] = None
-    best_key = (-1, -1.0)  # (header_hits, mean_conf)
+    best_key = (-1, -1, -1.0)  # (header_hits, critical_hits, mean_conf)
 
     candidates: List[Dict[str, Any]] = []
 
@@ -212,6 +280,7 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
                 continue
 
             hits = _header_hits(lines)
+            crit = _critical_hits(lines)
             mc = float(mean_conf(lines))
 
             candidates.append(
@@ -219,12 +288,13 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
                     "engine": eng,
                     "variant": vname,
                     "header_hits": hits,
+                    "critical_hits": crit,
                     "mean_conf": mc,
                     "line_count": len(lines),
                 }
             )
 
-            key = (hits, mc)
+            key = (hits, crit, mc)
             if key > best_key:
                 best_key = key
                 best = {
@@ -237,16 +307,53 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
                 }
 
             # Early accept to keep latency low.
-            if fast and (hits >= accept_hits or mc >= accept_conf):
+            if fast and (hits >= accept_hits or crit >= 1 or mc >= accept_conf):
                 break
 
-        if fast and best is not None and (best_key[0] >= accept_hits or best_key[1] >= accept_conf):
+        if fast and best is not None and (best_key[0] >= accept_hits or best_key[2] >= accept_conf):
             break
 
     if best is None:
         return {"engine": "none", "variant": "none", "conf": 0.0, "lines": [], "lines_text": [], "text": "", "candidates": []}
 
     # Include candidate stats for debugging (/extract UI and logs).
-    best["candidates"] = sorted(candidates, key=lambda d: (d["header_hits"], d["mean_conf"]), reverse=True)
+    best["candidates"] = sorted(
+        candidates,
+        key=lambda d: (d.get("header_hits", 0), d.get("critical_hits", 0), d.get("mean_conf", 0.0)),
+        reverse=True,
+    )
+
+    # Merge: pull in critical lines from rb_minus_g variant (helps red/magenta text)
+    if _env_bool("OCR_MERGE_RB_MINUS_G", default=True) and best.get("variant") != "rb_minus_g":
+        var_map = {k: v for k, v in variants}
+        rb_img = var_map.get("rb_minus_g")
+        if rb_img is not None:
+            try:
+                rb_lines = _run_engine(best["engine"], rb_img)
+                rb_lines = _normalize_lines(rb_lines)
+            except Exception:
+                rb_lines = []
+
+            # Add only critical lines we don't already have (dedupe via fuzzy key)
+            seen = {_fuzzy_event_key(d.get("text", "")) for d in best.get("lines", []) if d.get("text")}
+            added = 0
+            for ln in rb_lines:
+                s = (ln.text or "").strip()
+                if not s:
+                    continue
+                if not _is_critical_text(s):
+                    continue
+                fk = _fuzzy_event_key(s)
+                if fk in seen:
+                    continue
+                best["lines"].append({"text": s, "conf": float(ln.conf), "bbox": list(map(int, ln.bbox))})
+                seen.add(fk)
+                added += 1
+
+            if added:
+                best["lines"].sort(key=lambda d: (d["bbox"][1], d["bbox"][0]))
+                best["lines_text"] = [d["text"] for d in best["lines"]]
+                best["text"] = "\n".join(best["lines_text"])
+                best["merged_variants"] = list(dict.fromkeys((best.get("merged_variants") or []) + ["rb_minus_g"]))
 
     return best
