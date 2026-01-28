@@ -116,6 +116,29 @@ def _variant_images(pil_rgb: Image.Image, *, max_w: int = 1920) -> List[Tuple[st
     blur_rb = cv.GaussianBlur(rb_minus_g, (0, 0), 1.0)
     rb_minus_g = cv.addWeighted(rb_minus_g, 1.6, blur_rb, -0.6, 0)
 
+    # Red/magenta mask: isolate saturated red + magenta/pink glyphs.
+    # Useful for kill/critical lines rendered in ARK's red/magenta text.
+    hsv = cv.cvtColor(np_bgr, cv.COLOR_BGR2HSV)
+    h = hsv[:, :, 0]
+    s = hsv[:, :, 1]
+    v = hsv[:, :, 2]
+
+    # Hue ranges (OpenCV HSV: H 0..179)
+    # - Reds wrap around 0
+    # - Magenta/pink tends to sit ~140-175 depending on capture/HDR tone-mapping
+    red1 = (h <= 12)
+    red2 = (h >= 165)
+    mag = (h >= 135) & (h <= 175)
+    sat = (s >= 70)
+    val = (v >= 40)
+    m = ((red1 | red2 | mag) & sat & val).astype(np.uint8) * 255
+
+    # Thicken glyphs slightly so OCR has contiguous strokes.
+    m = cv.dilate(m, cv.getStructuringElement(cv.MORPH_RECT, (2, 2)), iterations=1)
+
+    # Build a clean OCR input: black text on white background.
+    redmag_mask = 255 - m
+
     # Enhanced (moderate contrast + unsharp)
     g_pil = ImageOps.grayscale(im)
     g_pil = ImageEnhance.Contrast(g_pil).enhance(1.5)
@@ -138,6 +161,7 @@ def _variant_images(pil_rgb: Image.Image, *, max_w: int = 1920) -> List[Tuple[st
 
     return [
         ("raw", raw),
+        ("redmag_mask", redmag_mask),
         ("rb_minus_g", rb_minus_g),
         ("max_rgb", max_rgb),
         ("clahe", clahe_g),
@@ -253,10 +277,23 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
         engines = ["tesseract"]
 
     max_w = int(os.getenv("OCR_MAX_WIDTH_FAST" if fast else "OCR_MAX_WIDTH", "1400" if fast else "1920"))
-    variants = _variant_images(pil, max_w=max_w)
+    all_variants = _variant_images(pil, max_w=max_w)
 
     # Prefer ARK UI suppression first. In fast mode, try only a small fallback set.
-    preferred = ["raw", "rb_minus_g", "max_rgb", "clahe", "enhanced", "hdr_norm", "ark_ui", "binary", "inverted"]
+    # Ensure red/magenta isolation runs early (it is often where critical events live).
+    preferred = [
+        "raw",
+        "redmag_mask",
+        "rb_minus_g",
+        "max_rgb",
+        "clahe",
+        "enhanced",
+        "hdr_norm",
+        "ark_ui",
+        "binary",
+        "inverted",
+    ]
+    variants = list(all_variants)
     variants.sort(key=lambda t: preferred.index(t[0]) if t[0] in preferred else 999)
     if fast:
         try_max = int(os.getenv("OCR_MAX_VARIANTS_FAST", "2"))
@@ -323,37 +360,58 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
         reverse=True,
     )
 
-    # Merge: pull in critical lines from rb_minus_g variant (helps red/magenta text)
-    if _env_bool("OCR_MERGE_RB_MINUS_G", default=True) and best.get("variant") != "rb_minus_g":
-        var_map = {k: v for k, v in variants}
-        rb_img = var_map.get("rb_minus_g")
-        if rb_img is not None:
-            try:
-                rb_lines = _run_engine(best["engine"], rb_img)
-                rb_lines = _normalize_lines(rb_lines)
-            except Exception:
-                rb_lines = []
+    # Merge: pull in lines from color-focused variants.
+    # Rationale: red + magenta/pink text lines can be under-recognized in the general grayscale variants.
+    # We merge only *new* lines (by fuzzy key), and require an ARK "Day ..." header.
+    var_map = {k: v for k, v in all_variants}
 
-            # Add only critical lines we don't already have (dedupe via fuzzy key)
-            seen = {_fuzzy_event_key(d.get("text", "")) for d in best.get("lines", []) if d.get("text")}
-            added = 0
-            for ln in rb_lines:
-                s = (ln.text or "").strip()
-                if not s:
-                    continue
-                if not _is_critical_text(s):
-                    continue
-                fk = _fuzzy_event_key(s)
-                if fk in seen:
-                    continue
-                best["lines"].append({"text": s, "conf": float(ln.conf), "bbox": list(map(int, ln.bbox))})
-                seen.add(fk)
-                added += 1
+    def _merge_from(vname: str, *, require_critical: bool) -> int:
+        if best.get("variant") == vname:
+            return 0
+        img = var_map.get(vname)
+        if img is None:
+            return 0
+        try:
+            other_lines = _run_engine(best["engine"], img)
+        except Exception:
+            return 0
+        if not other_lines:
+            return 0
 
-            if added:
-                best["lines"].sort(key=lambda d: (d["bbox"][1], d["bbox"][0]))
-                best["lines_text"] = [d["text"] for d in best["lines"]]
-                best["text"] = "\n".join(best["lines_text"])
-                best["merged_variants"] = list(dict.fromkeys((best.get("merged_variants") or []) + ["rb_minus_g"]))
+        seen = {_fuzzy_event_key(d.get("text", "")) for d in best.get("lines", []) if d.get("text")}
+        added = 0
+        for ln in other_lines:
+            s = (ln.text or "").strip()
+            if not s:
+                continue
+            if not _RX_DAY_HEADER.match(s):
+                continue
+            if require_critical and not _is_critical_text(s):
+                continue
+            fk = _fuzzy_event_key(s)
+            if fk in seen:
+                continue
+            best["lines"].append({"text": s, "conf": float(ln.conf), "bbox": list(map(int, ln.bbox))})
+            seen.add(fk)
+            added += 1
+        return added
+
+    merged: List[str] = []
+
+    # redmag_mask: merge any new Day-lines (this variant tends to only capture colored glyphs).
+    if _env_bool("OCR_MERGE_REDMAG_MASK", default=True):
+        if _merge_from("redmag_mask", require_critical=False):
+            merged.append("redmag_mask")
+
+    # rb_minus_g: merge only critical lines to avoid adding noise.
+    if _env_bool("OCR_MERGE_RB_MINUS_G", default=True):
+        if _merge_from("rb_minus_g", require_critical=True):
+            merged.append("rb_minus_g")
+
+    if merged:
+        best["lines"].sort(key=lambda d: (d["bbox"][1], d["bbox"][0]))
+        best["lines_text"] = [d["text"] for d in best["lines"]]
+        best["text"] = "\n".join(best["lines_text"])
+        best["merged_variants"] = list(dict.fromkeys((best.get("merged_variants") or []) + merged))
 
     return best
