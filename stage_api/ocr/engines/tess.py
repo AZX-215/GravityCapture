@@ -21,7 +21,13 @@ WHITELIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:/()#
 
 def _cfg(psm: int = 6) -> str:
     # psm 6 = assume a single uniform block of text. We then regroup tokens -> real lines.
-    return f'--oem 1 --psm {psm} -c tessedit_char_whitelist="{WHITELIST}"'
+    # Disable dictionary lookups (often hurts game/UI text) and keep spaces.
+    return (
+        f'--oem 1 --psm {psm} '
+        f'-c tessedit_char_whitelist="{WHITELIST}" '
+        f'-c preserve_interword_spaces=1 '
+        f'-c load_system_dawg=0 -c load_freq_dawg=0'
+    )
 
 def _safe_float(x) -> float:
     try:

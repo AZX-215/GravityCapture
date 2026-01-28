@@ -51,12 +51,12 @@ def _ensure_white_bg(binary: np.ndarray) -> np.ndarray:
     return (255 - binary) if binary.mean() < 127 else binary
 
 
-def _variant_images(pil_rgb: Image.Image) -> List[Tuple[str, np.ndarray]]:
+def _variant_images(pil_rgb: Image.Image, *, max_w: int = 1920) -> List[Tuple[str, np.ndarray]]:
     """
     Returns list of (variant_name, gray_uint8) images.
     NOTE: Some variants are binary; we still return uint8 grayscale (0/255).
     """
-    im = _cap_width(pil_rgb)
+    im = _cap_width(pil_rgb, max_w=max_w)
     np_rgb = _pil_to_np_rgb(im)
     np_bgr = cv.cvtColor(np_rgb, cv.COLOR_RGB2BGR)
 
@@ -123,7 +123,15 @@ def _header_hits(lines: List[Line]) -> int:
     return hits
 
 
-def extract_text(image_bytes: bytes, engine_hint: str = "auto") -> Dict[str, Any]:
+def _env_bool(name: str, default: bool = False) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    v = str(v).strip().lower()
+    return v in {"1", "true", "yes", "y", "on", "enable", "enabled"}
+
+
+def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = False) -> Dict[str, Any]:
     """
     High-level OCR entry point used by the API.
     Strategy:
@@ -135,20 +143,37 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto") -> Dict[str, Any
     """
     pil = _load_pil(image_bytes)
 
+    # Fast mode is designed to keep request latency low for the desktop client.
+    # It limits the number of OCR runs while still being robust for ARK tribe logs.
+    fast = bool(fast) or _env_bool("OCR_FAST_DEFAULT", default=False)
+
     hint = (engine_hint or "auto").strip().lower()
     if hint in ("ppocr", "rapidocr", "paddle"):
         engines = ["ppocr"]
     elif hint in ("tess", "tesseract"):
         engines = ["tesseract"]
     else:
-        engines = ["ppocr", "tesseract"]
+        # For this project, Tesseract is the primary engine.
+        # Auto mode used to try multiple engines, which can be too slow on Railway.
+        engines = ["tesseract"]
 
-    variants = _variant_images(pil)
+    max_w = int(os.getenv("OCR_MAX_WIDTH_FAST" if fast else "OCR_MAX_WIDTH", "1400" if fast else "1920"))
+    variants = _variant_images(pil, max_w=max_w)
+
+    # Prefer ARK UI suppression first. In fast mode, try only a small fallback set.
+    preferred = ["ark_ui", "enhanced", "binary", "inverted"]
+    variants.sort(key=lambda t: preferred.index(t[0]) if t[0] in preferred else 999)
+    if fast:
+        try_max = int(os.getenv("OCR_MAX_VARIANTS_FAST", "2"))
+        variants = variants[: max(1, min(len(variants), try_max))]
 
     best: Optional[Dict[str, Any]] = None
     best_key = (-1, -1.0)  # (header_hits, mean_conf)
 
     candidates: List[Dict[str, Any]] = []
+
+    accept_hits = int(os.getenv("OCR_ACCEPT_HEADER_HITS", "1"))
+    accept_conf = float(os.getenv("OCR_ACCEPT_CONF", "0.45"))
 
     for vname, gray in variants:
         for eng in engines:
@@ -183,6 +208,13 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto") -> Dict[str, Any
                     "lines_text": [ln.text for ln in lines if ln.text and ln.text.strip()],
                     "text": _joined_text(lines),
                 }
+
+            # Early accept to keep latency low.
+            if fast and (hits >= accept_hits or mc >= accept_conf):
+                break
+
+        if fast and best is not None and (best_key[0] >= accept_hits or best_key[1] >= accept_conf):
+            break
 
     if best is None:
         return {"engine": "none", "variant": "none", "conf": 0.0, "lines": [], "lines_text": [], "text": "", "candidates": []}

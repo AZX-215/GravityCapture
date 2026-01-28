@@ -134,13 +134,14 @@ def create_app() -> FastAPI:
         x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
         x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
         engine: str = Form("auto"),
+        fast: int = 1,
     ) -> Dict[str, Any]:
         _require_key(settings, x_gl_key, x_api_key)
         up = file or image
         if up is None:
             raise HTTPException(status_code=422, detail="missing file")
         img_bytes = await up.read()
-        return extract_text(img_bytes, engine_hint=(engine or settings.ocr_engine))
+        return extract_text(img_bytes, engine_hint=(engine or settings.ocr_engine), fast=bool(fast))
 
     @app.post("/api/extract")
     async def extract_endpoint_alias(
@@ -211,7 +212,8 @@ def create_app() -> FastAPI:
         if file is None:
             raise HTTPException(status_code=422, detail="missing file")
         img_bytes = await file.read()
-        ocr = extract_text(img_bytes, engine_hint=settings.ocr_engine)
+        # Keep request latency low for the desktop client: use fast OCR path by default.
+        ocr = extract_text(img_bytes, engine_hint=settings.ocr_engine, fast=True)
 
         # Prefer the line-wise output for event splitting.
         raw_lines = [str(x).strip() for x in (ocr.get("lines_text") or []) if str(x).strip()]
