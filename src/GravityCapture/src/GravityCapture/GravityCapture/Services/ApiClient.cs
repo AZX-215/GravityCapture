@@ -1,5 +1,4 @@
 using System;
-using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading;
@@ -10,84 +9,107 @@ namespace GravityCapture.Services;
 
 public sealed class ApiClient
 {
-    private readonly HttpClient _http;
-
-    public ApiClient()
+    private readonly HttpClient _http = new HttpClient
     {
-        // Ensure we fail fast instead of hanging forever when Railway / DNS / TLS stalls.
-        const int timeoutSeconds = 60;
-        var handler = new HttpClientHandler
-        {
-            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
-        };
-        _http = new HttpClient(handler)
-        {
-            Timeout = TimeSpan.FromSeconds(timeoutSeconds)
-        };
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("GravityCapture/1.0");
-    }
-public async Task<string> SendIngestScreenshotAsync(byte[] pngBytes, AppSettings settings, CancellationToken ct)
+        Timeout = Timeout.InfiniteTimeSpan
+    };
+
+    public async Task<string> SendIngestScreenshotAsync(byte[] imageBytes, string contentType, string fileName, AppSettings settings, CancellationToken ct)
     {
         var url = Combine(settings.ApiBaseUrl, "/ingest/screenshot");
+        using var linked = CreateLinkedTimeout(ct, settings.RequestTimeoutSeconds);
 
         using var content = new MultipartFormDataContent();
 
-        var file = new ByteArrayContent(pngBytes);
-        file.Headers.ContentType = MediaTypeHeaderValue.Parse("image/png");
-        content.Add(file, "image", "tribelog.png");
+        var file = new ByteArrayContent(imageBytes ?? Array.Empty<byte>());
+        file.Headers.ContentType = MediaTypeHeaderValue.Parse(string.IsNullOrWhiteSpace(contentType) ? "image/jpeg" : contentType);
+        content.Add(file, "image", string.IsNullOrWhiteSpace(fileName) ? "tribelog.jpg" : fileName);
 
-        content.Add(new StringContent(settings.ServerName ?? "unknown"), "server");
-        content.Add(new StringContent(settings.TribeName ?? "unknown"), "tribe");
-        content.Add(new StringContent("0"), "post_visible");
+        var server = (settings.ServerName ?? "unknown").Trim();
+        if (string.IsNullOrWhiteSpace(server)) server = "unknown";
+        var tribe = (settings.TribeName ?? "unknown").Trim();
+        if (string.IsNullOrWhiteSpace(tribe)) tribe = "unknown";
+
+        content.Add(new StringContent(server), "server");
+        content.Add(new StringContent(tribe), "tribe");
+
+        // Default to visible posting unless the server is configured to ignore it.
+        content.Add(new StringContent("1"), "post_visible");
 
         // Client-side ping toggle (server still enforces its own CRITICAL_PING_ENABLED).
         content.Add(new StringContent(settings.CriticalPingEnabled ? "1" : "0"), "critical_ping");
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, url);
-        req.Content = content;
-
+        using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
         if (!string.IsNullOrWhiteSpace(settings.SharedSecret))
             req.Headers.TryAddWithoutValidation("X-GL-Key", settings.SharedSecret);
 
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseContentRead, linked.Token);
+            var body = await resp.Content.ReadAsStringAsync(linked.Token);
 
-        if (!resp.IsSuccessStatusCode)
-            return $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {Trim(body)}";
+            if (!resp.IsSuccessStatusCode)
+                return $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {Trim(body)}";
 
-        return Trim(body);
+            return Trim(body);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return $"Timed out after {Math.Max(1, settings.RequestTimeoutSeconds)}s";
+        }
+        catch (Exception ex)
+        {
+            return $"Exception: {ex.GetType().Name}: {ex.Message}";
+        }
     }
 
-    public async Task<string> ExtractAsync(byte[] pngBytes, AppSettings settings, CancellationToken ct)
+    public async Task<string> ExtractAsync(byte[] imageBytes, string contentType, string fileName, AppSettings settings, CancellationToken ct, bool fast = true)
     {
-        var url = Combine(settings.ApiBaseUrl, "/extract");
+        var url = Combine(settings.ApiBaseUrl, fast ? "/extract?fast=1" : "/extract");
+        using var linked = CreateLinkedTimeout(ct, settings.RequestTimeoutSeconds);
 
         using var content = new MultipartFormDataContent();
-        var file = new ByteArrayContent(pngBytes);
-        file.Headers.ContentType = MediaTypeHeaderValue.Parse("image/png");
-        content.Add(file, "image", "tribelog.png");
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, url);
-        req.Content = content;
+        var file = new ByteArrayContent(imageBytes ?? Array.Empty<byte>());
+        file.Headers.ContentType = MediaTypeHeaderValue.Parse(string.IsNullOrWhiteSpace(contentType) ? "image/jpeg" : contentType);
+        content.Add(file, "image", string.IsNullOrWhiteSpace(fileName) ? "tribelog.jpg" : fileName);
 
+        using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
         if (!string.IsNullOrWhiteSpace(settings.SharedSecret))
             req.Headers.TryAddWithoutValidation("X-GL-Key", settings.SharedSecret);
 
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseContentRead, linked.Token);
+            var body = await resp.Content.ReadAsStringAsync(linked.Token);
 
-        if (!resp.IsSuccessStatusCode)
-            return $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {Trim(body)}";
+            if (!resp.IsSuccessStatusCode)
+                return $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {Trim(body)}";
 
-        return Trim(body);
+            return Trim(body);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return $"Timed out after {Math.Max(1, settings.RequestTimeoutSeconds)}s";
+        }
+        catch (Exception ex)
+        {
+            return $"Exception: {ex.GetType().Name}: {ex.Message}";
+        }
+    }
+
+    private static CancellationTokenSource CreateLinkedTimeout(CancellationToken ct, int timeoutSeconds)
+    {
+        var t = Math.Clamp(timeoutSeconds, 3, 300);
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(t));
+        return cts;
     }
 
     private static string Combine(string baseUrl, string path)
     {
         var b = (baseUrl ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(b))
-            b = "http://localhost:8000";
-
+        if (string.IsNullOrWhiteSpace(b)) b = "http://localhost:8000";
         b = b.TrimEnd('/');
         path = path.StartsWith("/") ? path : "/" + path;
         return b + path;

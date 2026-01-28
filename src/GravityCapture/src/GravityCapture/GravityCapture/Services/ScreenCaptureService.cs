@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -11,7 +12,14 @@ namespace GravityCapture.Services;
 
 public sealed class ScreenCaptureService
 {
-    public sealed record CaptureResult(BitmapSource Preview, byte[] PngBytes, string ScreenName, Rectangle PixelRect);
+    public sealed record CaptureResult(
+        BitmapSource Preview,
+        byte[] ImageBytes,
+        string ContentType,
+        string FileName,
+        string ScreenName,
+        Rectangle PixelRect
+    );
 
     public CaptureResult Capture(AppSettings settings)
     {
@@ -42,16 +50,64 @@ public sealed class ScreenCaptureService
             g.CopyFromScreen(rect.Left, rect.Top, 0, 0, rect.Size, CopyPixelOperation.SourceCopy);
         }
 
-        byte[] png;
-        using (var ms = new MemoryStream())
+        var factor = Math.Clamp(settings.UpscaleFactor <= 0 ? 1 : settings.UpscaleFactor, 1, 4);
+
+        // Optional upscale to improve OCR clarity. (Keeps capture rect in original screen pixels.)
+        using var finalBmp = factor == 1
+            ? (Bitmap)bmp.Clone()
+            : new Bitmap(rect.Width * factor, rect.Height * factor, PixelFormat.Format32bppArgb);
+
+        if (factor != 1)
         {
-            bmp.Save(ms, ImageFormat.Png);
-            png = ms.ToArray();
+            using var g2 = Graphics.FromImage(finalBmp);
+            g2.CompositingQuality = CompositingQuality.HighQuality;
+            g2.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g2.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            g2.SmoothingMode = SmoothingMode.None;
+            g2.DrawImage(bmp, new Rectangle(0, 0, finalBmp.Width, finalBmp.Height));
         }
 
-        var preview = ToBitmapSource(bmp);
+        // Upload JPEG to reduce payload size; OCR is performed server-side.
+        var jpeg = EncodeJpeg(finalBmp, quality: 88L);
 
-        return new CaptureResult(preview, png, screen.DeviceName, rect);
+        var preview = ToBitmapSource(finalBmp);
+
+        return new CaptureResult(
+            Preview: preview,
+            ImageBytes: jpeg,
+            ContentType: "image/jpeg",
+            FileName: "tribelog.jpg",
+            ScreenName: screen.DeviceName,
+            PixelRect: rect
+        );
+    }
+
+    private static byte[] EncodeJpeg(Bitmap bmp, long quality)
+    {
+        quality = Math.Clamp(quality, 50L, 95L);
+        var codec = GetJpegCodec();
+        using var ms = new MemoryStream();
+
+        if (codec is null)
+        {
+            bmp.Save(ms, ImageFormat.Jpeg);
+            return ms.ToArray();
+        }
+
+        using var encParams = new EncoderParameters(1);
+        encParams.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
+        bmp.Save(ms, codec, encParams);
+        return ms.ToArray();
+    }
+
+    private static ImageCodecInfo? GetJpegCodec()
+    {
+        foreach (var c in ImageCodecInfo.GetImageEncoders())
+        {
+            if (c.FormatID == ImageFormat.Jpeg.Guid)
+                return c;
+        }
+        return null;
     }
 
     private static Screen ResolveScreen(string deviceName)

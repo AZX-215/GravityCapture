@@ -339,12 +339,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             // Always send /ingest/screenshot for real pipeline work.
-            // Optional debug: also call /extract first so you can see OCR details on the exact crop.
+            // Optional debug: only run /extract on manual sends to avoid doubling request time on every interval tick.
             string? extractResp = null;
-            if (_settings.UseExtractPreview)
-                extractResp = await _api.ExtractAsync(cap.PngBytes, _settings, token);
+            if (_settings.UseExtractPreview && manual)
+                extractResp = await _api.ExtractAsync(cap.ImageBytes, cap.ContentType, cap.FileName, _settings, token, fast: true);
 
-            var ingestResp = await _api.SendIngestScreenshotAsync(cap.PngBytes, _settings, token);
+            var ingestResp = await _api.SendIngestScreenshotAsync(cap.ImageBytes, cap.ContentType, cap.FileName, _settings, token);
 
             var s = (_settings.ServerName ?? "unknown").Trim();
             var t = (_settings.TribeName ?? "unknown").Trim();

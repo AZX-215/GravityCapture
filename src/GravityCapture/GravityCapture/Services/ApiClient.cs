@@ -14,16 +14,16 @@ public sealed class ApiClient
         Timeout = Timeout.InfiniteTimeSpan
     };
 
-    public async Task<string> SendIngestScreenshotAsync(byte[] pngBytes, AppSettings settings, CancellationToken ct)
+    public async Task<string> SendIngestScreenshotAsync(byte[] imageBytes, string contentType, string fileName, AppSettings settings, CancellationToken ct)
     {
         var url = Combine(settings.ApiBaseUrl, "/ingest/screenshot");
         using var linked = CreateLinkedTimeout(ct, settings.RequestTimeoutSeconds);
 
         using var content = new MultipartFormDataContent();
 
-        var file = new ByteArrayContent(pngBytes ?? Array.Empty<byte>());
-        file.Headers.ContentType = MediaTypeHeaderValue.Parse("image/png");
-        content.Add(file, "image", "tribelog.png");
+        var file = new ByteArrayContent(imageBytes ?? Array.Empty<byte>());
+        file.Headers.ContentType = MediaTypeHeaderValue.Parse(string.IsNullOrWhiteSpace(contentType) ? "image/jpeg" : contentType);
+        content.Add(file, "image", string.IsNullOrWhiteSpace(fileName) ? "tribelog.jpg" : fileName);
 
         var server = (settings.ServerName ?? "unknown").Trim();
         if (string.IsNullOrWhiteSpace(server)) server = "unknown";
@@ -63,16 +63,16 @@ public sealed class ApiClient
         }
     }
 
-    public async Task<string> ExtractAsync(byte[] pngBytes, AppSettings settings, CancellationToken ct)
+    public async Task<string> ExtractAsync(byte[] imageBytes, string contentType, string fileName, AppSettings settings, CancellationToken ct, bool fast = true)
     {
-        var url = Combine(settings.ApiBaseUrl, "/extract");
+        var url = Combine(settings.ApiBaseUrl, fast ? "/extract?fast=1" : "/extract");
         using var linked = CreateLinkedTimeout(ct, settings.RequestTimeoutSeconds);
 
         using var content = new MultipartFormDataContent();
 
-        var file = new ByteArrayContent(pngBytes ?? Array.Empty<byte>());
-        file.Headers.ContentType = MediaTypeHeaderValue.Parse("image/png");
-        content.Add(file, "image", "tribelog.png");
+        var file = new ByteArrayContent(imageBytes ?? Array.Empty<byte>());
+        file.Headers.ContentType = MediaTypeHeaderValue.Parse(string.IsNullOrWhiteSpace(contentType) ? "image/jpeg" : contentType);
+        content.Add(file, "image", string.IsNullOrWhiteSpace(fileName) ? "tribelog.jpg" : fileName);
 
         using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
         if (!string.IsNullOrWhiteSpace(settings.SharedSecret))
