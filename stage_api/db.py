@@ -113,10 +113,15 @@ class Db:
                 ]
             )
 
+        # IMPORTANT:
+        # Some deployments may still have a legacy unique index on raw_line
+        # (e.g. tribe_events_raw_line_uidx). If older rows have NULL event_hash,
+        # inserting the same raw_line again would raise a UniqueViolationError
+        # unless we accept conflicts on *any* unique constraint.
         sql = (
             f"INSERT INTO tribe_events {cols} VALUES "
             + ",".join(values_sql)
-            + " ON CONFLICT (event_hash) DO NOTHING RETURNING event_hash;"
+            + " ON CONFLICT DO NOTHING RETURNING event_hash;"
         )
 
         async with self._pool.acquire() as conn:
