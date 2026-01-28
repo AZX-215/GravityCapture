@@ -6,179 +6,227 @@ from typing import Tuple
 from db import compute_event_hash
 from tribelog.models import ParsedEvent
 
-# ---- helpers ----
 
-def _clean_actor(s: str) -> str:
-    s = (s or "").strip()
-    if not s:
-        return ""
-    # remove trailing "(...)" like "(C4)"
-    s = re.sub(r"\s*\([^)]*\)\s*$", "", s)
-    # trim trailing punctuation/spaces
-    s = re.sub(r"[.!:,;\s]+$", "", s)
-    return s.strip()
+# -----------------
+# Helpers
+# -----------------
 
 
 def _norm_spaces(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip())
 
 
-# ---- patterns (case-insensitive) ----
+def _strip_trailing_punct(s: str) -> str:
+    return re.sub(r"[.!:,;\s]+$", "", (s or "").strip()).strip()
 
-RX_AUTO_DECAY = re.compile(r"\bauto[-\s]?decay\b.*\bdestroyed\b|\bauto[-\s]?decay\b\s+destroyed\b", re.I)
+
+def _clean_entity(s: str) -> str:
+    s = _norm_spaces(s)
+    s = re.sub(r"^Your\s+", "", s, flags=re.I)
+    s = _strip_trailing_punct(s)
+    return s
+
+
+def _clean_actor(s: str) -> str:
+    s = _norm_spaces(s)
+    # remove trailing "(...)" like "(C4)" or "(Clone)" when it's clearly an annotation
+    s = re.sub(r"\s*\([^)]*\)\s*$", "", s)
+    s = _strip_trailing_punct(s)
+    return s
+
+
+# -----------------
+# Patterns (tuned for ARK tribe logs)
+# -----------------
+
+RX_AUTO_DECAY = re.compile(r"\bauto[-\s]?decay\b.*\b(destroyed|decay destroyed)\b", re.I)
 RX_ANTIMESH = re.compile(r"\banti[-\s]?mesh\b|\bmesh\b.*\bdestroyed\b", re.I)
 
-RX_DESTROYED_BY = re.compile(
-    r"\bwas\b\s+destroyed\b\s+by\s+(?P<actor>.+?)(?:\s*\(|!|\.|$)",
+# Structures
+RX_DEMOLISHED = re.compile(r"^(?P<actor>.+?)\s+demolished\b", re.I)
+RX_DESTROYED_BY = re.compile(r"\bwas\s+destroyed\s+by\s+(?P<actor>.+?)\s*(?:!|\.|$)", re.I)
+RX_DESTROYED = re.compile(r"\bwas\s+destroyed\b", re.I)
+RX_ENEMY_DESTROYED = re.compile(r"\bdestroyed\b\s+their\b", re.I)
+
+# Kills
+RX_TRIBEMEMBER_KILLED_BY = re.compile(
+    r"^\s*Tribemember\s+(?P<victim>.+?)\s+was\s+killed\s+by\s+(?P<actor>.+?)\s*!?\s*$",
     re.I,
 )
-RX_DESTROYED = re.compile(r"\bwas\b\s+destroyed\b", re.I)
+RX_YOUR_TRIBE_KILLED = re.compile(r"^\s*Your\s+Tribe\s+killed\s+(?P<victim>.+?)\s*!?\s*$", re.I)
+RX_WAS_KILLED_BY = re.compile(r"^(?P<victim>.+?)\s+was\s+killed\s+by\s+(?P<actor>.+?)\s*!?\s*$", re.I)
+RX_WAS_KILLED = re.compile(r"^(?P<victim>.+?)\s+was\s+killed\b", re.I)
 
-RX_DEMOLISHED = re.compile(r"\b(?P<actor>[\w\p{L}\p{N}_ ]+?)\s+demolished\b", re.I)
-
-RX_TRIBE_KILLED = re.compile(r"\b(Your\s+Tribe|Human)\s+killed\b\s+(?P<victim>.+)$", re.I)
-RX_WAS_KILLED = re.compile(r"\bwas\b\s+killed\b", re.I)
-
+# Tames
+RX_STARVED = re.compile(r"^(?P<victim>.+?)\s+starved\s+to\s+death\s*!?\s*$", re.I)
+RX_FROZE = re.compile(r"^(?P<actor>.+?)\s+froze\s+(?P<victim>.+?)\s*$", re.I)
 RX_CRYOPOD = re.compile(r"\bcryopod\b", re.I)
-RX_STARVED = re.compile(r"\bstarv(?:ed|ing|e)\b", re.I)
-RX_FROZE = re.compile(r"\bfro(?:ze|zen|ze to death)\b", re.I)
 
-RX_TAMED = re.compile(r"\b(Your\s+Tribe|Human)\s+Tamed\s+a\b", re.I)
-RX_CLAIMED = re.compile(r"\b(Human|Your\s+Tribe)\s+claimed\b", re.I)
+RX_CLAIMED = re.compile(r"^(?P<actor>.+?)\s+claimed\s+(?P<what>.+?)\s*!?\s*$", re.I)
 RX_UNCLAIMED = re.compile(r"\bunclaimed\b", re.I)
+RX_TAMED = re.compile(r"\btamed\s+a\b", re.I)
 
-RX_JOINED = re.compile(r"\bjoined\b.*\btribe\b", re.I)
-RX_LEFT = re.compile(r"\bleft\b.*\btribe\b", re.I)
-
-RX_SENSOR = re.compile(r"\b(tek\s+sensor|parasaur)\b.*\b(detect|ping)\b", re.I)
-
-RX_UNFROZE = re.compile(r"\bunfroze\b", re.I)
-RX_HATCHED = re.compile(r"\bhas\s+been\s+hatched\b", re.I)
-RX_BORN = re.compile(r"\bhas\s+been\s+born\b", re.I)
-RX_UPLOADED = re.compile(r"\buploaded\b", re.I)
-RX_DOWNLOADED = re.compile(r"\bdownloaded\b", re.I)
+# Transfers
+RX_UPLOADED = re.compile(r"^(?P<actor>.+?)\s+uploaded\b", re.I)
+RX_DOWNLOADED = re.compile(r"^(?P<actor>.+?)\s+downloaded\b", re.I)
 RX_TRANSFERRED = re.compile(r"\btransferred\b", re.I)
-RX_ONLINE = re.compile(r"\b(now\s+online|came\s+online)\b", re.I)
-RX_OFFLINE = re.compile(r"\b(went\s+offline|gone\s+offline|now\s+offline)\b", re.I)
-RX_TRIBE_NAME_CHANGED = re.compile(r"\btribe\s+name\s+changed\b", re.I)
-RX_TRIBE_OWNER_CHANGED = re.compile(r"\btribe\s+owner\s+changed\b", re.I)
-RX_SET_RANK = re.compile(r"\bset\s+the\s+rank\b|\bset\s+rank\b", re.I)
-RX_ADDED_TO_TRIBE = re.compile(r"\bwas\s+added\s+to\s+the\s+tribe\b", re.I)
-RX_REMOVED_FROM_TRIBE = re.compile(r"\bwas\s+removed\s+from\s+the\s+tribe\b", re.I)
 
-RX_ENEMY_DESTROYED = re.compile(r"\bdestroyed\b\s+their\b", re.I)
+# Tribe membership / roles
+RX_ADDED_TO_TRIBE = re.compile(
+    r"^(?P<member>.+?)\s+was\s+added\s+to\s+the\s+Tribe\s+by\s+(?P<actor>.+?)\s*!?\s*$",
+    re.I,
+)
+RX_LEFT_TRIBE = re.compile(r"^(?P<member>.+?)\s+left\s+the\s+Tribe\s*!?\s*$", re.I)
+RX_REMOVED_FROM_TRIBE = re.compile(
+    r"^(?P<member>.+?)\s+was\s+removed\s+from\s+the\s+Tribe(?:\s+by\s+(?P<actor>.+?))?\s*!?\s*$",
+    re.I,
+)
+RX_PROMOTED_ADMIN = re.compile(
+    r"^(?P<member>.+?)\s+was\s+promoted\s+to\s+a\s+Tribe\s+Admin\s+by\s+(?P<actor>.+?)\s*!?\s*$",
+    re.I,
+)
+RX_OWNER_CHANGED = re.compile(r"^\s*Tribe\s+Owner\s+was\s+changed\s+to\s+(?P<new_owner>.+?)\s*!?\s*$", re.I)
+RX_SET_RANK_GROUP = re.compile(r"\bset\s+to\s+Rank\s+Group\b.*\bby\b\s+(?P<actor>.+?)\s*!?\s*$", re.I)
+
+# Tek Teleporter privacy
+RX_TEK_TELEPORTER_PRIVACY = re.compile(
+    r"^(?P<actor>.+?)\s+set\s+\(\d+\)\s+.+?\(\s*Small\s+Tek\s+Teleporter\s*\)\s+to\s+(?P<mode>public|private)\b",
+    re.I,
+)
+
+
+def _is_probably_player(victim: str) -> bool:
+    """Heuristic only; used to keep legacy categories."""
+    v = victim or ""
+    # Player kills often show "Name - Lvl 123 (Tribe - Name)"
+    if re.search(r"\([^)]*\-\s*[^)]*\)", v):
+        return True
+    return False
 
 
 def classify_message(msg: str) -> Tuple[str, str, str]:
-    """
-    Returns (category, severity, actor)
-    """
+    """Returns (category, severity, actor)."""
+
     m = _norm_spaces(msg)
 
-    # Auto decay destroyed (should be WARNING, not CRITICAL)
+    # --- WARNING (non-combat / environment) ---
     if RX_AUTO_DECAY.search(m):
-        return ("AUTO_DECAY_DESTROYED", "WARNING", "Auto Decay")
-
-    # Anti-mesh destroyed
+        return ("AUTO_DECAY_DESTROYED", "WARNING", "Environment")
     if RX_ANTIMESH.search(m):
-        return ("ANTIMESH_DESTROYED", "WARNING", "Anti-mesh")
+        return ("ANTIMESH_DESTROYED", "WARNING", "Environment")
 
-    # Your tribe killed ...
-    mk = RX_TRIBE_KILLED.search(m)
-    if mk:
-        victim = _clean_actor(mk.group("victim"))
-        # Player kill heuristic: contains "Human" or "player" token
-        if re.search(r"\bHuman\b|\bplayer\b", victim, re.I):
-            return ("TRIBE_KILLED_PLAYER", "CRITICAL", victim)
-        return ("TRIBE_KILLED_CREATURE", "INFO", victim)
+    # Tek Teleporter privacy changed
+    mt = RX_TEK_TELEPORTER_PRIVACY.search(m)
+    if mt:
+        return ("TEK_TELEPORTER_PRIVACY_CHANGED", "WARNING", _clean_actor(mt.group("actor")))
+
+    # Starved to death (WARNING; actor is the creature that starved)
+    ms = RX_STARVED.match(m)
+    if ms:
+        victim = _clean_entity(ms.group("victim"))
+        return ("TAME_STARVED", "WARNING", victim or "Environment")
+
+    # --- INFO / SUCCESS ---
+    # Froze (INFO; actor is the player/creature doing the freezing)
+    mf = RX_FROZE.match(m)
+    if mf:
+        return ("TAME_FROZE", "INFO", _clean_actor(mf.group("actor")) or "Environment")
+
+    # Claimed (SUCCESS)
+    mc = RX_CLAIMED.match(m)
+    if mc:
+        return ("TAME_CLAIMED", "SUCCESS", _clean_actor(mc.group("actor")) or "Environment")
+    if RX_UNCLAIMED.search(m):
+        return ("TAME_UNCLAIMED", "INFO", "Environment")
 
     # Tamed
     if RX_TAMED.search(m):
-        return ("TAME_TAMED", "SUCCESS", "")
+        return ("TAME_TAMED", "SUCCESS", "Environment")
 
-    # Claimed / Unclaimed
-    if RX_CLAIMED.search(m):
-        return ("TAME_CLAIMED", "INFO", "")
-    if RX_UNCLAIMED.search(m):
-        return ("TAME_UNCLAIMED", "INFO", "")
-
-
-    # Baby / hatch events
-    if RX_HATCHED.search(m):
-        return ("EGG_HATCHED", "SUCCESS", "")
-    if RX_BORN.search(m):
-        return ("BABY_BORN", "SUCCESS", "")
-
-    # Upload / download / transfers (Obelisk / terminals / etc.)
-    if RX_UPLOADED.search(m):
-        return ("UPLOADED", "INFO", "")
-    if RX_DOWNLOADED.search(m):
-        return ("DOWNLOADED", "INFO", "")
-    if RX_TRANSFERRED.search(m):
-        return ("TRANSFERRED", "INFO", "")
-
-    # Tribe status changes
-    if RX_TRIBE_NAME_CHANGED.search(m):
-        return ("TRIBE_NAME_CHANGED", "INFO", "")
-    if RX_TRIBE_OWNER_CHANGED.search(m):
-        return ("TRIBE_OWNER_CHANGED", "INFO", "")
-    if RX_SET_RANK.search(m):
-        return ("TRIBE_RANK_CHANGED", "INFO", "")
-    if RX_ONLINE.search(m):
-        return ("TRIBE_MEMBER_ONLINE", "INFO", "")
-    if RX_OFFLINE.search(m):
-        return ("TRIBE_MEMBER_OFFLINE", "INFO", "")
-
-    # Explicit add/remove messages
-    if RX_ADDED_TO_TRIBE.search(m):
-        return ("TRIBE_MEMBER_JOINED", "INFO", "")
-    if RX_REMOVED_FROM_TRIBE.search(m):
-        return ("TRIBE_MEMBER_LEFT", "INFO", "")
-
-    # Unfroze (sometimes appears in cryo/thaw messages)
-    if RX_UNFROZE.search(m):
-        return ("TAME_UNFROZE", "INFO", "")
-    # Sensor / parasaur
-    if RX_SENSOR.search(m):
-        return ("SENSOR_ALERT", "WARNING", "")
-
-    # Demolished
-    md = RX_DEMOLISHED.search(m)
+    # Upload / download / transfers
+    mu = RX_UPLOADED.match(m)
+    if mu:
+        return ("UPLOADED", "INFO", _clean_actor(mu.group("actor")) or "Environment")
+    md = RX_DOWNLOADED.match(m)
     if md:
-        return ("STRUCTURE_DEMOLISHED", "INFO", _clean_actor(md.group("actor")))
+        return ("DOWNLOADED", "INFO", _clean_actor(md.group("actor")) or "Environment")
+    if RX_TRANSFERRED.search(m):
+        return ("TRANSFERRED", "INFO", "Environment")
 
-    # Destroyed their (enemy structure destroyed)
+    # Tribe membership / roles
+    ma = RX_ADDED_TO_TRIBE.match(m)
+    if ma:
+        return ("TRIBE_MEMBER_ADDED", "INFO", _clean_actor(ma.group("actor")) or _clean_entity(ma.group("member")) or "Environment")
+
+    ml = RX_LEFT_TRIBE.match(m)
+    if ml:
+        member = _clean_entity(ml.group("member"))
+        return ("TRIBE_MEMBER_LEFT", "INFO", member or "Environment")
+
+    mr = RX_REMOVED_FROM_TRIBE.match(m)
+    if mr:
+        member = _clean_entity(mr.group("member"))
+        actor = _clean_actor(mr.group("actor") or "")
+        return ("TRIBE_MEMBER_REMOVED", "CRITICAL", actor or member or "Environment")
+
+    mp = RX_PROMOTED_ADMIN.match(m)
+    if mp:
+        return ("TRIBE_RANK_CHANGED", "INFO", _clean_actor(mp.group("actor")) or _clean_entity(mp.group("member")) or "Environment")
+
+    mo = RX_OWNER_CHANGED.match(m)
+    if mo:
+        new_owner = _clean_entity(mo.group("new_owner"))
+        # No explicit actor in the log line; per rule use the target name.
+        return ("TRIBE_OWNERSHIP_CHANGED", "CRITICAL", new_owner or "Environment")
+
+    mg = RX_SET_RANK_GROUP.search(m)
+    if mg:
+        return ("TRIBE_RANK_CHANGED", "INFO", _clean_actor(mg.group("actor")) or "Environment")
+
+    # --- STRUCTURES ---
+    mm = RX_DEMOLISHED.match(m)
+    if mm:
+        return ("STRUCTURE_DEMOLISHED", "INFO", _clean_actor(mm.group("actor")) or "Environment")
+
     if RX_ENEMY_DESTROYED.search(m):
-        return ("ENEMY_STRUCTURE_DESTROYED", "SUCCESS", "")
+        return ("ENEMY_STRUCTURE_DESTROYED", "SUCCESS", "Environment")
 
-    # Was destroyed / destroyed by
     if RX_DESTROYED.search(m):
         mb = RX_DESTROYED_BY.search(m)
-        actor = _clean_actor(mb.group("actor")) if mb else ""
-        return ("STRUCTURE_DESTROYED", "CRITICAL", actor)
+        actor = _clean_actor(mb.group("actor")) if mb else "Environment"
+        return ("STRUCTURE_DESTROYED", "CRITICAL", actor or "Environment")
 
-    # Was killed
+    # --- KILLS (CRITICAL) ---
+    tm = RX_TRIBEMEMBER_KILLED_BY.match(m)
+    if tm:
+        return ("TRIBEMEMBER_WAS_KILLED", "CRITICAL", _clean_actor(tm.group("actor")) or _clean_entity(tm.group("victim")) or "Environment")
+
+    yt = RX_YOUR_TRIBE_KILLED.match(m)
+    if yt:
+        victim = _clean_entity(yt.group("victim"))
+        # Keep legacy split categories, but make both CRITICAL.
+        cat = "TRIBE_KILLED_PLAYER" if _is_probably_player(victim) else "TRIBE_KILLED_CREATURE"
+        return (cat, "CRITICAL", "Your Tribe")
+
+    wk = RX_WAS_KILLED_BY.match(m)
+    if wk:
+        victim = _clean_entity(wk.group("victim"))
+        actor = _clean_actor(wk.group("actor"))
+        # If the line is about a tame/player being killed, the killer is the actor.
+        return ("TAME_DIED", "CRITICAL", actor or victim or "Environment")
+
     if RX_WAS_KILLED.search(m):
-        # Cryopod death
+        # Cryopod death is not a combat kill.
         if RX_CRYOPOD.search(m):
-            return ("CRYOPOD_DEATH", "WARNING", "Cryopod")
-        # Starved/froze
-        if RX_STARVED.search(m):
-            return ("TAME_STARVED", "WARNING", "")
-        if RX_FROZE.search(m):
-            return ("TAME_FROZE", "WARNING", "")
-        # If killed by Human -> CRITICAL
-        if re.search(r"\bby\b\s+Human\b", m, re.I):
-            return ("TAME_KILLED_BY_HUMAN", "CRITICAL", "Human")
-        return ("TAME_DIED", "WARNING", "")
+            return ("CRYOPOD_DEATH", "WARNING", "Environment")
 
-    # Tribe membership changes
-    if RX_JOINED.search(m):
-        return ("TRIBE_MEMBER_JOINED", "INFO", "")
-    if RX_LEFT.search(m):
-        return ("TRIBE_MEMBER_LEFT", "INFO", "")
+        # If we have no explicit killer/reason, use the victim as actor.
+        vm = RX_WAS_KILLED.match(m)
+        victim = _clean_entity(vm.group("victim")) if vm else ""
+        return ("TAME_DIED", "CRITICAL", victim or "Environment")
 
-    return ("UNKNOWN", "INFO", "")
+    # Fallback
+    return ("UNKNOWN", "INFO", "Environment")
 
 
 def classify_event(
@@ -192,8 +240,7 @@ def classify_event(
 ) -> ParsedEvent:
     category, severity, actor = classify_message(message)
 
-    # Ensure actor is not huge
-    actor = _clean_actor(actor)
+    actor = _clean_actor(actor) or "Environment"
 
     # Stable hash used for dedupe
     h = compute_event_hash(

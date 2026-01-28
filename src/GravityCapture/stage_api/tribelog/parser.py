@@ -104,4 +104,66 @@ def parse_header_lines(lines: List[str]) -> List[Dict[str, object]]:
                 "raw_line": raw_one,
             }
         )
+
+    return _merge_starved_killed_pairs(out)
+
+
+def _canonical_victim(s: str) -> str:
+    """Make a victim key stable across OCR variations (e.g. leading 'Your')."""
+    v = re.sub(r"\s+", " ", (s or "").strip())
+    v = re.sub(r"^Your\s+", "", v, flags=re.IGNORECASE)
+    v = v.strip(" !.\t\r\n")
+    return v
+
+
+def _extract_victim_from_starved(msg: str) -> Optional[str]:
+    m = re.match(r"^(?P<v>.+?)\s+starved\s+to\s+death!?$", (msg or "").strip(), flags=re.IGNORECASE)
+    if not m:
+        return None
+    return _canonical_victim(m.group("v"))
+
+
+def _extract_victim_from_killed(msg: str) -> Optional[str]:
+    """Only the 'was killed' lines without an explicit killer are eligible for merge."""
+    s = (msg or "").strip()
+    if not re.search(r"\bwas\s+killed\b", s, flags=re.IGNORECASE):
+        return None
+    # If there is an explicit killer ("was killed by ..."), do not merge.
+    if re.search(r"\bwas\s+killed\s+by\b", s, flags=re.IGNORECASE):
+        return None
+    m = re.match(r"^(?P<v>.+?)\s+was\s+killed\b.*$", s, flags=re.IGNORECASE)
+    if not m:
+        return None
+    return _canonical_victim(m.group("v"))
+
+
+def _merge_starved_killed_pairs(events: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """
+    ARK often emits two lines with identical timestamps for starvation:
+      1) "<Creature> starved to death!"
+      2) "Your <Creature> was killed!"
+
+    Treat those as ONE event (the starved line). We drop the paired kill line.
+    """
+    if not events:
+        return events
+
+    starved_keys = set()
+    for e in events:
+        victim = _extract_victim_from_starved(str(e.get("message") or ""))
+        if not victim:
+            continue
+        key = (int(e.get("ark_day") or 0), str(e.get("ark_time") or ""), victim)
+        starved_keys.add(key)
+
+    out: List[Dict[str, object]] = []
+    for e in events:
+        msg = str(e.get("message") or "")
+        victim = _extract_victim_from_killed(msg)
+        if victim:
+            key = (int(e.get("ark_day") or 0), str(e.get("ark_time") or ""), victim)
+            if key in starved_keys:
+                # drop the redundant kill line
+                continue
+        out.append(e)
     return out
