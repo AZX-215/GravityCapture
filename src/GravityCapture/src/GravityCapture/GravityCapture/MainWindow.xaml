@@ -6,8 +6,8 @@
         xmlns:local="clr-namespace:GravityCapture"
         mc:Ignorable="d"
         Title="Gravity Capture"
-        Height="860" Width="1320"
-        MinHeight="780" MinWidth="1180"
+        Height="860" Width="1060"
+        MinHeight="780" MinWidth="900"
         WindowStartupLocation="CenterScreen"
         Icon="Assets/GravityCapture.ico">
 
@@ -34,13 +34,14 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <Border Width="42" Height="42" CornerRadius="12" BorderBrush="{StaticResource BrushStrokeSoft}" BorderThickness="1" Background="{StaticResource BrushCardBg}">
-                <Image Source="Assets/GravityCapture.png" Stretch="Uniform" Margin="6"/>
+            <!-- App icon (33% larger again) -->
+            <Border Width="107" Height="107" CornerRadius="29" BorderBrush="{StaticResource BrushStrokeSoft}" BorderThickness="1" Background="{StaticResource BrushCardBg}">
+                <Image Source="Assets/GravityCapture.png" Stretch="Uniform" Margin="8"/>
             </Border>
 
             <StackPanel Grid.Column="2" VerticalAlignment="Center">
                 <TextBlock Text="Gravity Capture" FontSize="22" FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding Subtitle}" FontSize="13" Foreground="{StaticResource BrushTextSecondary}" Margin="0,2,0,0"/>
+                <TextBlock Text="Log-Bot" FontSize="13" Foreground="{StaticResource BrushTextSecondary}" Margin="0,2,0,0"/>
             </StackPanel>
 
             <Border Grid.Column="3" CornerRadius="12" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12,10">
@@ -63,7 +64,15 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="16">
 
-                        <TextBlock Text="Settings" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Settings" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Content="Save" Command="{Binding SaveSettingsCommand}" Margin="12,0,0,0"/>
+                        </Grid>
+                        <TextBlock Text="{Binding SaveStatusText}" FontSize="12" Foreground="{StaticResource BrushTextSecondary}" Margin="0,0,0,8" TextWrapping="Wrap"/>
 
                         <TextBlock Text="API Base URL" Foreground="{StaticResource BrushTextSecondary}"/>
                         <TextBox Text="{Binding ApiBaseUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,12"/>
@@ -71,30 +80,41 @@
                         <TextBlock Text="GL_SHARED_SECRET" Foreground="{StaticResource BrushTextSecondary}"/>
                         <PasswordBox x:Name="SecretBox" PasswordChanged="SecretBox_OnPasswordChanged" Margin="0,6,0,12"/>
 
+                        <!-- Server/Tribe: stacked so long server names fit and are fully visible -->
                         <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="12"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="10"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
 
-                            <StackPanel>
+                            <StackPanel Grid.Row="0">
                                 <TextBlock Text="Server Name" Foreground="{StaticResource BrushTextSecondary}"/>
-                                <TextBox Text="{Binding ServerName, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,0"/>
+                                <TextBox
+                                    Text="{Binding ServerName, UpdateSourceTrigger=PropertyChanged}"
+                                    Margin="0,6,0,0"
+                                    ToolTip="{Binding ServerName}"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Column="2">
+                            <StackPanel Grid.Row="2">
                                 <TextBlock Text="Tribe Name" Foreground="{StaticResource BrushTextSecondary}"/>
-                                <TextBox Text="{Binding TribeName, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,0"/>
+                                <TextBox
+                                    Text="{Binding TribeName, UpdateSourceTrigger=PropertyChanged}"
+                                    Margin="0,6,0,0"
+                                    ToolTip="{Binding TribeName}"/>
                             </StackPanel>
                         </Grid>
 
                         <TextBlock Text="Capture Interval (seconds)" Foreground="{StaticResource BrushTextSecondary}"/>
                         <TextBox Text="{Binding IntervalSecondsText, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,10" />
+                        <TextBlock Text="Upscale Factor (1-4)" Foreground="{StaticResource BrushTextSecondary}"/>
+                        <TextBox Text="{Binding UpscaleFactorText, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,10" />
+                        <TextBlock Text="Request Timeout (seconds)" Foreground="{StaticResource BrushTextSecondary}"/>
+                        <TextBox Text="{Binding RequestTimeoutSecondsText, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,10" />
 
                         <CheckBox Content="Enable CRITICAL pings" IsChecked="{Binding CriticalPingEnabled}" Margin="0,4,0,10"/>
 
-                        <CheckBox Content="Debug: also call /extract (preview only)" IsChecked="{Binding UseExtractPreview}" Margin="0,0,0,16"/>
+                        <CheckBox Content="Debug: also call /extract (preview)" IsChecked="{Binding UseExtractPreview}" Margin="0,0,0,16"/>
 
                         <Border CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12">
                             <StackPanel>
@@ -162,7 +182,7 @@
                         </Border>
                     </Grid>
 
-                    <Border Grid.Row="2" CornerRadius="18" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="#0C111B">
+                    <Border Grid.Row="2" MaxWidth="460" HorizontalAlignment="Center" CornerRadius="18" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="#0C111B">
                         <Grid>
                             <Image Source="{Binding PreviewImage}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                             <TextBlock Text="{Binding PreviewOverlayText}" Foreground="{StaticResource BrushTextSecondary}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14"/>
