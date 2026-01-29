@@ -84,6 +84,10 @@ def _variant_images(pil_img: Image.Image) -> list[tuple[str, np.ndarray]]:
     without requiring the user to change game settings. The low-contrast variants
     tend to make saturated red/magenta text (kills, decays) more legible to OCR.
     """
+    # Optional downscale to keep OCR fast and avoid huge images
+    if max_w is not None:
+        pil_img = _cap_width(pil_img, max_w=max_w)
+
     im = pil_img.convert("RGB")
     np_rgb = np.asarray(im, dtype=np.uint8)
     np_bgr = cv.cvtColor(np_rgb, cv.COLOR_RGB2BGR)
