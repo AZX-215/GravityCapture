@@ -20,7 +20,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # "Header hit-rate" matcher for ARK tribe logs.
 # Intentionally tolerant: OCR can confuse Day/Dav/Doy and punctuation.
 _RX_DAY_HEADER = re.compile(
-    r"^\s*(?:Day|Dav|Doy)\s*[,/:\-]?\s*\d{2,6}\s*[, ]\s*\d{1,2}\s*[:.]\s*\d{1,2}(?:\s*[:.]\s*\d{2,3})?",
+    r"^\s*(?:Day|Dav|Doy)\s*[,/:\-]?\s*\d{2,6}\s*[,; ]\s*\d{1,2}\s*[:.]\s*\d{1,2}(?:\s*[:.]\s*\d{2,3})?",
     re.IGNORECASE,
 )
 
@@ -129,16 +129,29 @@ def _variant_images(pil_rgb: Image.Image, *, max_w: int = 1920) -> List[Tuple[st
     red1 = (h <= 12)
     red2 = (h >= 165)
     mag = (h >= 135) & (h <= 175)
-    sat = (s >= 70)
-    val = (v >= 40)
+    sat = (s >= 35)
+    val = (v >= 25)
     m = ((red1 | red2 | mag) & sat & val).astype(np.uint8) * 255
+    # rb_minus_g fallback: catches red/magenta even when saturation is muted (common with HDR tonemapping).
+    try:
+        _rb_blur = cv.GaussianBlur(rb_minus_g, (3, 3), 0)
+        _, _rb_bin = cv.threshold(_rb_blur, 30, 255, cv.THRESH_BINARY)
+        m = cv.bitwise_or(m, _rb_bin)
+    except Exception:
+        pass
 
     # Thicken glyphs slightly so OCR has contiguous strokes.
-    m = cv.dilate(m, cv.getStructuringElement(cv.MORPH_RECT, (2, 2)), iterations=1)
+    m = cv.dilate(m, cv.getStructuringElement(cv.MORPH_RECT, (2, 2)), iterations=2)
 
     # Build a clean OCR input: black text on white background.
-    redmag_mask = 255 - m
-
+    # Instead of returning just the color mask (which would drop the grey Day/Time prefix),
+    # boost the red/magenta pixels in the full grayscale image so OCR can read the whole line.
+    redmag_boost = raw.copy()
+    redmag_boost[m > 0] = 255
+    try:
+        redmag_mask = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(redmag_boost)
+    except Exception:
+        redmag_mask = redmag_boost
     # Enhanced (moderate contrast + unsharp)
     g_pil = ImageOps.grayscale(im)
     g_pil = ImageEnhance.Contrast(g_pil).enhance(1.5)
@@ -217,7 +230,7 @@ def _norm_line_key(s: str) -> str:
     return s2
 
 
-_RX_DAYTIME = re.compile(r"^\s*(?:Day|Dav|Doy)\s*[,/:\-]?\s*(\d{1,6})\s*[,/ ]+([0-9]{1,2}:[0-9]{2}:[0-9]{2,3})", re.IGNORECASE)
+_RX_DAYTIME = re.compile(r"^\s*(?:Day|Dav|Doy)\s*[,/:\-]?\s*(\d{1,6})\s*[,/; ]+([0-9]{1,2}:[0-9]{2}:[0-9]{2,3})", re.IGNORECASE)
 
 
 def _daytime_key(s: str) -> Optional[Tuple[str, str]]:
@@ -400,12 +413,12 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
 
     # redmag_mask: merge any new Day-lines (this variant tends to only capture colored glyphs).
     if _env_bool("OCR_MERGE_REDMAG_MASK", default=True):
-        if _merge_from("redmag_mask", require_critical=False):
+        if _merge_from("redmag_mask", require_critical=False, min_conf=_env_float("OCR_REDMAG_MIN_CONF", 0.30)):
             merged.append("redmag_mask")
 
     # rb_minus_g: merge only critical lines to avoid adding noise.
     if _env_bool("OCR_MERGE_RB_MINUS_G", default=True):
-        if _merge_from("rb_minus_g", require_critical=True):
+        if _merge_from("rb_minus_g", require_critical=False, min_conf=_env_float("OCR_RBMG_MIN_CONF", 0.30)):
             merged.append("rb_minus_g")
 
     if merged:
