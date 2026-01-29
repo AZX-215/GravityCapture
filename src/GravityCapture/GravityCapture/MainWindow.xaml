@@ -34,13 +34,14 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <Border Width="60" Height="60" CornerRadius="16" BorderBrush="{StaticResource BrushStrokeSoft}" BorderThickness="1" Background="{StaticResource BrushCardBg}">
-                <Image Source="Assets/GravityCapture.png" Stretch="Uniform" Margin="4"/>
+            <!-- App icon (33% larger so the text is readable) -->
+            <Border Width="80" Height="80" CornerRadius="22" BorderBrush="{StaticResource BrushStrokeSoft}" BorderThickness="1" Background="{StaticResource BrushCardBg}">
+                <Image Source="Assets/GravityCapture.png" Stretch="Uniform" Margin="6"/>
             </Border>
 
             <StackPanel Grid.Column="2" VerticalAlignment="Center">
                 <TextBlock Text="Gravity Capture" FontSize="22" FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding Subtitle}" FontSize="13" Foreground="{StaticResource BrushTextSecondary}" Margin="0,2,0,0"/>
+                <TextBlock Text="Log-Bot" FontSize="13" Foreground="{StaticResource BrushTextSecondary}" Margin="0,2,0,0"/>
             </StackPanel>
 
             <Border Grid.Column="3" CornerRadius="12" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12,10">
