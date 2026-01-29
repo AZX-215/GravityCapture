@@ -34,9 +34,9 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <!-- App icon (33% larger so the text is readable) -->
-            <Border Width="80" Height="80" CornerRadius="22" BorderBrush="{StaticResource BrushStrokeSoft}" BorderThickness="1" Background="{StaticResource BrushCardBg}">
-                <Image Source="Assets/GravityCapture.png" Stretch="Uniform" Margin="6"/>
+            <!-- App icon (33% larger again) -->
+            <Border Width="107" Height="107" CornerRadius="29" BorderBrush="{StaticResource BrushStrokeSoft}" BorderThickness="1" Background="{StaticResource BrushCardBg}">
+                <Image Source="Assets/GravityCapture.png" Stretch="Uniform" Margin="8"/>
             </Border>
 
             <StackPanel Grid.Column="2" VerticalAlignment="Center">

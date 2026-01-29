@@ -263,6 +263,17 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return v in {"1", "true", "yes", "y", "on", "enable", "enabled"}
 
 
+def _env_float(name: str, default: float = 0.0) -> float:
+    """Best-effort float env parsing with a safe fallback."""
+    v = os.getenv(name)
+    if v is None:
+        return default
+    try:
+        return float(str(v).strip())
+    except Exception:
+        return default
+
+
 def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = False) -> Dict[str, Any]:
     """
     High-level OCR entry point used by the API.
@@ -378,7 +389,7 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
     # We merge only *new* lines (by fuzzy key), and require an ARK "Day ..." header.
     var_map = {k: v for k, v in all_variants}
 
-    def _merge_from(vname: str, *, require_critical: bool) -> int:
+    def _merge_from(vname: str, *, require_critical: bool, min_conf: float = 0.0) -> int:
         if best.get("variant") == vname:
             return 0
         img = var_map.get(vname)
@@ -394,6 +405,14 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
         seen = {_fuzzy_event_key(d.get("text", "")) for d in best.get("lines", []) if d.get("text")}
         added = 0
         for ln in other_lines:
+            # Skip low-confidence lines from aggressive color masks.
+            try:
+                c = float(ln.conf)
+            except Exception:
+                c = 0.0
+            if c < float(min_conf):
+                continue
+
             s = (ln.text or "").strip()
             if not s:
                 continue
@@ -404,7 +423,7 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
             fk = _fuzzy_event_key(s)
             if fk in seen:
                 continue
-            best["lines"].append({"text": s, "conf": float(ln.conf), "bbox": list(map(int, ln.bbox))})
+            best["lines"].append({"text": s, "conf": c, "bbox": list(map(int, ln.bbox))})
             seen.add(fk)
             added += 1
         return added
