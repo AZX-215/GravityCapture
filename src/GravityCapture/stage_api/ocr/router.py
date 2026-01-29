@@ -76,116 +76,120 @@ def _gamma(gray: np.ndarray, gamma: float) -> np.ndarray:
     table = np.clip(table * 255.0, 0, 255).astype(np.uint8)
     return cv.LUT(gray, table)
 
-def _variant_images(pil_rgb: Image.Image, *, max_w: int = 1920) -> List[Tuple[str, np.ndarray]]:
+def _variant_images(pil_img: Image.Image) -> list[tuple[str, np.ndarray]]:
     """
-    Returns list of (variant_name, gray_uint8) images.
+    Produce multiple grayscale variants for OCR.
 
-    Goal: work for BOTH SDR and HDR screenshots.
-    - Avoid hard binarization as the primary path (it can turn ARK UI background into "ink").
-    - Prefer raw/contrast/channel variants first; keep binary variants only as fallback.
+    Adds a low-contrast preprocessing path that mimics in-game `slate.contrast 0.2`
+    without requiring the user to change game settings. The low-contrast variants
+    tend to make saturated red/magenta text (kills, decays) more legible to OCR.
     """
-    im = _cap_width(pil_rgb, max_w=max_w)
-    np_rgb = _pil_to_np_rgb(im)  # uint8 RGB
+    im = pil_img.convert("RGB")
+    np_rgb = np.asarray(im, dtype=np.uint8)
     np_bgr = cv.cvtColor(np_rgb, cv.COLOR_RGB2BGR)
 
-    # Raw grayscale (often best)
     raw = cv.cvtColor(np_rgb, cv.COLOR_RGB2GRAY)
 
-    # Max-RGB (helps colored text on dark UI)
-    max_rgb = np.max(np_rgb, axis=2).astype(np.uint8)
+    # Optional: low-contrast pre-pass (emulates slate.contrast lowering)
+    lowc_raw: Optional[np.ndarray] = None
+    lowc_maxrgb: Optional[np.ndarray] = None
+    lowc_factor = _env_float("OCR_LOWCONTRAST_FACTOR", 0.30)
+    lowc_blur = _env_float("OCR_LOWCONTRAST_BLUR", 0.6)
+    if 0.0 < lowc_factor < 0.99:
+        mid = 127.5
+        lowc_rgb = (mid + lowc_factor * (np_rgb.astype(np.float32) - mid)).clip(0, 255).astype(np.uint8)
 
-    # Percentile normalization (helps HDR/washed captures)
-    hdr_norm = _percentile_normalize(raw, 1.0, 99.0)
-    if int(np.percentile(raw, 99.0)) - int(np.percentile(raw, 1.0)) < 90:
-        hdr_norm = _gamma(hdr_norm, 0.85)
+        lowc_raw = cv.cvtColor(lowc_rgb, cv.COLOR_RGB2GRAY)
+        if lowc_blur > 0:
+            lowc_raw = cv.GaussianBlur(lowc_raw, (0, 0), float(lowc_blur))
+        lowc_raw = _percentile_normalize(lowc_raw, 1, 99)
 
-    # CLAHE (good general-purpose)
-    clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    clahe_g = clahe.apply(hdr_norm)
+        # max-channel grayscale is often better for highly saturated UI text
+        lowc_maxrgb = np.max(lowc_rgb, axis=2).astype(np.uint8)
+        if lowc_blur > 0:
+            lowc_maxrgb = cv.GaussianBlur(lowc_maxrgb, (0, 0), float(lowc_blur))
+        lowc_maxrgb = _percentile_normalize(lowc_maxrgb, 1, 99)
 
-    # Red/Magenta emphasis: helps lines rendered in red/magenta (often kill/critical notifications).
-    # Idea: emphasize pixels where R or B dominates over G (UI teal background tends to be greenish).
-    r = np_rgb[:, :, 0].astype(np.float32)
-    gch = np_rgb[:, :, 1].astype(np.float32)
-    b = np_rgb[:, :, 2].astype(np.float32)
-    rb = np.maximum(r, b)
-    rb_minus_g = rb - 0.85 * gch
-    rb_minus_g = np.clip(rb_minus_g, 0.0, 255.0).astype(np.uint8)
-    rb_minus_g = _percentile_normalize(rb_minus_g, 1.0, 99.0)
-    rb_minus_g = clahe.apply(rb_minus_g)
-    blur_rb = cv.GaussianBlur(rb_minus_g, (0, 0), 1.0)
-    rb_minus_g = cv.addWeighted(rb_minus_g, 1.6, blur_rb, -0.6, 0)
+    # High-contrast / binarized variants
+    clahe_g = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(raw)
+    enhanced = cv.convertScaleAbs(raw, alpha=1.5, beta=0)
+    bw = cv.adaptiveThreshold(raw, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 41, 10)
+    inv = cv.bitwise_not(bw)
 
-    # Red/magenta mask: isolate saturated red + magenta/pink glyphs.
-    # Useful for kill/critical lines rendered in ARK's red/magenta text.
+    # ---------- Red / Magenta / Pink boost mask ----------
+    # Mixed heuristics (HSV + RGB) with lower thresholds to catch anti-aliased text.
     hsv = cv.cvtColor(np_bgr, cv.COLOR_BGR2HSV)
-    h = hsv[:, :, 0]
-    s = hsv[:, :, 1]
-    v = hsv[:, :, 2]
+    h, s, v = cv.split(hsv)
+    sat_min = int(_env_float("OCR_REDMAG_SAT_MIN", 20))
+    val_min = int(_env_float("OCR_REDMAG_VAL_MIN", 20))
 
-    # Hue ranges (OpenCV HSV: H 0..179)
-    # - Reds wrap around 0
-    # - Magenta/pink tends to sit ~140-175 depending on capture/HDR tone-mapping
-    red1 = (h <= 12)
-    red2 = (h >= 165)
-    mag = (h >= 135) & (h <= 175)
-    sat = (s >= 35)
-    val = (v >= 25)
-    m = ((red1 | red2 | mag) & sat & val).astype(np.uint8) * 255
-    # rb_minus_g fallback: catches red/magenta even when saturation is muted (common with HDR tonemapping).
-    try:
-        _rb_blur = cv.GaussianBlur(rb_minus_g, (3, 3), 0)
-        _, _rb_bin = cv.threshold(_rb_blur, 30, 255, cv.THRESH_BINARY)
-        m = cv.bitwise_or(m, _rb_bin)
-    except Exception:
-        pass
+    # red hue wraps, magenta/pink occupies upper hue band
+    red_hsv = (((h <= 12) | (h >= 165)) & (s >= sat_min) & (v >= val_min))
+    mag_hsv = ((h >= 135) & (h <= 175) & (s >= sat_min) & (v >= val_min))
+    mask_hsv = (red_hsv | mag_hsv).astype(np.uint8) * 255
 
-    # Thicken glyphs slightly so OCR has contiguous strokes.
-    m = cv.dilate(m, cv.getStructuringElement(cv.MORPH_RECT, (2, 2)), iterations=2)
+    r = np_rgb[:, :, 0].astype(np.int16)
+    g = np_rgb[:, :, 1].astype(np.int16)
+    b = np_rgb[:, :, 2].astype(np.int16)
+    red_rgb = (r >= 110) & (r >= g + 25) & (r >= b + 5)
+    mag_rgb = (r >= 110) & (b >= 110) & (g <= np.minimum(r, b) - 15)
+    mask_rgb = (red_rgb | mag_rgb).astype(np.uint8) * 255
 
-    # Build a clean OCR input: black text on white background.
-    # Instead of returning just the color mask (which would drop the grey Day/Time prefix),
-    # boost the red/magenta pixels in the full grayscale image so OCR can read the whole line.
+    m = cv.bitwise_or(mask_hsv, mask_rgb)
+
+    # fill small holes, then expand slightly to cover anti-alias fringes
+    m = cv.morphologyEx(m, cv.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1)
+    m = cv.dilate(m, np.ones((2, 2), np.uint8), iterations=2)
+
+    # Boost on raw
     redmag_boost = raw.copy()
     redmag_boost[m > 0] = 255
     try:
         redmag_mask = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(redmag_boost)
     except Exception:
         redmag_mask = redmag_boost
-    # Enhanced (moderate contrast + unsharp)
-    g_pil = ImageOps.grayscale(im)
-    g_pil = ImageEnhance.Contrast(g_pil).enhance(1.5)
-    g_pil = g_pil.filter(ImageFilter.UnsharpMask(radius=1.0, percent=120, threshold=3))
-    enhanced = np.asarray(g_pil, dtype=np.uint8)
 
-    # ARK UI (LAB L-channel contrast + unsharp), NO binarization
-    lab = cv.cvtColor(np_bgr, cv.COLOR_BGR2LAB)
-    l, a, b = cv.split(lab)
-    l2 = clahe.apply(l)
-    lab2 = cv.merge((l2, a, b))
-    bgr2 = cv.cvtColor(lab2, cv.COLOR_LAB2BGR)
-    ark_g = cv.cvtColor(bgr2, cv.COLOR_BGR2GRAY)
-    blur = cv.GaussianBlur(ark_g, (0, 0), 1.0)
-    ark_ui = cv.addWeighted(ark_g, 1.5, blur, -0.5, 0)
+    # Boost on low-contrast (if enabled)
+    lowc_redmag: Optional[np.ndarray] = None
+    if lowc_raw is not None:
+        lowc_redmag = lowc_raw.copy()
+        lowc_redmag[m > 0] = 255
 
-    # Binary fallbacks
-    bw = _ensure_white_bg(_otsu(clahe_g))
-    inv = 255 - bw
+    # Secondary color-emphasis variants
+    rb_minus_g = np.clip(((r + b) // 2 - g + 128), 0, 255).astype(np.uint8)
+    max_rgb = np.max(np_rgb, axis=2).astype(np.uint8)
 
-    return [
-        ("raw", raw),
-        ("redmag_mask", redmag_mask),
-        ("rb_minus_g", rb_minus_g),
+    # HDR-ish normalize (helps when capture is slightly washed out)
+    hdr_norm = _percentile_normalize(raw, 1, 99)
+
+    # ARK UI-like compression: suppress background while keeping strokes
+    ark_ui = raw.copy()
+    ark_ui = cv.GaussianBlur(ark_ui, (0, 0), 0.6)
+    ark_ui = cv.convertScaleAbs(ark_ui, alpha=1.25, beta=-10)
+
+    variants: list[tuple[str, np.ndarray]] = []
+    variants.append(("raw", raw))
+    if lowc_raw is not None:
+        variants.append(("lowc_raw", lowc_raw))
+    if lowc_maxrgb is not None:
+        variants.append(("lowc_maxrgb", lowc_maxrgb))
+
+    # Put boosted variants early so merge can pick them up
+    variants.append(("redmag_mask", redmag_mask))
+    if lowc_redmag is not None:
+        variants.append(("lowc_redmag", lowc_redmag))
+
+    variants.extend([
         ("max_rgb", max_rgb),
+        ("rb_minus_g", rb_minus_g),
         ("clahe", clahe_g),
         ("enhanced", enhanced),
         ("hdr_norm", hdr_norm),
         ("ark_ui", ark_ui),
         ("binary", bw),
         ("inverted", inv),
-    ]
-
-
+    ])
+    return variants
 def _run_engine(engine_name: str, gray_np: np.ndarray) -> List[Line]:
     ext = make_extractor(engine_name)
     lines = ext.run(gray_np)  # List[Line]
@@ -261,6 +265,17 @@ def _env_bool(name: str, default: bool = False) -> bool:
         return default
     v = str(v).strip().lower()
     return v in {"1", "true", "yes", "y", "on", "enable", "enabled"}
+
+
+def _env_float(name: str, default: float = 0.0) -> float:
+    """Best-effort float env parsing with a safe fallback."""
+    v = os.getenv(name)
+    if v is None:
+        return default
+    try:
+        return float(str(v).strip())
+    except Exception:
+        return default
 
 
 def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = False) -> Dict[str, Any]:
@@ -378,7 +393,7 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
     # We merge only *new* lines (by fuzzy key), and require an ARK "Day ..." header.
     var_map = {k: v for k, v in all_variants}
 
-    def _merge_from(vname: str, *, require_critical: bool) -> int:
+    def _merge_from(vname: str, *, require_critical: bool, min_conf: float = 0.0) -> int:
         if best.get("variant") == vname:
             return 0
         img = var_map.get(vname)
@@ -394,6 +409,14 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
         seen = {_fuzzy_event_key(d.get("text", "")) for d in best.get("lines", []) if d.get("text")}
         added = 0
         for ln in other_lines:
+            # Skip low-confidence lines from aggressive color masks.
+            try:
+                c = float(ln.conf)
+            except Exception:
+                c = 0.0
+            if c < float(min_conf):
+                continue
+
             s = (ln.text or "").strip()
             if not s:
                 continue
@@ -404,7 +427,7 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
             fk = _fuzzy_event_key(s)
             if fk in seen:
                 continue
-            best["lines"].append({"text": s, "conf": float(ln.conf), "bbox": list(map(int, ln.bbox))})
+            best["lines"].append({"text": s, "conf": c, "bbox": list(map(int, ln.bbox))})
             seen.add(fk)
             added += 1
         return added
