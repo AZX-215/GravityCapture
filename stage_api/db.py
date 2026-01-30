@@ -64,6 +64,8 @@ class Db:
             return
         self._pool = await asyncpg.create_pool(dsn=self._dsn, min_size=1, max_size=5)
         async with self._pool.acquire() as conn:
+            # Cleanup legacy unique index that caused duplicate raw_line failures
+            await conn.execute("DROP INDEX IF EXISTS tribe_events_raw_line_uidx;")
             await conn.execute(_CREATE_TABLE)
 
             # Back-compat: older DBs may not have event_hash yet.

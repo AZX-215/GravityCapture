@@ -76,7 +76,7 @@ def _gamma(gray: np.ndarray, gamma: float) -> np.ndarray:
     table = np.clip(table * 255.0, 0, 255).astype(np.uint8)
     return cv.LUT(gray, table)
 
-def _variant_images(pil_img: Image.Image) -> list[tuple[str, np.ndarray]]:
+def _variant_images(pil_img: Image.Image, *, max_w: int | None = None) -> list[tuple[str, np.ndarray]]:
     """
     Produce multiple grayscale variants for OCR.
 
@@ -85,6 +85,8 @@ def _variant_images(pil_img: Image.Image) -> list[tuple[str, np.ndarray]]:
     tend to make saturated red/magenta text (kills, decays) more legible to OCR.
     """
     im = pil_img.convert("RGB")
+    if max_w:
+        im = _cap_width(im, max_w)
     np_rgb = np.asarray(im, dtype=np.uint8)
     np_bgr = cv.cvtColor(np_rgb, cv.COLOR_RGB2BGR)
 
