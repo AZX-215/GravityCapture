@@ -3,7 +3,7 @@ Gravity Capture is a log-bot for ARK: Survival Ascended.
 This repo contains:
 
 - `stage_api/` (FastAPI): OCRs tribe-log screenshots, de-dupes in Postgres, posts events to Discord, and optionally pings a role for selected CRITICAL categories.
-- `src/GravityCapture/` (Windows app): captures a fixed on-screen region of the tribe log and sends it to the API.
+- `src/GravityCapture/GravityCapture/` (Windows app): captures a fixed on-screen region of the tribe log and sends it to the API.
 
 ## Railway deployment (stage_api)
 
