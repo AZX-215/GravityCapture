@@ -1,39 +1,29 @@
-using System;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Interop;
-using GravityCapture.ViewModels;
+using System.Windows.Input;
 
 namespace GravityCapture;
 
 public partial class MainWindow : Window
 {
+    private readonly ViewModels.MainViewModel _vm;
+
     public MainWindow()
     {
         InitializeComponent();
-        DataContext = new MainViewModel();
-
-        // Keep the ViewModel's SharedSecret in sync with the PasswordBox.
-        // The PasswordBox intentionally isn't bindable in plain WPF.
-        Loaded += (_, _) =>
+        _vm = new ViewModels.MainViewModel();
+        DataContext = _vm;
+        Loaded += (_, _) => { _vm.OnLoaded(); SecretBox.Password = _vm.SharedSecret; };
+        Closing += (_, _) =>
         {
-            if (DataContext is MainViewModel vm)
-                SecretBox.Password = vm.SharedSecret ?? string.Empty;
+            // Ensure any focused TextBox commits its binding source before settings are saved.
+            // (Some WPF bindings only commit on focus change.)
+            Keyboard.ClearFocus();
+            _vm.OnClosing();
         };
-    }
-
-    protected override void OnSourceInitialized(EventArgs e)
-    {
-        base.OnSourceInitialized(e);
-
-        // Win11 dark title bar (Option A)
-        var hwnd = new WindowInteropHelper(this).Handle;
-        WindowsDarkTitleBar.TryEnable(hwnd, enabled: true);
     }
 
     private void SecretBox_OnPasswordChanged(object sender, RoutedEventArgs e)
     {
-        if (DataContext is not MainViewModel vm) return;
-        vm.SharedSecret = ((PasswordBox)sender).Password ?? string.Empty;
+        _vm.SharedSecret = SecretBox.Password;
     }
 }
