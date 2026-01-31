@@ -24,4 +24,4 @@ Optional:
 - `CRITICAL_PING_ROLE_ID` = `#`
 - `PING_ALL_CRITICAL` = `false` (default)
 - `PING_CATEGORIES` = `STRUCTURE_DESTROYED,TRIBE_KILLED_PLAYER` (default)
-- `ENVIRONMENT` = `stage`
+- `ENVIRONMENT` = `stage` | `main`
