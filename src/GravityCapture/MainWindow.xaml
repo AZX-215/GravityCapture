@@ -9,6 +9,7 @@
         Height="860" Width="1060"
         MinHeight="780" MinWidth="900"
         WindowStartupLocation="CenterScreen"
+        SourceInitialized="Window_SourceInitialized"
         Icon="Assets/GravityCapture.ico">
 
     <Window.Background>
@@ -185,7 +186,7 @@
                         </Border>
                     </Grid>
 
-                    <Border Grid.Row="2" MaxWidth="460" HorizontalAlignment="Center" CornerRadius="18" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="#0C111B">
+                    <Border Grid.Row="2" MaxWidth="600" HorizontalAlignment="Center" CornerRadius="18" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="#0C111B">
                         <Grid>
                             <Image Source="{Binding PreviewImage}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                             <TextBlock Text="{Binding PreviewOverlayText}" Foreground="{StaticResource BrushTextSecondary}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14"/>
