@@ -9,7 +9,6 @@
         Height="860" Width="1060"
         MinHeight="780" MinWidth="900"
         WindowStartupLocation="CenterScreen"
-        SourceInitialized="Window_SourceInitialized"
         Icon="Assets/GravityCapture.ico">
 
     <Window.Background>
@@ -62,9 +61,25 @@
 
             <!-- Left: Settings -->
             <Border Grid.Column="0" CornerRadius="18" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushPanelBg}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="16">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
+                    <Border Grid.Row="0" CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12" Margin="16,16,16,10">
+                        <StackPanel>
+                            <TextBlock Text="Controls" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource PrimaryButton}" Content="Start" Command="{Binding StartCommand}" Margin="0,0,10,0"/>
+                                <Button Style="{StaticResource DangerButton}" Content="Stop" Command="{Binding StopCommand}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding LastSendSummary}" Foreground="{StaticResource BrushTextSecondary}" Margin="0,8,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="16,0,16,16">
                         <Grid Margin="0,0,0,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -131,16 +146,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Border CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12" Margin="0,14,0,0">
-                            <StackPanel>
-                                <TextBlock Text="Controls" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                                <StackPanel Orientation="Horizontal">
-                                    <Button Style="{StaticResource PrimaryButton}" Content="Start" Command="{Binding StartCommand}" Margin="0,0,10,0"/>
-                                    <Button Style="{StaticResource DangerButton}" Content="Stop" Command="{Binding StopCommand}" />
-                                </StackPanel>
-                                <TextBlock Text="{Binding LastSendSummary}" Foreground="{StaticResource BrushTextSecondary}" Margin="0,10,0,0" TextWrapping="Wrap"/>
-                            </StackPanel>
-                        </Border>
+                        
 
                         <Border CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12" Margin="0,14,0,12">
                             <StackPanel>
@@ -151,9 +157,11 @@
                             </StackPanel>
                         </Border>
 
-                    </StackPanel>
-                </ScrollViewer>
-            </Border>
+                    
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
 
             <!-- Right: Preview -->
             <Border Grid.Column="2" CornerRadius="18" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushPanelBg}">
