@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using System.Windows.Interop;
 
 namespace GravityCapture;
 
@@ -11,7 +12,18 @@ public partial class MainWindow : Window
 {
     private void ApplyDarkTitleBar_OnSourceInitialized(object? sender, EventArgs e)
     {
-        // Safe no-op on unsupported OS/builds.
-        WindowsDarkTitleBar.TryEnable(this);
+        try
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            // Signature in this repo: TryEnable(nint hwnd, bool enabled)
+            WindowsDarkTitleBar.TryEnable((nint)hwnd, enabled: true);
+        }
+        catch
+        {
+            // Safe no-op on unsupported OS/builds.
+        }
     }
 }
