@@ -21,7 +21,7 @@ Optional:
 - `LOG_POSTING_ENABLED` = `true` (default) | `false`
 - `POST_DELAY_SECONDS` = `0.8` (default)
 - `CRITICAL_PING_ENABLED` = `true` (default) | `false`
-- `CRITICAL_PING_ROLE_ID` = `1286835166471262249` (default)
+- `CRITICAL_PING_ROLE_ID` = `#`
 - `PING_ALL_CRITICAL` = `false` (default)
 - `PING_CATEGORIES` = `STRUCTURE_DESTROYED,TRIBE_KILLED_PLAYER` (default)
 - `ENVIRONMENT` = `stage`
