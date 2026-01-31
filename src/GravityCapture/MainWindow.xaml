@@ -93,7 +93,7 @@
                         <TextBlock Text="API URL" Foreground="{StaticResource BrushTextSecondary}"/>
                         <TextBox Text="{Binding ApiBaseUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,12"/>
 
-                        <TextBlock Text="API SECRET" Foreground="{StaticResource BrushTextSecondary}"/>
+                        <TextBlock Text="API Key" Foreground="{StaticResource BrushTextSecondary}"/>
                         <PasswordBox x:Name="SecretBox" PasswordChanged="SecretBox_OnPasswordChanged" Margin="0,6,0,12"/>
 
                         <!-- Server/Tribe: stacked so long server names fit and are fully visible -->
