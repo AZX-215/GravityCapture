@@ -1,31 +1,53 @@
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using GravityCapture.Models;
 
 namespace GravityCapture.Services;
 
 /// <summary>
-/// Compatibility shim.
-/// Older branches referenced ApiClient2; the current app uses ApiClient.
-/// Keep this class minimal so legacy references compile without dragging in outdated settings models.
+/// Compatibility wrapper for legacy references to ApiClient2.
+/// Current app logic uses ApiClient which returns JSON strings from the API.
+/// This wrapper intentionally exposes the same "string response" contract and
+/// does not depend on any removed DTO types (e.g., ApiEcho).
 /// </summary>
 public sealed class ApiClient2
 {
     private readonly ApiClient _inner;
+
+    public ApiClient2()
+    {
+        _inner = new ApiClient();
+    }
 
     public ApiClient2(ApiClient inner)
     {
         _inner = inner;
     }
 
-    public ApiClient2(HttpClient http, string apiBaseUrl, string sharedSecret, string serverName, string tribeName)
+    /// <summary>
+    /// Calls /extract (preview) and returns the raw JSON response string.
+    /// </summary>
+    public Task<string> ExtractAsync(
+        byte[] imageBytes,
+        string contentType,
+        string fileName,
+        AppSettings settings,
+        CancellationToken ct,
+        bool fast = true)
     {
-        _inner = new ApiClient(http, apiBaseUrl, sharedSecret, serverName, tribeName);
+        return _inner.ExtractAsync(imageBytes, contentType, fileName, settings, ct, fast: fast);
     }
 
-    public Task<ApiEcho?> ExtractAsync(byte[] pngBytes, bool fast = true, int maxW = 1400, CancellationToken ct = default)
-        => _inner.ExtractAsync(pngBytes, fast: fast, maxW: maxW, ct: ct);
-
-    public Task<ApiEcho?> IngestScreenshotAsync(byte[] pngBytes, bool previewOnly = false, bool fast = true, int maxW = 1400, CancellationToken ct = default)
-        => _inner.IngestScreenshotAsync(pngBytes, previewOnly: previewOnly, fast: fast, maxW: maxW, ct: ct);
+    /// <summary>
+    /// Calls /ingest/screenshot and returns the raw JSON response string.
+    /// </summary>
+    public Task<string> SendIngestScreenshotAsync(
+        byte[] imageBytes,
+        string contentType,
+        string fileName,
+        AppSettings settings,
+        CancellationToken ct)
+    {
+        return _inner.SendIngestScreenshotAsync(imageBytes, contentType, fileName, settings, ct);
+    }
 }
