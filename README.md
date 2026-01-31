@@ -1,5 +1,11 @@
 # GravityCapture
 
+
+<img width="872" height="763" alt="543320639-18debdf3-0396-4ab8-869a-57a51067c34c" src="https://github.com/user-attachments/assets/5a949af6-a991-4475-97ad-da5e30360c6e" />
+
+
+
+
 GravityCapture is a Windows desktop app + web API used to capture **ARK: Survival Ascended** tribe-log screenshots, run OCR/extraction on the server, and post structured results to Discord.
 
 The API supports **multi-tenant** use: each person/server can have their own API key + Discord webhook so multiple users can run the app at the same time without sharing secrets.
