@@ -1,159 +1,31 @@
-using System;
-using System.Net;
 using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text;
-using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
-using GravityCapture.Models;
 
-namespace GravityCapture.Services
+namespace GravityCapture.Services;
+
+/// <summary>
+/// Compatibility shim.
+/// Older branches referenced ApiClient2; the current app uses ApiClient.
+/// Keep this class minimal so legacy references compile without dragging in outdated settings models.
+/// </summary>
+public sealed class ApiClient2
 {
-    public sealed class ApiClient2 : IDisposable
+    private readonly ApiClient _inner;
+
+    public ApiClient2(ApiClient inner)
     {
-        private readonly HttpClient _http;
-        private readonly AppSettings _s;
-
-        public ApiClient2(AppSettings s)
-        {
-            _s = s;
-            var handler = new HttpClientHandler
-            {
-                AutomaticDecompression = DecompressionMethods.All
-            };
-            _http = new HttpClient(handler)
-            {
-                Timeout = TimeSpan.FromSeconds(30),
-                DefaultRequestVersion = HttpVersion.Version11,
-                DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
-            };
-
-            // prevent 100-continue stalls and reuse issues
-            _http.DefaultRequestHeaders.ExpectContinue = false;
-            _http.DefaultRequestHeaders.ConnectionClose = true;
-
-            var key = _s.Auth?.ApiKey ?? "";
-            if (!string.IsNullOrWhiteSpace(key))
-            {
-                _http.DefaultRequestHeaders.TryAddWithoutValidation("x-api-key", key);
-                _http.DefaultRequestHeaders.TryAddWithoutValidation("ApiKey", key);
-                _http.DefaultRequestHeaders.TryAddWithoutValidation("X-GL-Key", key);
-            }
-            var chan = _s.Image?.ChannelId ?? "";
-            if (!string.IsNullOrWhiteSpace(chan))
-                _http.DefaultRequestHeaders.TryAddWithoutValidation("X-GL-Channel", chan);
-        }
-
-        private string Url(string path)
-        {
-            var root = _s.ApiBaseUrl ?? "";
-            root = root.TrimEnd('/');
-            path = path.TrimStart('/');
-            return $"{root}/{path}";
-        }
-
-        public async Task<(bool ok, string body)> OcrOnlyAsync(byte[] jpegBytes)
-        {
-            var candidates = new[]
-            {
-                string.IsNullOrWhiteSpace(_s.OcrPath) ? null : _s.OcrPath,
-                "/extract",
-                "/api/extract",
-                "/ocr",
-                "/api/ocr",
-                "/v1/extract",
-                "/ocr/extract"
-            };
-
-            foreach (var p in candidates)
-            {
-                if (string.IsNullOrWhiteSpace(p)) continue;
-                try
-                {
-                    using var content = new MultipartFormDataContent();
-                    var img = new ByteArrayContent(jpegBytes);
-                    img.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
-                    content.Add(img, "file", "crop.jpg");
-                    content.Add(new StringContent(_s.Capture?.ServerName ?? _s.ServerName ?? string.Empty), "server");
-                    content.Add(new StringContent(_s.TribeName ?? string.Empty), "tribe");
-
-                    var res = await _http.PostAsync(Url(p), content).ConfigureAwait(false);
-                    var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    if (res.IsSuccessStatusCode) return (true, body);
-                    if (res.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) continue;
-                    return (false, $"HTTP {(int)res.StatusCode}: {body}");
-                }
-                catch (Exception ex) { return (false, Flatten(ex)); }
-            }
-            return (false, "{\"error\":\"OCR endpoint not found\"}");
-        }
-
-        public async Task<(bool ok, string body)> PostScreenshotAsync(byte[] jpegBytes, bool postVisible)
-        {
-            var candidates = new[]
-            {
-                string.IsNullOrWhiteSpace(_s.ScreenshotIngestPath) ? null : _s.ScreenshotIngestPath,
-                "/ingest/screenshot",
-                "/api/ingest/screenshot"
-            };
-
-            foreach (var p in candidates)
-            {
-                if (string.IsNullOrWhiteSpace(p)) continue;
-                try
-                {
-                    using var content = new MultipartFormDataContent();
-                    var img = new ByteArrayContent(jpegBytes);
-                    img.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
-                    content.Add(img, "file", "visible.jpg");
-                    content.Add(new StringContent(_s.Capture?.ServerName ?? _s.ServerName ?? string.Empty), "server");
-                    content.Add(new StringContent(_s.TribeName ?? string.Empty), "tribe");
-                    content.Add(new StringContent(postVisible ? "1" : "0"), "post_visible");
-
-                    var res = await _http.PostAsync(Url(p), content).ConfigureAwait(false);
-                    var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    if (res.IsSuccessStatusCode) return (true, body);
-                    if (res.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) continue;
-                    return (false, $"HTTP {(int)res.StatusCode}: {body}");
-                }
-                catch (Exception ex) { return (false, Flatten(ex)); }
-            }
-            return (false, "{\"error\":\"screenshot ingest endpoint not found\"}");
-        }
-
-        public async Task<(bool ok, string body)> SendPastedLineAsync(string line)
-        {
-            var candidates = new[]
-            {
-                string.IsNullOrWhiteSpace(_s.LogLineIngestPath) ? null : _s.LogLineIngestPath,
-                "/ingest/log-line",
-                "/api/ingest/log-line"
-            };
-
-            foreach (var p in candidates)
-            {
-                if (string.IsNullOrWhiteSpace(p)) continue;
-                try
-                {
-                    var payload = new
-                    {
-                        line,
-                        server = _s.Capture?.ServerName ?? _s.ServerName ?? string.Empty,
-                        tribe = _s.TribeName ?? string.Empty
-                    };
-                    var res = await _http.PostAsync(Url(p),
-                        new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")).ConfigureAwait(false);
-                    var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    if (res.IsSuccessStatusCode) return (true, body);
-                    if (res.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) continue;
-                    return (false, $"HTTP {(int)res.StatusCode}: {body}");
-                }
-                catch (Exception ex) { return (false, Flatten(ex)); }
-            }
-            return (false, "{\"error\":\"log-line ingest endpoint not found\"}");
-        }
-
-        public void Dispose() => _http.Dispose();
-        private static string Flatten(Exception ex) => ex.Message + (ex.InnerException != null ? " | " + ex.InnerException.Message : "");
+        _inner = inner;
     }
+
+    public ApiClient2(HttpClient http, string apiBaseUrl, string sharedSecret, string serverName, string tribeName)
+    {
+        _inner = new ApiClient(http, apiBaseUrl, sharedSecret, serverName, tribeName);
+    }
+
+    public Task<ApiEcho?> ExtractAsync(byte[] pngBytes, bool fast = true, int maxW = 1400, CancellationToken ct = default)
+        => _inner.ExtractAsync(pngBytes, fast: fast, maxW: maxW, ct: ct);
+
+    public Task<ApiEcho?> IngestScreenshotAsync(byte[] pngBytes, bool previewOnly = false, bool fast = true, int maxW = 1400, CancellationToken ct = default)
+        => _inner.IngestScreenshotAsync(pngBytes, previewOnly: previewOnly, fast: fast, maxW: maxW, ct: ct);
 }
