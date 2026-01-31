@@ -30,13 +30,13 @@ def _get_csv(name: str, default_csv: str = "") -> Set[str]:
 
 @dataclass(frozen=True)
 class Settings:
-    # Auth (legacy/single-tenant)
+    # Auth (optional in legacy mode)
     gl_shared_secret: str
 
     # Database
     database_url: str
 
-    # Discord (legacy/single-tenant defaults; also used for legacy tenant bootstrap)
+    # Discord (legacy defaults; also used for automatic legacy tenant bootstrap)
     alert_discord_webhook_url: str
     log_posting_enabled: bool
     post_delay_seconds: float
@@ -44,7 +44,7 @@ class Settings:
     # If true, Discord posting runs in the background and the API responds immediately.
     async_posting_enabled: bool
 
-    # Pings (legacy defaults; also used for legacy tenant bootstrap)
+    # Pings (legacy defaults; also used for automatic legacy tenant bootstrap)
     critical_ping_enabled: bool
     critical_ping_role_id: str
 
@@ -58,7 +58,7 @@ class Settings:
     # General
     environment: str
 
-    # Multi-tenant mode (per-key config stored in DB)
+    # Multi-tenant mode
     tenants_enabled: bool
     tenants_bootstrap_legacy: bool
     legacy_tenant_name: str
@@ -83,5 +83,5 @@ class Settings:
             environment=(os.getenv("ENVIRONMENT") or os.getenv("ENV") or "stage").strip() or "stage",
             tenants_enabled=_get_bool("TENANTS_ENABLED", False),
             tenants_bootstrap_legacy=_get_bool("TENANTS_BOOTSTRAP_LEGACY", True),
-            legacy_tenant_name=(os.getenv("LEGACY_TENANT_NAME") or "Legacy").strip() or "Legacy",
+            legacy_tenant_name=(os.getenv("LEGACY_TENANT_NAME") or "legacy").strip() or "legacy",
         )
