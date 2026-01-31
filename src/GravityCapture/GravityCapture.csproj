@@ -2,38 +2,20 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
+    <UseSystemDrawing>true</UseSystemDrawing>
     <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-
-    <!-- Program/EXE icon (keep .ico here) -->
-    <ApplicationIcon>Assets\Gravity_App_Icon.ico</ApplicationIcon>
-
+    <ImplicitUsings>disable</ImplicitUsings>
+    <ApplicationIcon>Assets\GravityCapture.ico</ApplicationIcon>
     <AssemblyName>GravityCapture</AssemblyName>
     <RootNamespace>GravityCapture</RootNamespace>
-    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
-  <!-- Make sure assets are treated correctly -->
   <ItemGroup>
-    <None Remove="Assets\Gravity_Logs_Background.png" />
-    <None Remove="Assets\Gravity_App_Icon.png" />
-    <None Remove="Assets\HLNA.png" />
-    <None Remove="Assets\Gravity_App_Icon.ico" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Resource Include="Assets\Gravity_Logs_Background.png" />
-    <Resource Include="Assets\Gravity_App_Icon.png" />
-    <Resource Include="Assets\HLNA.png" />
-    <Content Include="Assets\Gravity_App_Icon.ico" />
-  </ItemGroup>
-
-  <!-- Needed for Bitmap/ImageCodecInfo etc. -->
-  <ItemGroup>
-    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+    <Resource Include="Assets\GravityCapture.ico" />
+    <Resource Include="Assets\GravityCapture.png" />
   </ItemGroup>
 
 </Project>

@@ -1,39 +1,25 @@
 using System;
-using System.IO;
-using System.Text.Json;
 
-namespace GravityCapture.Models
+namespace GravityCapture.Models;
+
+public sealed class AppSettings
 {
-    public class AppSettings
-    {
-        public string ApiUrl { get; set; } = "http://localhost:8080/api/screenshots";
-        public string ApiKey { get; set; } = "CHANGE_ME";
-        public ulong ChannelId { get; set; } = 0;
-        public int IntervalMinutes { get; set; } = 5;
-        public bool CaptureActiveWindow { get; set; } = false;
-        public int JpegQuality { get; set; } = 85;
-        public bool Autostart { get; set; } = false;
+    public string ApiBaseUrl { get; set; } = "http://localhost:8000";
+    public string SharedSecret { get; set; } = "";
+    public string ServerName { get; set; } = "unknown";
+    public string TribeName { get; set; } = "unknown";
+    public int IntervalSeconds { get; set; } = 20;
+    public bool CriticalPingEnabled { get; set; } = true;
+    public bool UseExtractPreview { get; set; } = false;
 
-        public static string SettingsPath =>
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                        "GravityCapture", "settings.json");
 
-        public void Save()
-        {
-            var dir = Path.GetDirectoryName(SettingsPath)!;
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(SettingsPath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
-        }
+    // Desktop-side upscaling (2x recommended for OCR). 1..4.
+    public int UpscaleFactor { get; set; } = 2;
 
-        public static AppSettings Load()
-        {
-            if (File.Exists(SettingsPath))
-            {
-                try {
-                    return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath)) ?? new AppSettings();
-                } catch { }
-            }
-            return new AppSettings();
-        }
-    }
+    // Per-request HTTP timeout for API calls.
+    public int RequestTimeoutSeconds { get; set; } = 15;
+
+    // Normalized coordinates (0..1) so the region scales across resolutions.
+    public NormalizedRect CaptureRegion { get; set; } = new NormalizedRect();
+    public string CaptureScreenDeviceName { get; set; } = ""; // optional for multi-monitor support
 }
