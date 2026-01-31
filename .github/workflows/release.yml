@@ -24,11 +24,13 @@ jobs:
         id: v
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
-          if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw "Tag must be vX.Y.Z" }
-          "VERSION=$($tag.TrimStart('v'))" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
-
+        $tag = "${{ github.ref_name }}"
+        # Accept tags like v1.2.3 or v1.2.3-alpha / v1.2.3+meta, but build with numeric base version only.
+        if ($tag -notmatch '^v(?<ver>\d+\.\d+\.\d+)(?<suffix>[-+].*)?$') {
+          throw "Tag must be vX.Y.Z (optionally with -suffix)"
+        }
+        $ver = $Matches['ver']
+        "VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Restore
         shell: pwsh
         run: dotnet restore .\src\GravityCapture\GravityCapture.csproj --nologo
