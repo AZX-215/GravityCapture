@@ -144,9 +144,8 @@
                         <Border CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12" Margin="0,14,0,12">
                             <StackPanel>
                                 <TextBlock Text="Notes" FontSize="14" FontWeight="SemiBold"/>
-                                <TextBlock Text="Notes" FontSize="14" FontWeight="SemiBold"/>
-                                <TextBlock Text="Calibrate once and save. Region is stored as normalized coordinates so it scales with resolution." Foreground="{StaticResource BrushTextSecondary}" Margin="0,6,0,0" TextWrapping="Wrap"/>
-                                <TextBlock Text="v1.0.0-alpha" Foreground="{StaticResource BrushTextSecondary}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                <TextBlock Text="Calibrate once and save. Region is stored as normalized coordinates so it scales with resolution." Foreground="{StaticResource BrushTextSecondary}" Margin="0,10,0,0" TextWrapping="Wrap"/>
+                                <TextBlock Text="v1.0.0-alpha" Foreground="{StaticResource BrushTextSecondary}" Margin="0,10,0,0" TextWrapping="Wrap"/>
                                 <TextBlock Text="-AZX" Foreground="{StaticResource BrushTextSecondary}" Margin="0,10,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
