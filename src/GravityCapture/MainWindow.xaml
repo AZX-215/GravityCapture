@@ -112,9 +112,9 @@
                         <TextBlock Text="Request Timeout (seconds)" Foreground="{StaticResource BrushTextSecondary}"/>
                         <TextBox Text="{Binding RequestTimeoutSecondsText, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,10" />
 
-                        <CheckBox Content="Enable CRITICAL pings" IsChecked="{Binding CriticalPingEnabled}" Margin="0,4,0,10"/>
+                        <CheckBox Content="Enable Discord Pings" IsChecked="{Binding CriticalPingEnabled}" Margin="0,4,0,10"/>
 
-                        <CheckBox Content="Debug: also call /extract (preview)" IsChecked="{Binding UseExtractPreview}" Margin="0,0,0,16"/>
+                        <CheckBox Content="Debug" IsChecked="{Binding UseExtractPreview}" Margin="0,0,0,16"/>
 
                         <Border CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12">
                             <StackPanel>
@@ -199,4 +199,5 @@
             </Border>
         </Grid>
     </Grid>
+
 </Window>
