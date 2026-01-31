@@ -1,404 +1,465 @@
-# api_main.py
-# FastAPI service for Gravity Capture (stage API)
-# Goals:
-# - OCR screenshots (ARK Tribe Log)
-# - Split into one event per Tribe Log line
-# - Insert into Postgres with de-dupe
-# - Post to Discord via webhook with color-coded embeds
-# - Ping @Gravity OPS only for selected CRITICAL categories (Option B)
-
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
-
-logger = logging.getLogger("gravitycapture")
+from typing import Dict, Optional, Tuple
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 
 from config import Settings
-from db import Db
+from db import Db, Tenant
 from discord_webhook import DiscordWebhookClient
-from ocr.router import extract_text
-from tribelog.parser import stitch_wrapped_lines, parse_header_lines
+from ocr import extract_text
 from tribelog.classify import classify_event
+from tribelog.parser import parse_header_lines, stitch_wrapped_lines
+from tribelog.models import ParsedEvent
 
 
+log = logging.getLogger("gravity_capture_api")
 
-def _parse_boolish(val: Optional[str]) -> Optional[bool]:
-    if val is None:
+
+def _ok(**fields):
+    return {"ok": True, **fields}
+
+
+def _pick_key(x_gl_key: Optional[str], x_api_key: Optional[str]) -> str:
+    return (x_gl_key or x_api_key or "").strip()
+
+
+def _require_legacy_key(shared_secret: str, provided: str) -> None:
+    if not shared_secret:
+        raise HTTPException(status_code=500, detail="Server not configured: GL_SHARED_SECRET is missing")
+    if not provided:
+        raise HTTPException(status_code=401, detail="Missing API key")
+    if provided != shared_secret:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+async def _resolve_tenant_for_request(
+    *,
+    settings: Settings,
+    db: Optional[Db],
+    x_gl_key: Optional[str],
+    x_api_key: Optional[str],
+    require_db_lookup: bool,
+) -> Tuple[str, Optional[Tenant]]:
+    """Returns (provided_key, tenant_or_none).
+
+    - In TENANTS_ENABLED mode: key must exist in tenants table.
+    - In legacy mode: key must match GL_SHARED_SECRET.
+
+    For endpoints that do not hit the DB (e.g., /extract), set require_db_lookup=False.
+    """
+
+    provided = _pick_key(x_gl_key, x_api_key)
+
+    if settings.tenants_enabled:
+        if not provided:
+            raise HTTPException(status_code=401, detail="Missing API key")
+        if require_db_lookup:
+            if db is None or db.default_tenant_id is None:
+                # default_tenant_id is set when DB is started
+                raise HTTPException(status_code=500, detail="DB not ready")
+            tenant = await db.resolve_tenant_by_key(provided)
+            if tenant is None or not tenant.is_enabled:
+                raise HTTPException(status_code=401, detail="Invalid API key")
+            return provided, tenant
+
+        # /extract path: allow legacy shared secret as a fallback if DB isn't available.
+        if settings.gl_shared_secret and provided == settings.gl_shared_secret:
+            return provided, None
+        if db is not None and db.is_ready and db.default_tenant_id is not None:
+            tenant = await db.resolve_tenant_by_key(provided)
+            if tenant is None or not tenant.is_enabled:
+                raise HTTPException(status_code=401, detail="Invalid API key")
+            return provided, tenant
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # Legacy/single-tenant mode
+    _require_legacy_key(settings.gl_shared_secret, provided)
+    if db is not None and db.is_ready and db.default_tenant_id is not None:
+        tenant = await db.resolve_tenant_by_key(provided)
+        return provided, tenant
+    return provided, None
+
+
+def _get_webhook_client(app: FastAPI, tenant: Tenant) -> Optional[DiscordWebhookClient]:
+    if not tenant.webhook_url:
         return None
-    v = str(val).strip().lower()
-    if v in {"1", "true", "yes", "y", "on", "enable", "enabled"}:
-        return True
-    if v in {"0", "false", "no", "n", "off", "disable", "disabled"}:
+
+    cache: Dict[int, Tuple[str, DiscordWebhookClient]] = app.state.webhook_clients
+    cached = cache.get(tenant.id)
+    if cached and cached[0] == tenant.webhook_url:
+        return cached[1]
+
+    # Recreate on URL change
+    client = DiscordWebhookClient(tenant.webhook_url, post_delay_seconds=tenant.post_delay_seconds)
+    cache[tenant.id] = (tenant.webhook_url, client)
+    return client
+
+
+async def _maybe_post_event(
+    *,
+    event: ParsedEvent,
+    tenant: Tenant,
+    webhook: DiscordWebhookClient,
+    client_ping_enabled: bool,
+) -> bool:
+    if event is None:
         return False
-    return None
+
+    # Optional ping for CRITICAL events
+    content = None
+    if (
+        client_ping_enabled
+        and tenant.critical_ping_enabled
+        and (event.severity or "").upper() == "CRITICAL"
+    ):
+        if tenant.ping_all_critical or (event.category in tenant.ping_categories):
+            if tenant.critical_ping_role_id:
+                content = f"<@&{tenant.critical_ping_role_id}>"
+
+    title = f"[{event.severity}] {event.category}"
+    description = event.message
+
+    embed = {
+        "title": title,
+        "description": description,
+        "fields": [
+            {"name": "Server", "value": event.server or "-", "inline": True},
+            {"name": "Tribe", "value": event.tribe or "-", "inline": True},
+            {"name": "Day", "value": str(event.ark_day), "inline": True},
+            {"name": "Time", "value": event.ark_time or "-", "inline": True},
+            {"name": "Actor", "value": event.actor or "-", "inline": False},
+        ],
+        "footer": {"text": event.event_hash},
+    }
+
+    ok = await webhook.send_embed(embed=embed, content=content)
+    return ok
 
 
-async def _post_events_background(inserted, client_ping: Optional[bool], webhook, settings: Settings) -> int:
-    """Post inserted events to Discord. Runs either inline or as a background task."""
-    posted = 0
-    if not inserted or webhook is None:
+async def _post_events(
+    *,
+    app: FastAPI,
+    tenant: Tenant,
+    events: list[ParsedEvent],
+    client_ping_enabled: bool,
+) -> int:
+    if not events:
         return 0
-    for ev in inserted:
-        try:
-            # Option B: only ping for selected categories (even if severity is CRITICAL)
-            do_ping = (
-                settings.critical_ping_enabled
-                and ev.severity == "CRITICAL"
-                and (settings.ping_all_critical or ev.category in settings.ping_categories)
-            )
-            if client_ping is False:
-                do_ping = False
 
-            await webhook.post_event_from_parsed(
-                ev,
-                mention_role_id=settings.critical_ping_role_id,
-                mention=do_ping,
-                env=settings.environment,
-            )
-            posted += 1
-            if settings.post_delay_seconds > 0:
-                await asyncio.sleep(settings.post_delay_seconds)
-        except Exception as e:
-            logger.exception("Discord posting failed: %s", e)
+    if not tenant.log_posting_enabled:
+        return 0
+
+    webhook = _get_webhook_client(app, tenant)
+    if webhook is None:
+        return 0
+
+    posted = 0
+    for ev in events:
+        try:
+            if await _maybe_post_event(
+                event=ev,
+                tenant=tenant,
+                webhook=webhook,
+                client_ping_enabled=client_ping_enabled,
+            ):
+                posted += 1
+        except Exception:
+            log.exception("Discord post failed")
     return posted
 
 
-def _require_key(settings: Settings, x_gl_key: Optional[str], x_api_key: Optional[str]) -> None:
-    # If no secret is configured, allow requests (useful for local dev).
-    if not settings.gl_shared_secret:
-        return
-    key = (x_gl_key or x_api_key or "").strip()
-    if not key or key != settings.gl_shared_secret:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-
 def create_app() -> FastAPI:
+    logging.basicConfig(level=logging.INFO)
+
     settings = Settings.from_env()
 
-    app = FastAPI(title="Gravity Capture Stage API", version="2.0")
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
+    app = FastAPI(title="GravityCapture Stage API", version="0.0.0")
     app.state.settings = settings
-    app.state.db = Db(dsn=settings.database_url)
-    app.state.webhook = DiscordWebhookClient(
-        webhook_url=settings.alert_discord_webhook_url,
-        post_delay_seconds=settings.post_delay_seconds,
-    ) if settings.alert_discord_webhook_url else None
+    app.state.db = Db()
+    app.state.webhook_clients = {}  # tenant_id -> (webhook_url, DiscordWebhookClient)
 
     @app.on_event("startup")
     async def _startup() -> None:
-        if not settings.database_url:
-            # allow running /extract without DB
-            return
-        await app.state.db.start()
+        # DB is required for /ingest. /extract can work without DB.
+        if settings.database_url:
+            await app.state.db.start(
+                settings.database_url,
+                legacy_tenant_name=settings.legacy_tenant_name,
+                legacy_key=settings.gl_shared_secret,
+                legacy_webhook_url=settings.alert_discord_webhook_url,
+                legacy_log_posting_enabled=settings.log_posting_enabled,
+                legacy_post_delay_seconds=settings.post_delay_seconds,
+                legacy_critical_ping_enabled=settings.critical_ping_enabled,
+                legacy_critical_ping_role_id=settings.critical_ping_role_id,
+                legacy_ping_all_critical=settings.ping_all_critical,
+                legacy_ping_categories=settings.ping_categories,
+                legacy_is_enabled=True,
+            )
+            log.info("DB connected")
+        else:
+            log.warning("DATABASE_URL is not set; /ingest endpoints will fail")
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:
-        try:
-            if app.state.webhook is not None:
-                await app.state.webhook.aclose()
-        finally:
-            await app.state.db.close()
+        # Close webhook clients
+        for _, client in list(app.state.webhook_clients.values()):
+            try:
+                await client.close()
+            except Exception:
+                pass
+        app.state.webhook_clients.clear()
 
-    @app.get("/")
-    async def root() -> Dict[str, Any]:
-        return {"status": "ok", "service": "gravity-capture-stage-api", "env": settings.environment}
+        # Close DB
+        try:
+            await app.state.db.close()
+        except Exception:
+            pass
 
     @app.get("/healthz")
-    async def healthz() -> Dict[str, Any]:
-        return {
-            "status": "ok",
-            "env": settings.environment,
-            "db": "configured" if bool(settings.database_url) else "missing",
-            "webhook": "configured" if bool(settings.alert_discord_webhook_url) else "missing",
-            "ocr_engine": settings.ocr_engine,
-        }
+    async def healthz() -> dict:
+        db_ok = False
+        tenant_count = None
+        default_tenant_id = None
 
-    # ---- OCR-only endpoints (desktop app uses these for preview) ----
+        try:
+            if app.state.db._pool is not None:
+                async with app.state.db._pool.acquire() as conn:
+                    await conn.execute("SELECT 1")
+                db_ok = True
+                tenant_count = await app.state.db.count_tenants()
+                default_tenant_id = app.state.db.default_tenant_id
+        except Exception:
+            db_ok = False
+
+        return _ok(
+            environment=settings.environment,
+            ocr_engine=settings.ocr_engine,
+            tenants_enabled=settings.tenants_enabled,
+            tenant_count=tenant_count,
+            default_tenant_id=default_tenant_id,
+            db_ok=db_ok,
+            legacy_webhook_configured=bool(settings.alert_discord_webhook_url),
+            global_posting_enabled=settings.log_posting_enabled,
+        )
+
     @app.post("/extract")
     async def extract_endpoint(
-        file: Optional[UploadFile] = File(default=None),
-        image: Optional[UploadFile] = File(default=None),
-        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
-        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
-    engine: Optional[str] = None,
-    engine_form: Optional[str] = Form("auto"),
-    fast: Optional[int] = None,
-    fast_form: Optional[int] = Form(None),
-    max_w: Optional[int] = None,
-    max_w_form: Optional[int] = Form(None),
-) -> Dict[str, Any]:
-        _require_key(settings, x_gl_key, x_api_key)
-        up = file or image
-        if up is None:
-            raise HTTPException(status_code=422, detail="missing file")
-        img_bytes = await up.read()
-        engine_val = engine if engine is not None else (engine_form or 'auto')
-        fast_val = fast if fast is not None else (fast_form if fast_form is not None else 1)
-        max_w_val = max_w if max_w is not None else max_w_form
-        eng = (engine_val or '').strip().lower()
-        engine_hint = settings.ocr_engine if eng in ('', 'auto') else engine_val
-        return extract_text(img_bytes, engine_hint=engine_hint, fast=bool(fast_val), max_w=max_w_val)
+        file: UploadFile = File(...),
+        engine: str = Form(""),
+        fast: int = Form(0),
+        max_w: int = Form(1400),
+        x_gl_key: str | None = Header(default=None, alias="X-GL-Key"),
+        x_api_key: str | None = Header(default=None, alias="x-api-key"),
+    ) -> dict:
+        # Auth only; no DB writes
+        await _resolve_tenant_for_request(
+            settings=settings,
+            db=app.state.db,
+            x_gl_key=x_gl_key,
+            x_api_key=x_api_key,
+            require_db_lookup=False,
+        )
 
-    @app.post("/api/extract")
-    async def extract_endpoint_alias(
-        file: Optional[UploadFile] = File(default=None),
-        image: Optional[UploadFile] = File(default=None),
-        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
-        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
-    engine: Optional[str] = None,
-    engine_form: Optional[str] = Form("auto"),
-    fast: Optional[int] = None,
-    fast_form: Optional[int] = Form(None),
-    max_w: Optional[int] = None,
-    max_w_form: Optional[int] = Form(None),
-) -> Dict[str, Any]:
-        return await extract_endpoint(file=file, image=image, x_gl_key=x_gl_key, x_api_key=x_api_key, engine=engine, engine_form=engine_form, fast=fast, fast_form=fast_form, max_w=max_w, max_w_form=max_w_form)
+        image_bytes = await file.read()
+        ocr_engine = (engine or settings.ocr_engine or "auto").strip().lower()
+        result = extract_text(image_bytes, engine=ocr_engine, fast=bool(fast), max_w=int(max_w))
 
-    @app.post("/ocr")
-    async def ocr_endpoint(
-        file: Optional[UploadFile] = File(default=None),
-        image: Optional[UploadFile] = File(default=None),
-        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
-        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
-        engine: str = Form("auto"),
-    ) -> Dict[str, Any]:
-        return await extract_endpoint(file=file, image=image, x_gl_key=x_gl_key, x_api_key=x_api_key, engine=engine)
-
-    @app.post("/ocr/extract")
-    async def ocr_extract_alias(
-        file: Optional[UploadFile] = File(default=None),
-        image: Optional[UploadFile] = File(default=None),
-        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
-        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
-        engine: str = Form("auto"),
-    ) -> Dict[str, Any]:
-        return await extract_endpoint(file=file, image=image, x_gl_key=x_gl_key, x_api_key=x_api_key, engine=engine)
-
-    @app.post("/api/ocr")
-    async def api_ocr_alias(
-        file: Optional[UploadFile] = File(default=None),
-        image: Optional[UploadFile] = File(default=None),
-        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
-        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
-        engine: str = Form("auto"),
-    ) -> Dict[str, Any]:
-        return await extract_endpoint(file=file, image=image, x_gl_key=x_gl_key, x_api_key=x_api_key, engine=engine)
-
-    @app.post("/api/ocr/extract")
-    async def api_ocr_extract_alias(
-        file: Optional[UploadFile] = File(default=None),
-        image: Optional[UploadFile] = File(default=None),
-        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
-        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
-        engine: str = Form("auto"),
-    ) -> Dict[str, Any]:
-        return await extract_endpoint(file=file, image=image, x_gl_key=x_gl_key, x_api_key=x_api_key, engine=engine)
-
-    # ---- Ingest endpoints (insert+post) ----
-    async def _ingest_screenshot_impl(
-        file: Optional[UploadFile],
-        server: str,
-        tribe: str,
-        post_visible: str,
-        x_gl_key: Optional[str],
-        x_api_key: Optional[str],
-        critical_ping: Optional[str],
-        x_client_critical_ping: Optional[str],
-    ) -> Dict[str, Any]:
-        _require_key(settings, x_gl_key, x_api_key)
-
-        if not settings.database_url:
-            raise HTTPException(status_code=500, detail="DATABASE_URL not set")
-
-        if file is None:
-            raise HTTPException(status_code=422, detail="missing file")
-        img_bytes = await file.read()
-        # Keep request latency low for the desktop client: use fast OCR path by default.
-        ocr = extract_text(img_bytes, engine_hint=settings.ocr_engine, fast=True)
-
-        # Prefer the line-wise output for event splitting.
-        raw_lines = [str(x).strip() for x in (ocr.get("lines_text") or []) if str(x).strip()]
-        stitched = stitch_wrapped_lines(raw_lines)
-        header_lines = parse_header_lines(stitched)
-
-        events = []
-        for h in header_lines:
-            ev = classify_event(
-                server=server or "unknown",
-                tribe=tribe or "unknown",
-                ark_day=h["ark_day"],
-                ark_time=h["ark_time"],
-                message=h["message"],
-                raw_line=h["raw_line"],
-            )
-            events.append(ev)
-
-        inserted = await app.state.db.insert_events(events)
-
-        client_ping = _parse_boolish(critical_ping)
-        if client_ping is None:
-            client_ping = _parse_boolish(x_client_critical_ping)
-
-        posted = 0
-        enqueued_events = 0
-        posting_mode = "off"
-
-        allow_post = _parse_boolish(post_visible) is True
-
-        if allow_post and settings.log_posting_enabled and app.state.webhook is not None and inserted:
-            if getattr(settings, "async_posting_enabled", True):
-                posting_mode = "async"
-                enqueued_events = len(inserted)
-
-                async def _runner():
-                    try:
-                        await _post_events_background(inserted, client_ping, app.state.webhook, settings)
-                    except Exception as e:
-                        logger.exception("Background posting task crashed: %s", e)
-
-                asyncio.create_task(_runner())
-            else:
-                posting_mode = "sync"
-                posted = await _post_events_background(inserted, client_ping, app.state.webhook, settings)
-
-        return {
-            "ok": True,
-            "server": server,
-            "tribe": tribe,
-            "engine": ocr.get("engine"),
-            "variant": ocr.get("variant"),
-            "ocr_conf": ocr.get("conf"),
-            "total_events": len(events),
-            "inserted_events": len(inserted),
-            "posted_events": posted,
-            "posting_mode": posting_mode,
-            "enqueued_events": enqueued_events,
-            "post_visible": str(post_visible or "0"),
-        }
+        return _ok(
+            engine=ocr_engine,
+            lines_text=result.get("lines_text", []),
+            debug=result.get("debug", {}),
+        )
 
     @app.post("/ingest/screenshot")
     async def ingest_screenshot(
-        file: Optional[UploadFile] = File(default=None),
-        image: Optional[UploadFile] = File(default=None),
-        server: str = Form("unknown"),
-        tribe: str = Form("unknown"),
-        post_visible: str = Form("1"),
-        critical_ping: Optional[str] = Form(default=None),
-        x_client_critical_ping: Optional[str] = Header(default=None, alias="X-Client-Critical-Ping"),
-        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
-        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
-    ) -> Dict[str, Any]:
-        return await _ingest_screenshot_impl(file or image, server, tribe, post_visible, x_gl_key, x_api_key, critical_ping, x_client_critical_ping)
-
-    @app.post("/api/ingest/screenshot")
-    async def ingest_screenshot_alias(
-        file: Optional[UploadFile] = File(default=None),
-        image: Optional[UploadFile] = File(default=None),
-        server: str = Form("unknown"),
-        tribe: str = Form("unknown"),
-        post_visible: str = Form("1"),
-        critical_ping: Optional[str] = Form(default=None),
-        x_client_critical_ping: Optional[str] = Header(default=None, alias="X-Client-Critical-Ping"),
-        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
-        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
-    ) -> Dict[str, Any]:
-        return await _ingest_screenshot_impl(file or image, server, tribe, post_visible, x_gl_key, x_api_key, critical_ping, x_client_critical_ping)
-
-    @app.post("/ingest/log-line")
-    async def ingest_log_line(
-        line: str = Form(...),
-        server: str = Form("unknown"),
-        tribe: str = Form("unknown"),
-        post_visible: str = Form("1"),
-        critical_ping: Optional[str] = Form(default=None),
-        x_client_critical_ping: Optional[str] = Header(default=None, alias="X-Client-Critical-Ping"),
-        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
-        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
-    ) -> Dict[str, Any]:
-        _require_key(settings, x_gl_key, x_api_key)
+        file: UploadFile = File(...),
+        server: str = Form(""),
+        tribe: str = Form(""),
+        client_ping_enabled: int = Form(1),
+        engine: str = Form(""),
+        fast: int = Form(0),
+        max_w: int = Form(1400),
+        x_gl_key: str | None = Header(default=None, alias="X-GL-Key"),
+        x_api_key: str | None = Header(default=None, alias="x-api-key"),
+    ) -> dict:
         if not settings.database_url:
-            raise HTTPException(status_code=500, detail="DATABASE_URL not set")
+            raise HTTPException(status_code=500, detail="DATABASE_URL is not set")
 
-        stitched = stitch_wrapped_lines([line])
-        header_lines = parse_header_lines(stitched)
-        if not header_lines:
-            return {"ok": False, "error": "no_header"}
+        _key, tenant = await _resolve_tenant_for_request(
+            settings=settings,
+            db=app.state.db,
+            x_gl_key=x_gl_key,
+            x_api_key=x_api_key,
+            require_db_lookup=True,
+        )
+        if tenant is None:
+            # Should not happen when require_db_lookup=True
+            raise HTTPException(status_code=401, detail="Invalid API key")
 
-        events = []
-        for h in header_lines:
-            events.append(
-                classify_event(
-                    server=server or "unknown",
-                    tribe=tribe or "unknown",
-                    ark_day=h["ark_day"],
-                    ark_time=h["ark_time"],
-                    message=h["message"],
-                    raw_line=h["raw_line"],
-                )
+        image_bytes = await file.read()
+        ocr_engine = (engine or settings.ocr_engine or "auto").strip().lower()
+
+        ocr = extract_text(image_bytes, engine=ocr_engine, fast=bool(fast), max_w=int(max_w))
+        lines_text = ocr.get("lines_text", [])
+
+        stitched = stitch_wrapped_lines(lines_text)
+        parsed_lines = parse_header_lines(stitched)
+
+        classified = []
+        for pl in parsed_lines:
+            ce = classify_event(pl)
+            if ce is None:
+                continue
+            classified.append(ce)
+
+        parsed_events: list[ParsedEvent] = []
+        for ce in classified:
+            # Ensure server/tribe are always set from client
+            e = ParsedEvent(
+                server=server.strip(),
+                tribe=tribe.strip(),
+                ark_day=ce.ark_day,
+                ark_time=ce.ark_time,
+                severity=ce.severity,
+                category=ce.category,
+                actor=ce.actor,
+                message=ce.message,
+                raw_line=ce.raw_line,
+                event_hash="",  # set below
+            )
+            parsed_events.append(e)
+
+        # Compute hash + insert (dedupe)
+        for i, ev in enumerate(parsed_events):
+            parsed_events[i] = ParsedEvent(
+                **{
+                    **ev.__dict__,
+                    "event_hash": app.state.db.compute_event_hash(ev),
+                }
             )
 
-        inserted = await app.state.db.insert_events(events)
-
-        client_ping = _parse_boolish(critical_ping)
-        if client_ping is None:
-            client_ping = _parse_boolish(x_client_critical_ping)
+        inserted = await app.state.db.insert_events(parsed_events, tenant_id=tenant.id)
 
         posted = 0
-        enqueued_events = 0
-        posting_mode = "off"
-
-        allow_post = _parse_boolish(post_visible) is True
-
-        if allow_post and settings.log_posting_enabled and app.state.webhook is not None and inserted:
-            if getattr(settings, "async_posting_enabled", True):
-                posting_mode = "async"
-                enqueued_events = len(inserted)
-
-                async def _runner():
-                    try:
-                        await _post_events_background(inserted, client_ping, app.state.webhook, settings)
-                    except Exception as e:
-                        logger.exception("Background posting task crashed: %s", e)
-
-                asyncio.create_task(_runner())
+        if settings.log_posting_enabled and inserted:
+            if settings.async_posting_enabled:
+                asyncio.create_task(
+                    _post_events(
+                        app=app,
+                        tenant=tenant,
+                        events=inserted,
+                        client_ping_enabled=bool(client_ping_enabled),
+                    )
+                )
+                posted = -1
             else:
-                posting_mode = "sync"
-                posted = await _post_events_background(inserted, client_ping, app.state.webhook, settings)
+                posted = await _post_events(
+                    app=app,
+                    tenant=tenant,
+                    events=inserted,
+                    client_ping_enabled=bool(client_ping_enabled),
+                )
 
-        return {
-            "ok": True,
-            "server": server,
-            "tribe": tribe,
-            "total_events": len(events),
-            "inserted_events": len(inserted),
-            "posted_events": posted,
-            "posting_mode": posting_mode,
-            "enqueued_events": enqueued_events,
-            "post_visible": str(post_visible or "0"),
-        }
+        return _ok(
+            tenant_id=tenant.id,
+            tenant_name=tenant.name,
+            engine=ocr_engine,
+            extracted_line_count=len(lines_text),
+            stitched_line_count=len(stitched),
+            parsed_line_count=len(parsed_lines),
+            classified_count=len(classified),
+            inserted_count=len(inserted),
+            posted_count=posted,
+            debug=ocr.get("debug", {}),
+        )
 
     @app.post("/api/ingest/log-line")
-    async def ingest_log_line_alias(
-        line: str = Form(...),
-        server: str = Form("unknown"),
-        tribe: str = Form("unknown"),
-        x_gl_key: Optional[str] = Header(default=None, alias="X-GL-Key"),
-        x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
-    ) -> Dict[str, Any]:
-        return await ingest_log_line(line=line, server=server, tribe=tribe, x_gl_key=x_gl_key, x_api_key=x_api_key)
+    async def ingest_log_line(
+        line: str = Form(""),
+        server: str = Form(""),
+        tribe: str = Form(""),
+        client_ping_enabled: int = Form(1),
+        x_gl_key: str | None = Header(default=None, alias="X-GL-Key"),
+        x_api_key: str | None = Header(default=None, alias="x-api-key"),
+    ) -> dict:
+        if not settings.database_url:
+            raise HTTPException(status_code=500, detail="DATABASE_URL is not set")
+
+        _key, tenant = await _resolve_tenant_for_request(
+            settings=settings,
+            db=app.state.db,
+            x_gl_key=x_gl_key,
+            x_api_key=x_api_key,
+            require_db_lookup=True,
+        )
+        if tenant is None:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+        lines_text = [line] if line else []
+        stitched = stitch_wrapped_lines(lines_text)
+        parsed_lines = parse_header_lines(stitched)
+
+        classified = []
+        for pl in parsed_lines:
+            ce = classify_event(pl)
+            if ce is None:
+                continue
+            classified.append(ce)
+
+        parsed_events: list[ParsedEvent] = []
+        for ce in classified:
+            e = ParsedEvent(
+                server=server.strip(),
+                tribe=tribe.strip(),
+                ark_day=ce.ark_day,
+                ark_time=ce.ark_time,
+                severity=ce.severity,
+                category=ce.category,
+                actor=ce.actor,
+                message=ce.message,
+                raw_line=ce.raw_line,
+                event_hash="",
+            )
+            parsed_events.append(e)
+
+        for i, ev in enumerate(parsed_events):
+            parsed_events[i] = ParsedEvent(
+                **{
+                    **ev.__dict__,
+                    "event_hash": app.state.db.compute_event_hash(ev),
+                }
+            )
+
+        inserted = await app.state.db.insert_events(parsed_events, tenant_id=tenant.id)
+
+        posted = 0
+        if settings.log_posting_enabled and inserted:
+            if settings.async_posting_enabled:
+                asyncio.create_task(
+                    _post_events(
+                        app=app,
+                        tenant=tenant,
+                        events=inserted,
+                        client_ping_enabled=bool(client_ping_enabled),
+                    )
+                )
+                posted = -1
+            else:
+                posted = await _post_events(
+                    app=app,
+                    tenant=tenant,
+                    events=inserted,
+                    client_ping_enabled=bool(client_ping_enabled),
+                )
+
+        return _ok(
+            tenant_id=tenant.id,
+            inserted_count=len(inserted),
+            posted_count=posted,
+        )
 
     return app
 
