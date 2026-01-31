@@ -1,214 +1,213 @@
 <Window x:Class="GravityCapture.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:GravityCapture"
-        mc:Ignorable="d"
         Title="Gravity Capture"
-        Height="860" Width="1060"
-        MinHeight="780" MinWidth="900"
-        WindowStartupLocation="CenterScreen"
-        Icon="Assets/GravityCapture.ico">
+        MinWidth="800" MinHeight="560"
+        MaxWidth="800" MaxHeight="560"
+        Loaded="Window_Loaded"
+        Closing="Window_Closing"
+        SourceInitialized="Window_SourceInitialized"
+        SizeChanged="Window_SizeChanged">
 
-    <Window.Background>
-        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="{StaticResource BgTop}" Offset="0"/>
-            <GradientStop Color="{StaticResource BgBottom}" Offset="1"/>
-        </LinearGradientBrush>
-    </Window.Background>
+    <!-- simple form spacing helpers -->
+    <Window.Resources>
+        <Style x:Key="FormLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,8,8"/>
+        </Style>
+        <Style x:Key="FormField" TargetType="Control">
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+    </Window.Resources>
 
-    <Grid Margin="18">
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="14"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="0.5"/>
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <Grid Grid.Row="0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="14"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
+        <!-- Tabs -->
+        <TabControl Grid.Row="0">
+            <!-- Capture Tab -->
+            <TabItem Header="Capture">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-            <!-- Gravity Capture App icon -->
-            <Border Width="180" Height="180" CornerRadius="29" BorderBrush="{StaticResource BrushStrokeSoft}" BorderThickness="1" Background="{StaticResource BrushCardBg}">
-                <Image Source="Assets/GravityCapture.png" Stretch="Uniform" Margin="8"/>
-            </Border>
+                    <!-- Toolbar that wraps when narrow -->
+                    <Border Background="{DynamicResource CardColor}" Padding="8" Margin="8,8,8,0">
+                        <WrapPanel VerticalAlignment="Center" ItemHeight="Auto" ItemWidth="Auto">
+                            <TextBlock Text="Server" VerticalAlignment="Center" Margin="8,0,8,0"
+                                       Foreground="{DynamicResource TextMutedBrush}"/>
+                            <TextBox x:Name="ServerBox" Width="200"/>
 
-            <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                <TextBlock Text="Gravity Capture" FontSize="22" FontWeight="SemiBold"/>
-                <TextBlock Text="Log-Bot" FontSize="13" Foreground="{StaticResource BrushTextSecondary}" Margin="0,2,0,0"/>
-            </StackPanel>
+                            <TextBlock Text="Tribe" VerticalAlignment="Center" Margin="8,0,8,0"
+                                       Foreground="{DynamicResource TextMutedBrush}"/>
+                            <TextBox x:Name="TribeBox" Width="260"/>
 
-            <Border Grid.Column="3" CornerRadius="12" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12,10">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Status:" Foreground="{StaticResource BrushTextSecondary}"/>
-                    <TextBlock Text="{Binding StatusText}" Margin="8,0,0,0" FontWeight="SemiBold"/>
-                </StackPanel>
-            </Border>
-        </Grid>
+                            <Button x:Name="StartBtn" Content="Start" Margin="8,0,0,0" Click="StartBtn_Click"/>
+                            <Button x:Name="StopBtn" Content="Stop" Margin="8,0,0,0" Click="StopBtn_Click"/>
+                            <Button x:Name="SelectCropBtn" Content="Select Log Area..." Margin="8,4,0,0" Click="SelectCropBtn_Click"/>
 
-        <Grid Grid.Row="2">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="410"/>
-                <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
+                            <!-- OCR actions stay near toolbar; the WrapPanel keeps them visible -->
+                            <Button x:Name="OcrCropBtn" Content="OCR Crop → Paste" Margin="8,4,0,0" Click="OcrCropBtn_Click"/>
+                            <Button x:Name="OcrAndPostNowBtn" Content="OCR &amp; Post Visible Now" Margin="8,4,0,0" Click="OcrAndPostNowBtn_Click"/>
 
-            <!-- Left: Settings -->
-            <Border Grid.Column="0" CornerRadius="18" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushPanelBg}">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-
-                    <Border Grid.Row="0" CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12" Margin="16,16,16,10">
-                        <StackPanel>
-                            <TextBlock Text="Controls" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                            <StackPanel Orientation="Horizontal">
-                                <Button Style="{StaticResource PrimaryButton}" Content="Start" Command="{Binding StartCommand}" Margin="0,0,10,0"/>
-                                <Button Style="{StaticResource DangerButton}" Content="Stop" Command="{Binding StopCommand}" />
-                            </StackPanel>
-                            <TextBlock Text="{Binding LastSendSummary}" Foreground="{StaticResource BrushTextSecondary}" Margin="0,8,0,0"/>
-                        </StackPanel>
+                            <Button x:Name="SaveDebugBtn" Content="Save debug ZIP" Margin="8,4,0,0" Click="SaveDebugBtn_Click"/>
+                        </WrapPanel>
                     </Border>
 
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="16,0,16,16">
-                        <Grid Margin="0,0,0,10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Settings" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                            <Button Grid.Column="1" Content="Save" Command="{Binding SaveSettingsCommand}" Margin="12,0,0,0"/>
-                        </Grid>
-                        <TextBlock Text="{Binding SaveStatusText}" FontSize="12" Foreground="{StaticResource BrushTextSecondary}" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                    <!-- Split content -->
+                    <Grid Grid.Row="1" Margin="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="0.50*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-                        <TextBlock Text="API URL" Foreground="{StaticResource BrushTextSecondary}"/>
-                        <TextBox Text="{Binding ApiBaseUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,12"/>
+                        <!-- Left: Live preview with optional OCR overlay -->
+                        <GroupBox Header="Live preview" Grid.Column="0" Margin="0,0,8,0">
+                            <Grid>
+                                <Image x:Name="LivePreview" Stretch="Uniform" />
+                                <!-- overlay (toggled from Settings) -->
+                                <Border x:Name="OcrDetailsOverlay"
+                                        Background="#50000000"
+                                        Visibility="Collapsed"
+                                        Margin="4" CornerRadius="4">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <TextBlock x:Name="OcrDetailsText" FontFamily="Consolas" FontSize="12"
+                                                   Foreground="{DynamicResource TextBrush}" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Grid>
+                        </GroupBox>
 
-                        <TextBlock Text="API Key" Foreground="{StaticResource BrushTextSecondary}"/>
-                        <PasswordBox x:Name="SecretBox" PasswordChanged="SecretBox_OnPasswordChanged" Margin="0,6,0,12"/>
-
-                        <!-- Server/Tribe: stacked so long server names fit and are fully visible -->
-                        <Grid Margin="0,0,0,12">
+                        <!-- Right: API echo (top) + big paste box (bottom) -->
+                        <Grid Grid.Column="1">
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="10"/>
+                                <RowDefinition Height="*"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <StackPanel Grid.Row="0">
-                                <TextBlock Text="Server Name" Foreground="{StaticResource BrushTextSecondary}"/>
-                                <TextBox
-                                    Text="{Binding ServerName, UpdateSourceTrigger=PropertyChanged}"
-                                    Margin="0,6,0,0"
-                                    ToolTip="{Binding ServerName}"/>
-                            </StackPanel>
+                            <GroupBox Header="API Echo" Grid.Row="0" Margin="0,0,0,8">
+                                <TextBox x:Name="ApiEchoText"
+                                         FontFamily="Consolas" FontSize="12"
+                                         AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                                         IsReadOnly="True"/>
+                            </GroupBox>
 
-                            <StackPanel Grid.Row="2">
-                                <TextBlock Text="Tribe Name" Foreground="{StaticResource BrushTextSecondary}"/>
-                                <TextBox
-                                    Text="{Binding TribeName, UpdateSourceTrigger=PropertyChanged}"
-                                    Margin="0,6,0,0"
-                                    ToolTip="{Binding TribeName}"/>
-                            </StackPanel>
+                            <GroupBox Header="Tribe Log Text Output Testing" Grid.Row="1">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- BIG paste area -->
+                                    <TextBox x:Name="LogLineBox"
+                                             FontFamily="Consolas" FontSize="12"
+                                             AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                                             MinHeight="140" />
+
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                                        <Button x:Name="SendPastedBtn"
+                                                Content="Send Pasted Log Line"
+                                                Click="SendPastedBtn_Click"/>
+                                    </StackPanel>
+                                </Grid>
+                            </GroupBox>
                         </Grid>
-
-                        <TextBlock Text="Capture Interval (seconds)" Foreground="{StaticResource BrushTextSecondary}"/>
-                        <TextBox Text="{Binding IntervalSecondsText, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,10" />
-                        <TextBlock Text="Upscale Factor (1-4)" Foreground="{StaticResource BrushTextSecondary}"/>
-                        <TextBox Text="{Binding UpscaleFactorText, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,10" />
-                        <TextBlock Text="Request Timeout (seconds)" Foreground="{StaticResource BrushTextSecondary}"/>
-                        <TextBox Text="{Binding RequestTimeoutSecondsText, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,10" />
-
-                        <CheckBox Content="Enable Discord Pings" IsChecked="{Binding CriticalPingEnabled}" Margin="0,4,0,10"/>
-
-                        <CheckBox Content="Debug" IsChecked="{Binding UseExtractPreview}" Margin="0,0,0,16"/>
-
-                        <Border CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12">
-                            <StackPanel>
-                                <TextBlock Text="Capture Region" FontSize="14" FontWeight="SemiBold"/>
-                                <TextBlock Text="{Binding RegionText}" Foreground="{StaticResource BrushTextSecondary}" Margin="0,4,0,10"/>
-
-                                <StackPanel Orientation="Horizontal">
-                                    <Button Content="Calibrate Region" Command="{Binding CalibrateRegionCommand}" Margin="0,0,10,0"/>
-                                    <Button Content="Send Once" Command="{Binding SendOnceCommand}" />
-                                </StackPanel>
-
-                                <TextBlock Text="{Binding RegionHint}" Foreground="{StaticResource BrushTextSecondary}" Margin="0,10,0,0" TextWrapping="Wrap"/>
-                            </StackPanel>
-                        </Border>
-
-                        
-
-                        <Border CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12" Margin="0,14,0,12">
-                            <StackPanel>
-                                <TextBlock Text="Notes" FontSize="14" FontWeight="SemiBold"/>
-                                <TextBlock Text="Calibrate once and save. Region is stored as normalized coordinates so it scales with resolution." Foreground="{StaticResource BrushTextSecondary}" Margin="0,10,0,0" TextWrapping="Wrap"/>
-                                <TextBlock Text="v1.0.0-alpha" Foreground="{StaticResource BrushTextSecondary}" Margin="0,10,0,0" TextWrapping="Wrap"/>
-                                <TextBlock Text="-AZX" Foreground="{StaticResource BrushTextSecondary}" Margin="0,10,0,0" TextWrapping="Wrap"/>
-                            </StackPanel>
-                        </Border>
-
-                    
-                            </StackPanel>
-                        </ScrollViewer>
                     </Grid>
-                </Border>
-
-            <!-- Right: Preview -->
-            <Border Grid.Column="2" CornerRadius="18" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushPanelBg}">
-                <Grid Margin="16">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="12"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="12"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-
-                    <Grid Grid.Row="0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <StackPanel>
-                            <TextBlock Text="Live Preview" FontSize="16" FontWeight="SemiBold"/>
-                            <TextBlock Text="Tribe Log Preview sent to the API." Foreground="{StaticResource BrushTextSecondary}" Margin="0,4,0,0"/>
-
-                        </StackPanel>
-
-                        <Border Grid.Column="1" CornerRadius="12" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12,10">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="Queue:" Foreground="{StaticResource BrushTextSecondary}"/>
-                                <TextBlock Text="{Binding BusyText}" Margin="8,0,0,0" FontWeight="SemiBold"/>
-                            </StackPanel>
-                        </Border>
-                    </Grid>
-
-                    <Border Grid.Row="2" MaxWidth="600" HorizontalAlignment="Center" CornerRadius="18" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="#0C111B">
-                        <Grid>
-                            <Image Source="{Binding PreviewImage}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
-                            <TextBlock Text="{Binding PreviewOverlayText}" Foreground="{StaticResource BrushTextSecondary}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14"/>
-                        </Grid>
-                    </Border>
-
-                    <Border Grid.Row="4" CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource BrushStrokeSoft}" Background="{StaticResource BrushCardBg}" Padding="12">
-                        <StackPanel>
-                            <TextBlock Text="Last Response" FontSize="14" FontWeight="SemiBold"/>
-                            <TextBlock Text="{Binding LastResponse}" Foreground="{StaticResource BrushTextSecondary}" Margin="0,6,0,0" TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </Border>
                 </Grid>
-            </Border>
-        </Grid>
+            </TabItem>
+
+            <!-- Settings Tab -->
+            <TabItem Header="Settings">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="8" Orientation="Vertical">
+
+                        <GroupBox Header="API Credentials" Margin="0,0,0,8">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="180"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Text="Channel ID" Grid.Row="0" Grid.Column="0" Style="{StaticResource FormLabel}"/>
+                                <TextBox x:Name="ChannelBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource FormField}"/>
+
+                                <TextBlock Text="API Base URL" Grid.Row="1" Grid.Column="0" Style="{StaticResource FormLabel}"/>
+                                <TextBox x:Name="ApiUrlBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource FormField}"/>
+
+                                <TextBlock Text="API Key" Grid.Row="2" Grid.Column="0" Style="{StaticResource FormLabel}"/>
+                                <PasswordBox x:Name="ApiKeyBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource FormField}"/>
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="Endpoint paths" Margin="0,0,0,8">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="180"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Text="OCR Path:" Grid.Row="0" Grid.Column="0" Style="{StaticResource FormLabel}"/>
+                                <TextBox x:Name="OcrPathBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource FormField}"/>
+
+                                <TextBlock Text="Screenshot Ingest Path:" Grid.Row="1" Grid.Column="0" Style="{StaticResource FormLabel}"/>
+                                <TextBox x:Name="ScreenshotPathBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource FormField}"/>
+
+                                <TextBlock Text="Log-line Ingest Path:" Grid.Row="2" Grid.Column="0" Style="{StaticResource FormLabel}"/>
+                                <TextBox x:Name="LogLinePathBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource FormField}"/>
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="Filters" Margin="0,0,0,8">
+                            <UniformGrid Columns="2">
+                                <CheckBox x:Name="FilterTameDeathsBox"            Content="Tame deaths"/>
+                                <CheckBox x:Name="FilterTamesStarvingBox"          Content="Tames starving to death"/>
+                                <CheckBox x:Name="FilterStructDestroyedBox"        Content="Structures destroyed"/>
+                                <CheckBox x:Name="FilterStructAutoDecayBox"        Content="Structures auto decay"/>
+                                <CheckBox x:Name="FilterTribeMateDeathsBox"        Content="Tribemate deaths"/>
+                                <CheckBox x:Name="FilterTribeKillsEnemyTamesBox"   Content="Tribe kills enemy tames"/>
+                                <CheckBox x:Name="FilterEnemyPlayerKillsBox"       Content="Enemy player kills"/>
+                                <CheckBox x:Name="FilterTribeDemolishBox"          Content="Tribemates demolishing structures"/>
+                                <CheckBox x:Name="FilterTribeFreezeTamesBox"       Content="Tribemates freezing tames"/>
+                            </UniformGrid>
+                        </GroupBox>
+
+                        <GroupBox Header="Overlay" Margin="0,0,0,8">
+                            <StackPanel Orientation="Horizontal">
+                                <CheckBox x:Name="ShowOcrDetailsCheck"
+                                          Content="Show OCR Details On Capture"
+                                          Checked="ShowOcrDetailsCheck_Changed"
+                                          Unchecked="ShowOcrDetailsCheck_Changed"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <Button x:Name="SaveBtn" Content="Save" Click="SaveBtn_Click"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="1" Background="#22252B" Padding="6,4">
+            <TextBlock x:Name="StatusText" Foreground="#22252B" />
+        </Border>
     </Grid>
 </Window>
