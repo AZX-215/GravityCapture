@@ -35,7 +35,7 @@
             </Grid.ColumnDefinitions>
 
             <!-- Gravity Capture App icon -->
-            <Border Width="120" Height="120" CornerRadius="29" BorderBrush="{StaticResource BrushStrokeSoft}" BorderThickness="1" Background="{StaticResource BrushCardBg}">
+            <Border Width="180" Height="180" CornerRadius="29" BorderBrush="{StaticResource BrushStrokeSoft}" BorderThickness="1" Background="{StaticResource BrushCardBg}">
                 <Image Source="Assets/GravityCapture.png" Stretch="Uniform" Margin="8"/>
             </Border>
 
