@@ -30,13 +30,18 @@ def _get_csv(name: str, default_csv: str = "") -> Set[str]:
 
 @dataclass(frozen=True)
 class Settings:
-    # Auth (optional in legacy mode)
+    # Auth (optional legacy shared secret)
     gl_shared_secret: str
+
+    # Multi-tenant mode
+    tenants_enabled: bool
+    tenants_bootstrap_legacy: bool
+    legacy_tenant_name: str
 
     # Database
     database_url: str
 
-    # Discord (legacy defaults; also used for automatic legacy tenant bootstrap)
+    # Discord (legacy defaults)
     alert_discord_webhook_url: str
     log_posting_enabled: bool
     post_delay_seconds: float
@@ -44,7 +49,7 @@ class Settings:
     # If true, Discord posting runs in the background and the API responds immediately.
     async_posting_enabled: bool
 
-    # Pings (legacy defaults; also used for automatic legacy tenant bootstrap)
+    # Pings (legacy defaults)
     critical_ping_enabled: bool
     critical_ping_role_id: str
 
@@ -58,11 +63,6 @@ class Settings:
     # General
     environment: str
 
-    # Multi-tenant mode
-    tenants_enabled: bool
-    tenants_bootstrap_legacy: bool
-    legacy_tenant_name: str
-
     @staticmethod
     def from_env() -> "Settings":
         # Shared secret can be any string; the desktop app sends it in X-GL-Key / x-api-key.
@@ -70,6 +70,9 @@ class Settings:
 
         return Settings(
             gl_shared_secret=gl_shared_secret,
+            tenants_enabled=_get_bool("TENANTS_ENABLED", False),
+            tenants_bootstrap_legacy=_get_bool("TENANTS_BOOTSTRAP_LEGACY", True),
+            legacy_tenant_name=(os.getenv("LEGACY_TENANT_NAME") or "legacy").strip() or "legacy",
             database_url=(os.getenv("DATABASE_URL") or "").strip(),
             alert_discord_webhook_url=(os.getenv("ALERT_DISCORD_WEBHOOK_URL") or "").strip(),
             log_posting_enabled=_get_bool("LOG_POSTING_ENABLED", True),
@@ -81,7 +84,4 @@ class Settings:
             ping_categories=_get_csv("PING_CATEGORIES", "STRUCTURE_DESTROYED,TRIBE_KILLED_PLAYER"),
             ocr_engine=(os.getenv("OCR_ENGINE") or "auto").strip().lower(),
             environment=(os.getenv("ENVIRONMENT") or os.getenv("ENV") or "stage").strip() or "stage",
-            tenants_enabled=_get_bool("TENANTS_ENABLED", False),
-            tenants_bootstrap_legacy=_get_bool("TENANTS_BOOTSTRAP_LEGACY", True),
-            legacy_tenant_name=(os.getenv("LEGACY_TENANT_NAME") or "legacy").strip() or "legacy",
         )
