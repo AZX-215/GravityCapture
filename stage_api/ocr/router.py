@@ -67,6 +67,51 @@ def _ensure_white_bg(binary: np.ndarray) -> np.ndarray:
     return (255 - binary) if binary.mean() < 127 else binary
 
 
+def _weighted_gray_bgr(
+    np_bgr: np.ndarray,
+    *,
+    wr: float,
+    wb: float,
+    wg: float,
+    apply_lab_clahe: bool,
+    blur_sigma: float,
+    do_percentile_norm: bool,
+) -> np.ndarray:
+    """Red-primary weighted grayscale intended to make red/magenta/yellow text OCR-visible.
+
+    This is an *optional* variant for ARK tribe logs. It is additive (does not replace
+    existing variants) and should be gated behind env vars.
+    """
+    img = np_bgr
+    if apply_lab_clahe:
+        try:
+            lab = cv.cvtColor(img, cv.COLOR_BGR2LAB)
+            l, a, b = cv.split(lab)
+            clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            l2 = clahe.apply(l)
+            img = cv.cvtColor(cv.merge((l2, a, b)), cv.COLOR_LAB2BGR)
+        except Exception:
+            img = np_bgr
+
+    b, g, r = cv.split(img)
+    # Weighted mix: emphasize red (kills) and blue (magenta), suppress green a bit.
+    gmix = (r.astype(np.float32) * float(wr)) + (b.astype(np.float32) * float(wb)) + (g.astype(np.float32) * float(wg))
+    gray = np.clip(gmix, 0, 255).astype(np.uint8)
+
+    if blur_sigma and blur_sigma > 0:
+        try:
+            gray = cv.GaussianBlur(gray, (0, 0), float(blur_sigma))
+        except Exception:
+            pass
+
+    if do_percentile_norm:
+        try:
+            gray = _percentile_normalize(gray, 1, 99)
+        except Exception:
+            pass
+    return gray
+
+
 def _percentile_normalize(gray: np.ndarray, p_lo: float = 1.0, p_hi: float = 99.0) -> np.ndarray:
     """Contrast-normalize a uint8 grayscale image by percentile clipping."""
     g = gray.astype(np.float32, copy=False)
@@ -102,53 +147,50 @@ def _variant_images(pil_img: Image.Image, *, max_w: int | None = None) -> list[t
 
     raw = cv.cvtColor(np_rgb, cv.COLOR_RGB2GRAY)
 
+    # Optional: red-primary weighted grayscale (for red/magenta/yellow tribe log text).
+    weighted_enable = _env_bool("OCR_WEIGHTED_ENABLE", default=False)
+    weighted_gray: Optional[np.ndarray] = None
+    weighted_bin: Optional[np.ndarray] = None
+    weighted_inv: Optional[np.ndarray] = None
+    if weighted_enable:
+        wr = _env_float("OCR_WEIGHTED_WR", 0.70)
+        wb = _env_float("OCR_WEIGHTED_WB", 0.20)
+        wg = _env_float("OCR_WEIGHTED_WG", 0.10)
+        w_clahe = _env_bool("OCR_WEIGHTED_CLAHE", default=True)
+        w_blur = _env_float("OCR_WEIGHTED_BLUR", 0.6)
+        w_norm = _env_bool("OCR_WEIGHTED_NORM", default=True)
+        weighted_gray = _weighted_gray_bgr(
+            np_bgr,
+            wr=wr,
+            wb=wb,
+            wg=wg,
+            apply_lab_clahe=w_clahe,
+            blur_sigma=w_blur,
+            do_percentile_norm=w_norm,
+        )
 
-    # Optional: balanced weighted grayscale to boost red/magenta (kills/claimed) without washing out the UI.
-    # Enable with OCR_BALANCED_ENABLE=1. Safe by default (disabled).
-    balanced_gray: Optional[np.ndarray] = None
-    balanced_bw: Optional[np.ndarray] = None
-    balanced_inv: Optional[np.ndarray] = None
-    if int(os.getenv("OCR_BALANCED_ENABLE", "0")) != 0:
-        # Weights are on BGR channels (R dominates for red text; B helps magenta/pink; G kept low).
-        wr = float(os.getenv("OCR_BALANCED_WR", "0.70"))
-        wb = float(os.getenv("OCR_BALANCED_WB", "0.20"))
-        wg = float(os.getenv("OCR_BALANCED_WG", "0.10"))
-        denom = max(1e-6, (wr + wb + wg))
-
-        b, g, r = cv.split(np_bgr)
-
-        if int(os.getenv("OCR_BALANCED_CLAHE", "1")) != 0:
-            clip = float(os.getenv("OCR_BALANCED_CLAHE_CLIP", "2.0"))
-            tile = int(os.getenv("OCR_BALANCED_CLAHE_TILE", "8"))
-            clahe = cv.createCLAHE(clipLimit=clip, tileGridSize=(tile, tile))
-            b = clahe.apply(b)
-            g = clahe.apply(g)
-            r = clahe.apply(r)
-
-        mix = (r.astype(np.float32) * wr + b.astype(np.float32) * wb + g.astype(np.float32) * wg) / denom
-        mix = np.clip(mix, 0, 255).astype(np.uint8)
-        mix = _percentile_normalize(mix, 1, 99)
-
-        bal_blur = float(os.getenv("OCR_BALANCED_BLUR", "0"))
-        if bal_blur > 0:
-            mix = cv.GaussianBlur(mix, (0, 0), bal_blur)
-
-        balanced_gray = mix
-
-        if int(os.getenv("OCR_BALANCED_BINARIZE", "1")) != 0:
-            block = int(os.getenv("OCR_BALANCED_BLOCK", "41"))
-            if block % 2 == 0:
-                block += 1
-            C = int(os.getenv("OCR_BALANCED_C", "10"))
-            balanced_bw = cv.adaptiveThreshold(
-                balanced_gray,
-                255,
-                cv.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv.THRESH_BINARY,
-                block,
-                C,
-            )
-            balanced_inv = cv.bitwise_not(balanced_bw)
+        if _env_bool("OCR_WEIGHTED_BINARY", default=True):
+            bsz = _env_int("OCR_WEIGHTED_BLOCK", 41)
+            if bsz % 2 == 0:
+                bsz += 1
+            bsz = max(11, min(151, bsz))
+            cval = _env_int("OCR_WEIGHTED_C", 10)
+            try:
+                # Produce both polarities and let candidate selection decide.
+                w_bw = cv.adaptiveThreshold(
+                    weighted_gray,
+                    255,
+                    cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                    cv.THRESH_BINARY,
+                    int(bsz),
+                    int(cval),
+                )
+                w_inv = cv.bitwise_not(w_bw)
+                weighted_bin = _ensure_white_bg(w_bw)
+                weighted_inv = _ensure_white_bg(w_inv)
+            except Exception:
+                weighted_bin = None
+                weighted_inv = None
 
     # Optional: low-contrast pre-pass (emulates slate.contrast lowering)
     lowc_raw: Optional[np.ndarray] = None
@@ -229,17 +271,17 @@ def _variant_images(pil_img: Image.Image, *, max_w: int | None = None) -> list[t
 
     variants: list[tuple[str, np.ndarray]] = []
     variants.append(("raw", raw))
+
+    if weighted_gray is not None:
+        variants.append(("weighted_gray", weighted_gray))
+    if weighted_bin is not None:
+        variants.append(("weighted_binary", weighted_bin))
+    if weighted_inv is not None:
+        variants.append(("weighted_inverted", weighted_inv))
     if lowc_raw is not None:
         variants.append(("lowc_raw", lowc_raw))
     if lowc_maxrgb is not None:
         variants.append(("lowc_maxrgb", lowc_maxrgb))
-
-    if balanced_gray is not None:
-        variants.append(("balanced_gray", balanced_gray))
-        if balanced_bw is not None:
-            variants.append(("balanced_binary", balanced_bw))
-        if balanced_inv is not None:
-            variants.append(("balanced_inverted", balanced_inv))
 
     # Put boosted variants early so merge can pick them up
     variants.append(("redmag_mask", redmag_mask))
@@ -397,10 +439,10 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
     # Ensure red/magenta isolation runs early (it is often where critical events live).
     preferred = [
         "raw",
+        "weighted_gray",
+        "weighted_binary",
+        "weighted_inverted",
         "redmag_mask",
-        "balanced_inverted",
-        "balanced_gray",
-        "balanced_binary",
         "rb_minus_g",
         "max_rgb",
         "clahe",

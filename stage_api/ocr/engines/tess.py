@@ -16,18 +16,50 @@ if os.name == "nt":
     if tpath and os.path.exists(tpath):
         pytesseract.pytesseract.tesseract_cmd = tpath
 
-# Keep whitelist permissive; tribe logs include punctuation and apostrophes.
-WHITELIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:/()#._- '!,?+[]"
+DEFAULT_WHITELIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:/()#._- '!,?+[]"
+
 
 def _cfg(psm: int = 6) -> str:
+    """Build Tesseract config string.
+
+    Defaults preserve current behavior (LSTM-only, PSM 6, permissive whitelist), but
+    allow safe overrides via env vars:
+
+      - TESSERACT_PSM: integer PSM (default 6)
+      - TESSERACT_OEM: integer OEM (default 1)
+      - TESSERACT_WHITELIST: override whitelist
+      - TESSERACT_NO_WHITELIST: if truthy, omit whitelist entirely
+    """
+
     # psm 6 = assume a single uniform block of text. We then regroup tokens -> real lines.
-    # Disable dictionary lookups (often hurts game/UI text) and keep spaces.
-    return (
-        f'--oem 1 --psm {psm} '
-        f'-c tessedit_char_whitelist="{WHITELIST}" '
-        f'-c preserve_interword_spaces=1 '
-        f'-c load_system_dawg=0 -c load_freq_dawg=0'
+    try:
+        psm = int(os.getenv("TESSERACT_PSM", str(psm)).strip())
+    except Exception:
+        psm = psm
+    try:
+        oem = int(os.getenv("TESSERACT_OEM", "1").strip())
+    except Exception:
+        oem = 1
+
+    no_whitelist = str(os.getenv("TESSERACT_NO_WHITELIST", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+        "enable",
+        "enabled",
+    }
+    wl = os.getenv("TESSERACT_WHITELIST") or DEFAULT_WHITELIST
+
+    cfg = (
+        f"--oem {oem} --psm {psm} "
+        f"-c preserve_interword_spaces=1 "
+        f"-c load_system_dawg=0 -c load_freq_dawg=0"
     )
+    if not no_whitelist:
+        cfg = f'{cfg} -c tessedit_char_whitelist="{wl}"'
+    return cfg
 
 def _safe_float(x) -> float:
     try:
