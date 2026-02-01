@@ -43,6 +43,45 @@ def _clean_actor(s: str) -> str:
 RX_AUTO_DECAY = re.compile(r"\bauto[-\s]?decay\b.*\b(destroyed|decay destroyed)\b", re.I)
 RX_ANTIMESH = re.compile(r"\banti[-\s]?mesh\b|\bmesh\b.*\bdestroyed\b", re.I)
 
+# Official-ish structure decay line
+RX_DECAYED_DESTROYED = re.compile(r"\bdecayed\s+and\s+was\s+destroyed\b", re.I)
+RX_YOUR_STRUCT_DECAYED = re.compile(r"^Your\s+(?P<structure>.+?)\s+decayed\s+and\s+was\s+destroyed\s*!?\s*$", re.I)
+RX_YOUR_STRUCT_DEMOLISHED = re.compile(r"^Your\s+(?P<structure>.+?)\s+was\s+demolished\s+by\s+(?P<actor>.+?)\s*!?\s*$", re.I)
+
+
+# Official tribe membership strings ("joined/left the tribe!")
+RX_JOIN_LEFT_TRIBE = re.compile(r"^(?P<member>.+?)\s+(?P<action>joined|left)\s+the\s+tribe\s*!?\s*$", re.I)
+RX_KICKED_FROM_TRIBE = re.compile(r"^(?P<member>.+?)\s+was\s+kicked\s+from\s+the\s+tribe\s+by\s+(?P<actor>.+?)\s*!?\s*$", re.I)
+RX_PROMOTED_DEMOTED = re.compile(r"^(?P<member>.+?)\s+was\s+(?P<action>promoted|demoted)\s+to\s+(?P<rank>.+?)\s*!?\s*$", re.I)
+RX_TRIBE_RENAMED = re.compile(r"^\s*Tribe\s+Name\s+was\s+changed\s+to\s+(?P<name>.+?)\s*!?\s*$", re.I)
+
+# Official tame/biology strings
+RX_TAMED_OFFICIAL = re.compile(r"^Your\s+Tribe\s+Tamed\s+a\s+(?P<species>.+?)\s+-\s+Lvl\s+(?P<lvl>\d+)\s*!?\s*$", re.I)
+RX_CLAIMED_OFFICIAL = re.compile(r"^Your\s+Tribe\s+Claimed\s+a\s+(?P<name>.+?)\s+-\s+Lvl\s+(?P<lvl>\d+)\s*\((?P<species>.+?)\)\s*!?\s*$", re.I)
+RX_BIRTH_HATCH = re.compile(r"^A\s+(?P<species>.+?)\s+was\s+(?P<mode>born|hatched)\s*!?\s*$", re.I)
+RX_CRYOPOD_RELEASED = re.compile(r"^Your\s+(?P<victim_name>.+?)\s+-\s+Lvl\s+(?P<victim_lvl>\d+)\s*\((?P<victim_species>.+?)\)\s+was\s+released\s+from\s+a\s+Cryopod\s*!?\s*$", re.I)
+
+# Official kill templates (more precise parsing than generic "was killed")
+RX_YOUR_DINO_KILLED_BY_PLAYER = re.compile(
+    r"^Your\s+(?P<victim_name>.+?)\s+-\s+Lvl\s+(?P<victim_lvl>\d+)\s*\((?P<victim_species>.+?)\)\s+was\s+killed\s+by\s+(?P<attacker_name>.+?)\s+-\s+Lvl\s+(?P<attacker_lvl>\d+)\s*\((?P<attacker_tribe>.+?)\)\s*!?\s*$",
+    re.I,
+)
+RX_YOUR_DINO_KILLED_BY_WILD = re.compile(
+    r"^Your\s+(?P<victim_name>.+?)\s+-\s+Lvl\s+(?P<victim_lvl>\d+)\s*\((?P<victim_species>.+?)\)\s+was\s+killed\s+by\s+a\s+(?P<wild_species>.+?)\s+-\s+Lvl\s+(?P<wild_lvl>\d+)\s*!?\s*$",
+    re.I,
+)
+RX_YOUR_DINO_KILLED_ENV = re.compile(
+    r"^Your\s+(?P<victim_name>.+?)\s+-\s+Lvl\s+(?P<victim_lvl>\d+)\s*\((?P<victim_species>.+?)\)\s+was\s+killed\s*!?\s*$",
+    re.I,
+)
+RX_PLAYER_KILLED_BY_PLAYER = re.compile(
+    r"^(?P<victim_name>.+?)\s+was\s+killed\s+by\s+(?P<attacker_name>.+?)\s+-\s+Lvl\s+(?P<attacker_lvl>\d+)\s*\((?P<attacker_tribe>.+?)\)\s*!?\s*$",
+    re.I,
+)
+
+# ORP message (unofficial/modded; safe to classify if present)
+RX_ORP_PREVENTED = re.compile(r"^\s*An\s+attack\s+was\s+prevented\s+by\s+Offline\s+Raid\s+Protection\s*!?\s*$", re.I)
+
 # Structures
 RX_DEMOLISHED = re.compile(r"^(?P<actor>.+?)\s+demolished\b", re.I)
 RX_DESTROYED_BY = re.compile(r"\bwas\s+destroyed\s+by\s+(?P<actor>.+?)\s*(?:!|\.|$)", re.I)
@@ -131,8 +170,10 @@ def classify_message(msg: str) -> Tuple[str, str, str]:
     m = _norm_spaces(msg)
 
     # --- WARNING (non-combat / environment) ---
-    if RX_AUTO_DECAY.search(m):
-        return ("AUTO_DECAY_DESTROYED", "WARNING", "Environment")
+    if RX_AUTO_DECAY.search(m) or RX_DECAYED_DESTROYED.search(m) or RX_YOUR_STRUCT_DECAYED.match(m):
+        mdc = RX_YOUR_STRUCT_DECAYED.match(m)
+        structure = _clean_entity(mdc.group("structure")) if mdc else ""
+        return ("AUTO_DECAY_DESTROYED", "WARNING", structure or "Environment")
     if RX_ANTIMESH.search(m):
         return ("ANTIMESH_DESTROYED", "WARNING", "Environment")
 
@@ -140,6 +181,34 @@ def classify_message(msg: str) -> Tuple[str, str, str]:
     mt = RX_TEK_TELEPORTER_PRIVACY.search(m)
     if mt:
         return ("TEK_TELEPORTER_PRIVACY_CHANGED", "WARNING", _clean_actor(mt.group("actor")))
+
+    # ORP message (unofficial/modded)
+    if RX_ORP_PREVENTED.match(m):
+        return ("ORP_PREVENTED", "INFO", "Environment")
+
+    # Cryopod released (INFO)
+    mcr = RX_CRYOPOD_RELEASED.match(m)
+    if mcr:
+        victim = _clean_entity(mcr.group("victim_name"))
+        return ("CRYOPOD_RELEASED", "INFO", victim or "Environment")
+
+    # Birth / hatch (INFO)
+    mbh = RX_BIRTH_HATCH.match(m)
+    if mbh:
+        species = _clean_entity(mbh.group("species"))
+        return ("BIRTH_HATCHED", "INFO", species or "Environment")
+
+    # Official tame success (SUCCESS)
+    mto = RX_TAMED_OFFICIAL.match(m)
+    if mto:
+        species = _clean_entity(mto.group("species"))
+        return ("TAME_TAMED", "SUCCESS", species or "Your Tribe")
+
+    # Official claiming (SUCCESS)
+    mco = RX_CLAIMED_OFFICIAL.match(m)
+    if mco:
+        name = _clean_entity(mco.group("name"))
+        return ("TAME_CLAIMED", "SUCCESS", name or "Your Tribe")
 
     # Starved to death (WARNING; actor is the creature that starved)
     ms = RX_STARVED.match(m)
@@ -175,6 +244,30 @@ def classify_message(msg: str) -> Tuple[str, str, str]:
         return ("TRANSFERRED", "INFO", "Environment")
 
     # Tribe membership / roles
+    mjl = RX_JOIN_LEFT_TRIBE.match(m)
+    if mjl:
+        member = _clean_entity(mjl.group("member"))
+        action = (mjl.group("action") or "").strip().lower()
+        if action == "joined":
+            return ("TRIBE_MEMBER_ADDED", "INFO", member or "Environment")
+        return ("TRIBE_MEMBER_LEFT", "INFO", member or "Environment")
+
+    mk = RX_KICKED_FROM_TRIBE.match(m)
+    if mk:
+        member = _clean_entity(mk.group("member"))
+        actor = _clean_actor(mk.group("actor"))
+        return ("TRIBE_MEMBER_KICKED", "WARNING", actor or member or "Environment")
+
+    mpd = RX_PROMOTED_DEMOTED.match(m)
+    if mpd:
+        member = _clean_entity(mpd.group("member"))
+        return ("TRIBE_RANK_CHANGED", "INFO", member or "Environment")
+
+    mrn = RX_TRIBE_RENAMED.match(m)
+    if mrn:
+        name = _clean_entity(mrn.group("name"))
+        return ("TRIBE_RENAMED", "INFO", name or "Environment")
+
     ma = RX_ADDED_TO_TRIBE.match(m)
     if ma:
         return ("TRIBE_MEMBER_ADDED", "INFO", _clean_actor(ma.group("actor")) or _clean_entity(ma.group("member")) or "Environment")
@@ -205,6 +298,10 @@ def classify_message(msg: str) -> Tuple[str, str, str]:
         return ("TRIBE_RANK_CHANGED", "INFO", _clean_actor(mg.group("actor")) or "Environment")
 
     # --- STRUCTURES ---
+    myd = RX_YOUR_STRUCT_DEMOLISHED.match(m)
+    if myd:
+        return ("STRUCTURE_DEMOLISHED", "INFO", _clean_actor(myd.group("actor")) or "Environment")
+
     mm = RX_DEMOLISHED.match(m)
     if mm:
         return ("STRUCTURE_DEMOLISHED", "INFO", _clean_actor(mm.group("actor")) or "Environment")
@@ -231,6 +328,36 @@ def classify_message(msg: str) -> Tuple[str, str, str]:
     tm = RX_TRIBEMEMBER_KILLED_BY.match(m)
     if tm:
         return ("TRIBEMEMBER_WAS_KILLED", "CRITICAL", _clean_actor(tm.group("actor")) or _clean_entity(tm.group("victim")) or "Environment")
+
+    # Player killed by player/tame (official template without "Tribemember" prefix)
+    mpk = RX_PLAYER_KILLED_BY_PLAYER.match(m)
+    if mpk:
+        victim = _clean_entity(mpk.group("victim_name"))
+        # Guard: if the victim looks like a dino template, let the dino patterns handle it.
+        if not re.search(r"\s-\s*Lvl\s+\d+\s*\(", victim, re.I):
+            actor = _clean_actor(mpk.group("attacker_name"))
+            return ("TRIBEMEMBER_WAS_KILLED", "CRITICAL", actor or victim or "Environment")
+
+    # Your tame killed by enemy player/tame
+    mkp = RX_YOUR_DINO_KILLED_BY_PLAYER.match(m)
+    if mkp:
+        actor = _clean_actor(mkp.group("attacker_name"))
+        victim_name = _clean_entity(mkp.group("victim_name"))
+        return ("TAME_DIED", "CRITICAL", actor or victim_name or "Environment")
+
+    # Your tame killed by wild creature
+    mkw = RX_YOUR_DINO_KILLED_BY_WILD.match(m)
+    if mkw:
+        wild = _clean_entity(mkw.group("wild_species"))
+        victim_name = _clean_entity(mkw.group("victim_name"))
+        return ("TAME_DIED", "CRITICAL", (wild or "Environment") if wild else (victim_name or "Environment"))
+
+    # Your tame killed without explicit attacker (environment / mesh / drowning / etc.)
+    mke = RX_YOUR_DINO_KILLED_ENV.match(m)
+    if mke:
+        victim_name = _clean_entity(mke.group("victim_name"))
+        # Treat as non-attributed death => WARNING (per requested policy)
+        return ("TAME_DIED", "WARNING", victim_name or "Environment")
 
     yt = RX_YOUR_TRIBE_KILLED.match(m)
     if yt:
