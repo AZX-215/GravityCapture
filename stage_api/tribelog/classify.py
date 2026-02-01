@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 import regex as re
 from typing import Tuple
 
-from db import compute_event_hash
+from db import compute_event_hash, compute_event_hash_v2, compute_fingerprint64, normalize_event_text
 from tribelog.models import ParsedEvent
 
 
@@ -94,6 +95,26 @@ RX_TEK_TELEPORTER_PRIVACY = re.compile(
     re.I,
 )
 
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    v = str(v).strip().lower()
+    return v in {"1", "true", "yes", "y", "on", "enable", "enabled"}
+
+
+def _get_csv(name: str, default_csv: str) -> Tuple[str, ...]:
+    raw = os.getenv(name)
+    s = (raw if raw is not None else default_csv) or ""
+    parts = [p.strip().lower() for p in s.split(",") if p.strip()]
+    return tuple(dict.fromkeys(parts))
+
+
+def _contains_any(haystack: str, needles: Tuple[str, ...]) -> bool:
+    h = (haystack or "").lower()
+    return any(n and n in h for n in needles)
 
 def _is_probably_player(victim: str) -> bool:
     """Heuristic only; used to keep legacy categories."""
@@ -194,7 +215,17 @@ def classify_message(msg: str) -> Tuple[str, str, str]:
     if RX_DESTROYED.search(m):
         mb = RX_DESTROYED_BY.search(m)
         actor = _clean_actor(mb.group("actor")) if mb else "Environment"
-        return ("STRUCTURE_DESTROYED", "CRITICAL", actor or "Environment")
+
+        # Default behavior (back-compat): STRUCTURE_DESTROYED is CRITICAL.
+        sev = "CRITICAL"
+        if _env_bool("CLASSIFY_TIERED_STRUCTURE_SEVERITY", default=False):
+            crit_kw = _get_csv(
+                "CLASSIFY_CRITICAL_STRUCT_KEYWORDS",
+                "tek,vault,generator,replicator,teleporter,transmitter,turret,fridge,cryofridge",
+            )
+            sev = "CRITICAL" if _contains_any(m, crit_kw) else "WARNING"
+
+        return ("STRUCTURE_DESTROYED", sev, actor or "Environment")
 
     # --- KILLS (CRITICAL) ---
     tm = RX_TRIBEMEMBER_KILLED_BY.match(m)
@@ -252,6 +283,19 @@ def classify_event(
         message=message,
     )
 
+    # v2: more stable under OCR drift (uses actor+message normalization)
+    h2 = compute_event_hash_v2(
+        server=server,
+        tribe=tribe,
+        ark_day=int(ark_day),
+        ark_time=str(ark_time),
+        category=category,
+        actor=actor,
+        message=message,
+    )
+    norm_text = normalize_event_text(f"{category} {actor} {message}")
+    fp = compute_fingerprint64(norm_text)
+
     return ParsedEvent(
         server=server,
         tribe=tribe,
@@ -263,4 +307,7 @@ def classify_event(
         message=_norm_spaces(message),
         raw_line=_norm_spaces(raw_line),
         event_hash=h,
+        event_hash_v2=h2,
+        normalized_text=norm_text,
+        fingerprint=fp,
     )

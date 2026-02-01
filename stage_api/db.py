@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import re
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Set
 
@@ -26,7 +28,10 @@ CREATE TABLE IF NOT EXISTS tribe_events (
   actor TEXT NOT NULL,
   message TEXT NOT NULL,
   raw_line TEXT NOT NULL,
-  event_hash TEXT
+  event_hash TEXT,
+  event_hash_v2 TEXT,
+  normalized_text TEXT,
+  fingerprint BIGINT
 );
 """
 
@@ -55,6 +60,12 @@ _DROP_LEGACY_RAW_LINE_UQ = "DROP INDEX IF EXISTS tribe_events_raw_line_uidx;"
 _CREATE_TENANT_EVENT_HASH_UQ = (
     "CREATE UNIQUE INDEX IF NOT EXISTS tribe_events_tenant_event_hash_uq "
     "ON tribe_events (tenant_id, event_hash) WHERE event_hash IS NOT NULL;"
+)
+
+# Optional v2 unique index (more stable under OCR drift). Enabled via DEDUP_V2_ENFORCE=1
+_CREATE_TENANT_EVENT_HASH_V2_UQ = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS tribe_events_tenant_event_hash_v2_uq "
+    "ON tribe_events (tenant_id, event_hash_v2) WHERE event_hash_v2 IS NOT NULL;"
 )
 _CREATE_INGESTED_IDX = "CREATE INDEX IF NOT EXISTS tribe_events_ingested_at_idx ON tribe_events (ingested_at);"
 _CREATE_TENANT_ID_IDX = "CREATE INDEX IF NOT EXISTS tribe_events_tenant_id_idx ON tribe_events (tenant_id);"
@@ -85,6 +96,93 @@ def compute_event_hash(
     )
     return hashlib.sha1(norm.encode("utf-8")).hexdigest()
 
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    v = str(v).strip().lower()
+    return v in {"1", "true", "yes", "y", "on", "enable", "enabled"}
+
+
+# -----------------------------
+# Dedupe v2 helpers
+# -----------------------------
+_OCR_CONFUSION_MAP_NUM = str.maketrans(
+    {
+        "o": "0",
+        "O": "0",
+        "i": "1",
+        "I": "1",
+        "l": "1",
+        "L": "1",
+        "s": "5",
+        "S": "5",
+        "b": "8",
+        "B": "8",
+    }
+)
+
+_PUNCT_RX = re.compile(r"[^a-z0-9\s]+")
+
+
+def normalize_event_text(s: str) -> str:
+    """Aggressive-but-safe normalization for dedupe. Tries to reduce OCR drift without over-merging."""
+    s = (s or "").strip().lower()
+    if not s:
+        return ""
+    # Collapse whitespace
+    s = " ".join(s.split())
+
+    # Token-wise normalization: only apply number-confusion mapping to numeric-ish tokens.
+    out = []
+    for tok in s.split(" "):
+        t = tok.strip()
+        if not t:
+            continue
+
+        # Strip surrounding punctuation (keep internal alnum)
+        t = _PUNCT_RX.sub(" ", t).strip()
+        if not t:
+            continue
+
+        # Decide if numeric-ish: mostly digits or common OCR confusables used for digits
+        numish = bool(re.fullmatch(r"[0-9oOIlLsSbB:./-]+", t))
+        if numish:
+            t = t.translate(_OCR_CONFUSION_MAP_NUM)
+
+        out.append(t)
+
+    s = " ".join(out)
+    s = " ".join(s.split())
+    return s
+
+
+def compute_event_hash_v2(*, server: str, tribe: str, ark_day: int, ark_time: str, category: str, actor: str, message: str) -> str:
+    """More stable hash when Day+Time is present (still includes message/actor for uniqueness)."""
+    sig = "|".join(
+        [
+            (server or "").strip().lower(),
+            (tribe or "").strip().lower(),
+            str(int(ark_day)),
+            (ark_time or "").strip(),
+            (category or "").strip().upper(),
+            normalize_event_text(actor or ""),
+            normalize_event_text(message or ""),
+        ]
+    )
+    return hashlib.sha1(sig.encode("utf-8")).hexdigest()
+
+
+def compute_fingerprint64(norm_text: str) -> int:
+    """Deterministic 64-bit fingerprint for future fuzzy-dedupe (stored; not enforced by default)."""
+    s = (norm_text or "").strip()
+    if not s:
+        return 0
+    h = hashlib.sha1(s.encode("utf-8")).digest()  # 20 bytes
+    # Take first 8 bytes as unsigned 64-bit int
+    return int.from_bytes(h[:8], byteorder="big", signed=False)
 
 def hash_api_key(api_key: str) -> str:
     s = (api_key or "").strip()
@@ -143,9 +241,14 @@ class Db:
             # Back-compat: older DBs may not have event_hash or tenant_id yet.
             await conn.execute("ALTER TABLE tribe_events ADD COLUMN IF NOT EXISTS event_hash TEXT;")
             await conn.execute("ALTER TABLE tribe_events ADD COLUMN IF NOT EXISTS tenant_id BIGINT;")
+            await conn.execute("ALTER TABLE tribe_events ADD COLUMN IF NOT EXISTS event_hash_v2 TEXT;")
+            await conn.execute("ALTER TABLE tribe_events ADD COLUMN IF NOT EXISTS normalized_text TEXT;")
+            await conn.execute("ALTER TABLE tribe_events ADD COLUMN IF NOT EXISTS fingerprint BIGINT;")
 
             # Indexes
             await conn.execute(_CREATE_TENANT_EVENT_HASH_UQ)
+            if _env_bool("DEDUP_V2_ENFORCE", default=False):
+                await conn.execute(_CREATE_TENANT_EVENT_HASH_V2_UQ)
             await conn.execute(_CREATE_INGESTED_IDX)
             await conn.execute(_CREATE_TENANT_ID_IDX)
 
@@ -259,13 +362,13 @@ LIMIT 1;
         if not evs:
             return []
 
-        cols = "(tenant_id, server, tribe, ark_day, ark_time, severity, category, actor, message, raw_line, event_hash)"
+        cols = "(tenant_id, server, tribe, ark_day, ark_time, severity, category, actor, message, raw_line, event_hash, event_hash_v2, normalized_text, fingerprint)"
 
         values_sql = []
         args = []
         for i, e in enumerate(evs):
-            base = i * 11
-            values_sql.append("(" + ",".join([f"${base + j}" for j in range(1, 12)]) + ")")
+            base = i * 14
+            values_sql.append("(" + ",".join([f"${base + j}" for j in range(1, 15)]) + ")")
             args.extend(
                 [
                     int(tenant_id),
@@ -279,6 +382,9 @@ LIMIT 1;
                     e.message,
                     e.raw_line,
                     e.event_hash,
+                    (e.event_hash_v2 or None),
+                    (e.normalized_text or None),
+                    (int(e.fingerprint) if getattr(e, 'fingerprint', 0) else None),
                 ]
             )
 

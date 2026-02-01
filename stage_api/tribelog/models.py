@@ -14,4 +14,11 @@ class ParsedEvent:
     actor: str
     message: str
     raw_line: str
+
+    # v1: legacy (kept for back-compat)
     event_hash: str
+
+    # v2: more stable under OCR drift (additive; safe to ignore if unused)
+    event_hash_v2: str = ""
+    normalized_text: str = ""
+    fingerprint: int = 0
