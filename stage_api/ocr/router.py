@@ -102,6 +102,54 @@ def _variant_images(pil_img: Image.Image, *, max_w: int | None = None) -> list[t
 
     raw = cv.cvtColor(np_rgb, cv.COLOR_RGB2GRAY)
 
+
+    # Optional: balanced weighted grayscale to boost red/magenta (kills/claimed) without washing out the UI.
+    # Enable with OCR_BALANCED_ENABLE=1. Safe by default (disabled).
+    balanced_gray: Optional[np.ndarray] = None
+    balanced_bw: Optional[np.ndarray] = None
+    balanced_inv: Optional[np.ndarray] = None
+    if int(os.getenv("OCR_BALANCED_ENABLE", "0")) != 0:
+        # Weights are on BGR channels (R dominates for red text; B helps magenta/pink; G kept low).
+        wr = float(os.getenv("OCR_BALANCED_WR", "0.70"))
+        wb = float(os.getenv("OCR_BALANCED_WB", "0.20"))
+        wg = float(os.getenv("OCR_BALANCED_WG", "0.10"))
+        denom = max(1e-6, (wr + wb + wg))
+
+        b, g, r = cv.split(np_bgr)
+
+        if int(os.getenv("OCR_BALANCED_CLAHE", "1")) != 0:
+            clip = float(os.getenv("OCR_BALANCED_CLAHE_CLIP", "2.0"))
+            tile = int(os.getenv("OCR_BALANCED_CLAHE_TILE", "8"))
+            clahe = cv.createCLAHE(clipLimit=clip, tileGridSize=(tile, tile))
+            b = clahe.apply(b)
+            g = clahe.apply(g)
+            r = clahe.apply(r)
+
+        mix = (r.astype(np.float32) * wr + b.astype(np.float32) * wb + g.astype(np.float32) * wg) / denom
+        mix = np.clip(mix, 0, 255).astype(np.uint8)
+        mix = _percentile_normalize(mix, 1, 99)
+
+        bal_blur = float(os.getenv("OCR_BALANCED_BLUR", "0"))
+        if bal_blur > 0:
+            mix = cv.GaussianBlur(mix, (0, 0), bal_blur)
+
+        balanced_gray = mix
+
+        if int(os.getenv("OCR_BALANCED_BINARIZE", "1")) != 0:
+            block = int(os.getenv("OCR_BALANCED_BLOCK", "41"))
+            if block % 2 == 0:
+                block += 1
+            C = int(os.getenv("OCR_BALANCED_C", "10"))
+            balanced_bw = cv.adaptiveThreshold(
+                balanced_gray,
+                255,
+                cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv.THRESH_BINARY,
+                block,
+                C,
+            )
+            balanced_inv = cv.bitwise_not(balanced_bw)
+
     # Optional: low-contrast pre-pass (emulates slate.contrast lowering)
     lowc_raw: Optional[np.ndarray] = None
     lowc_maxrgb: Optional[np.ndarray] = None
@@ -186,6 +234,13 @@ def _variant_images(pil_img: Image.Image, *, max_w: int | None = None) -> list[t
     if lowc_maxrgb is not None:
         variants.append(("lowc_maxrgb", lowc_maxrgb))
 
+    if balanced_gray is not None:
+        variants.append(("balanced_gray", balanced_gray))
+        if balanced_bw is not None:
+            variants.append(("balanced_binary", balanced_bw))
+        if balanced_inv is not None:
+            variants.append(("balanced_inverted", balanced_inv))
+
     # Put boosted variants early so merge can pick them up
     variants.append(("redmag_mask", redmag_mask))
     if lowc_redmag is not None:
@@ -236,64 +291,6 @@ def _critical_hits(lines: List[Line]) -> int:
         if _RX_CRITICAL.search(s):
             hits += 1
     return hits
-
-
-
-def _continuation_hits(lines: List[Line], *, gap_px: int, group_max_px: int, x_tol_px: int) -> int:
-    """Counts likely wrapped continuation lines (lines without 'Day ...' prefix following a header)."""
-    if not lines:
-        return 0
-
-    # Sort by y then x (normalize() usually already does this, but keep it safe)
-    try:
-        ordered = sorted(lines, key=lambda ln: (int(ln.bbox[1]), int(ln.bbox[0])))
-    except Exception:
-        ordered = list(lines)
-
-    in_group = False
-    last_y = None
-    last_x = None
-    cont = 0
-
-    for ln in ordered:
-        s = (ln.text or "").strip()
-        if not s or _is_junk_text(s):
-            continue
-
-        is_header = bool(_RX_DAY_HEADER.match(s))
-
-        try:
-            x1, y1, x2, y2 = [int(v) for v in (ln.bbox or [0, 0, 0, 0])]
-            x_left = min(x1, x2)
-            y_top = min(y1, y2)
-        except Exception:
-            x_left = None
-            y_top = None
-
-        if is_header:
-            in_group = True
-            last_y = y_top
-            last_x = x_left
-            continue
-
-        if not in_group:
-            continue
-
-        # Heuristic: continuation = close in Y and similar X-left to previous kept line.
-        is_cont = False
-        if y_top is not None and last_y is not None:
-            dy = y_top - last_y
-            if dy <= gap_px:
-                is_cont = True
-            elif dy <= group_max_px and x_left is not None and last_x is not None and abs(x_left - last_x) <= x_tol_px:
-                is_cont = True
-
-        if is_cont:
-            cont += 1
-            last_y = y_top if y_top is not None else last_y
-            last_x = x_left if x_left is not None else last_x
-
-    return cont
 
 
 def _norm_line_key(s: str) -> str:
@@ -401,6 +398,9 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
     preferred = [
         "raw",
         "redmag_mask",
+        "balanced_inverted",
+        "balanced_gray",
+        "balanced_binary",
         "rb_minus_g",
         "max_rgb",
         "clahe",
@@ -422,12 +422,6 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
     candidates: List[Dict[str, Any]] = []
 
     accept_hits = int(os.getenv("OCR_ACCEPT_HEADER_HITS", "1"))
-
-    # Optional: favor variants that keep wrapped continuation lines.
-    score_cont = _env_bool("OCR_SCORE_CONTINUATIONS", default=False)
-    cont_gap_px = _env_int("OCR_SCORE_CONTINUATION_GAP_PX", _env_int("OCR_CONTINUATION_GAP_PX", 42))
-    cont_group_max_px = _env_int("OCR_SCORE_GROUP_MAX_PX", 160)
-    cont_x_tol_px = _env_int("OCR_SCORE_X_TOL_PX", 80)
     accept_conf = float(os.getenv("OCR_ACCEPT_CONF", "0.45"))
 
     for vname, gray in variants:
@@ -451,12 +445,10 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
                     "critical_hits": crit,
                     "mean_conf": mc,
                     "line_count": len(lines),
-                    "continuation_hits": (_continuation_hits(lines, gap_px=cont_gap_px, group_max_px=cont_group_max_px, x_tol_px=cont_x_tol_px) if score_cont else 0),
                 }
             )
 
-            cont = (_continuation_hits(lines, gap_px=cont_gap_px, group_max_px=cont_group_max_px, x_tol_px=cont_x_tol_px) if score_cont else 0)
-            key = (hits, crit, cont, mc) if score_cont else (hits, crit, mc)
+            key = (hits, crit, mc)
             if key > best_key:
                 best_key = key
                 best = {
@@ -481,7 +473,7 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
     # Include candidate stats for debugging (/extract UI and logs).
     best["candidates"] = sorted(
         candidates,
-        key=lambda d: (d.get("header_hits", 0), d.get("critical_hits", 0), d.get("continuation_hits", 0), d.get("mean_conf", 0.0)),
+        key=lambda d: (d.get("header_hits", 0), d.get("critical_hits", 0), d.get("mean_conf", 0.0)),
         reverse=True,
     )
 
@@ -511,9 +503,6 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
         #   Day XXXX, HH:MM:SS: Tribemember ...
         #   194 was killed!
         gap_px = _env_int('OCR_CONTINUATION_GAP_PX', 42)
-        relax_cont = _env_bool('OCR_RELAX_CONTINUATIONS', default=False)
-        group_max_px = _env_int('OCR_MERGE_GROUP_MAX_PX', 160)
-        x_tol_px = _env_int('OCR_MERGE_X_TOL_PX', 80)
 
         def _bbox_key(ln: Line) -> tuple:
             try:
@@ -526,7 +515,6 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
 
         in_group = False
         last_y = None
-        last_x = None
 
         for ln in other_lines:
             # Skip low-confidence lines from aggressive color masks.
@@ -545,27 +533,21 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
 
             is_header = bool(_RX_DAY_HEADER.match(s))
 
-            # y position (top) + x position (left) for grouping
+            # y position (top) for grouping
             try:
                 x1, y1, x2, y2 = [int(v) for v in (ln.bbox or [0, 0, 0, 0])]
-                x_left = min(x1, x2)
                 y_top = min(y1, y2)
             except Exception:
-                x_left = None
                 y_top = None
 
             if is_header:
                 in_group = True
                 last_y = y_top
-                last_x = x_left
             else:
                 # Continuation line if it's close to the previous kept line in the same group.
                 is_cont = False
                 if in_group and y_top is not None and last_y is not None:
-                    dy = (y_top - last_y)
-                    if dy <= gap_px:
-                        is_cont = True
-                    elif relax_cont and dy <= group_max_px and x_left is not None and last_x is not None and abs(x_left - last_x) <= x_tol_px:
+                    if (y_top - last_y) <= gap_px:
                         is_cont = True
 
                 # If it's not a continuation line, only allow it if it's critical-ish text.
@@ -576,8 +558,7 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
                     continue
 
                 if is_cont:
-                    last_y = y_top if y_top is not None else last_y
-                    last_x = x_left if x_left is not None else last_x
+                    last_y = y_top
 
             fk = _fuzzy_event_key(s)
             if fk in seen:
