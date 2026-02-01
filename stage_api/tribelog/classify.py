@@ -251,10 +251,17 @@ def classify_message(msg: str) -> Tuple[str, str, str]:
         if RX_CRYOPOD.search(m):
             return ("CRYOPOD_DEATH", "WARNING", "Environment")
 
-        # If we have no explicit killer/reason, use the victim as actor.
+        # No explicit killer => usually starvation, drowning, antimesh, etc.
         vm = RX_WAS_KILLED.match(m)
         victim = _clean_entity(vm.group("victim")) if vm else ""
-        return ("TAME_DIED", "CRITICAL", victim or "Environment")
+
+        # If OCR merged starvation context into the same line, treat as starvation.
+        if re.search(r"\bstarved\b", m, re.I):
+            return ("TAME_STARVED", "WARNING", victim or "Environment")
+
+        # Environmental / unknown-cause deaths should not be CRITICAL.
+        return ("TAME_DIED", "WARNING", victim or "Environment")
+
 
     # Fallback
     return ("UNKNOWN", "INFO", "Environment")
