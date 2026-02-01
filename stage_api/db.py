@@ -61,8 +61,6 @@ _CREATE_TENANT_EVENT_HASH_UQ = (
     "CREATE UNIQUE INDEX IF NOT EXISTS tribe_events_tenant_event_hash_uq "
     "ON tribe_events (tenant_id, event_hash) WHERE event_hash IS NOT NULL;"
 )
-
-# Optional v2 unique index (more stable under OCR drift). Enabled via DEDUP_V2_ENFORCE=1
 _CREATE_TENANT_EVENT_HASH_V2_UQ = (
     "CREATE UNIQUE INDEX IF NOT EXISTS tribe_events_tenant_event_hash_v2_uq "
     "ON tribe_events (tenant_id, event_hash_v2) WHERE event_hash_v2 IS NOT NULL;"
@@ -97,70 +95,105 @@ def compute_event_hash(
     return hashlib.sha1(norm.encode("utf-8")).hexdigest()
 
 
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    v = os.getenv(name)
-    if v is None:
-        return default
-    v = str(v).strip().lower()
-    return v in {"1", "true", "yes", "y", "on", "enable", "enabled"}
-
-
 # -----------------------------
-# Dedupe v2 helpers
+# OCR normalization (for matching & v2 dedupe)
 # -----------------------------
-_OCR_CONFUSION_MAP_NUM = str.maketrans(
-    {
-        "o": "0",
-        "O": "0",
-        "i": "1",
-        "I": "1",
-        "l": "1",
-        "L": "1",
-        "s": "5",
-        "S": "5",
-        "b": "8",
-        "B": "8",
-    }
-)
 
-_PUNCT_RX = re.compile(r"[^a-z0-9\s]+")
+_RX_RICHTEXT_TAG = re.compile(r"<[^>]+>")
+_RX_SPACES = re.compile(r"\s+")
+_RX_TRAIL_PUNCT = re.compile(r"[\.!]+\s*$")
+_RX_LVL_TOKEN = re.compile(r"\b(?:lvl|lv1|lvi|1vl)\b", re.I)
+_RX_LVL_NUM = re.compile(r"\bLvl\s*([0-9OIlSZB]{1,6})\b", re.I)
 
+_OCR_DIGIT_MAP = str.maketrans({
+    "O": "0", "o": "0",
+    "I": "1", "i": "1",
+    "l": "1",
+    "S": "5", "s": "5",
+    "Z": "2", "z": "2",
+    "B": "8", "b": "8",
+})
 
-def normalize_event_text(s: str) -> str:
-    """Aggressive-but-safe normalization for dedupe. Tries to reduce OCR drift without over-merging."""
-    s = (s or "").strip().lower()
-    if not s:
+_KEYWORD_FIXES = [
+    # keep these narrow and word-boundary based to avoid corrupting names
+    (re.compile(r"\bki1{2}ed\b", re.I), "killed"),
+    (re.compile(r"\bkllled\b", re.I), "killed"),
+    (re.compile(r"\bk1lled\b", re.I), "killed"),
+    (re.compile(r"\bdestr0yed\b", re.I), "destroyed"),
+    (re.compile(r"\bdestroved\b", re.I), "destroyed"),
+    (re.compile(r"\bdem0lished\b", re.I), "demolished"),
+    (re.compile(r"\bdemo1ished\b", re.I), "demolished"),
+    (re.compile(r"\btammed\b", re.I), "tamed"),
+]
+
+def normalize_event_text(text: str, *, aggressive: bool | None = None) -> str:
+    """Normalize OCR noise for matching/dedupe without over-correcting names.
+
+    - Removes any <RichColor...> style tags if OCR captured them.
+    - Normalizes 'Lvl' token variants.
+    - Fixes common OCR verb misspellings (killed/destroyed/demolished/tamed).
+    - Converts lookalike characters to digits ONLY inside Lvl number segments.
+    - Collapses whitespace and normalizes sentence-ending punctuation to '!'.
+    """
+    if text is None:
         return ""
+
+    if aggressive is None:
+        aggressive = os.getenv("OCR_NORMALIZE_AGGRESSIVE", "0").strip() in ("1", "true", "yes", "on")
+
+    s = str(text)
+
+    # Strip engine richtext tags if any leaked into OCR
+    s = _RX_RICHTEXT_TAG.sub("", s)
+
+    # Normalize dash variants
+    s = s.replace("—", "-").replace("–", "-")
+
+    # Normalize Lvl token variants -> 'Lvl'
+    s = _RX_LVL_TOKEN.sub("Lvl", s)
+
+    # Fix common keywords (narrow)
+    for rx, repl in _KEYWORD_FIXES:
+        s = rx.sub(repl, s)
+
+    # Convert OCR lookalikes ONLY within 'Lvl <num>' segments
+    def _fix_lvl_num(m: re.Match) -> str:
+        raw = m.group(1)
+        fixed = raw.translate(_OCR_DIGIT_MAP)
+        # In Lvl context, anything not digit becomes nothing (aggressive only)
+        if aggressive:
+            fixed = re.sub(r"\D", "", fixed)
+        return "Lvl " + fixed
+
+    s = _RX_LVL_NUM.sub(_fix_lvl_num, s)
+
+    # Normalize 'Tribe 0f' -> 'Tribe of' (very narrow)
+    s = re.sub(r"\bTribe\s+0f\b", "Tribe of", s, flags=re.I)
+
     # Collapse whitespace
-    s = " ".join(s.split())
+    s = _RX_SPACES.sub(" ", s).strip()
 
-    # Token-wise normalization: only apply number-confusion mapping to numeric-ish tokens.
-    out = []
-    for tok in s.split(" "):
-        t = tok.strip()
-        if not t:
-            continue
+    # Normalize trailing punctuation to '!' (ASA templates generally use '!')
+    s = _RX_TRAIL_PUNCT.sub("!", s)
 
-        # Strip surrounding punctuation (keep internal alnum)
-        t = _PUNCT_RX.sub(" ", t).strip()
-        if not t:
-            continue
-
-        # Decide if numeric-ish: mostly digits or common OCR confusables used for digits
-        numish = bool(re.fullmatch(r"[0-9oOIlLsSbB:./-]+", t))
-        if numish:
-            t = t.translate(_OCR_CONFUSION_MAP_NUM)
-
-        out.append(t)
-
-    s = " ".join(out)
-    s = " ".join(s.split())
     return s
 
 
-def compute_event_hash_v2(*, server: str, tribe: str, ark_day: int, ark_time: str, category: str, actor: str, message: str) -> str:
-    """More stable hash when Day+Time is present (still includes message/actor for uniqueness)."""
+def compute_event_hash_v2(
+    *,
+    server: str,
+    tribe: str,
+    ark_day: int,
+    ark_time: str,
+    category: str,
+    actor: str,
+    message: str,
+) -> tuple[str, str]:
+    """More stable hash for dedupe when OCR varies slightly.
+
+    Returns (event_hash_v2, normalized_text).
+    """
+    norm_text = normalize_event_text(message)
     sig = "|".join(
         [
             (server or "").strip().lower(),
@@ -168,21 +201,39 @@ def compute_event_hash_v2(*, server: str, tribe: str, ark_day: int, ark_time: st
             str(int(ark_day)),
             (ark_time or "").strip(),
             (category or "").strip().upper(),
-            normalize_event_text(actor or ""),
-            normalize_event_text(message or ""),
+            (actor or "").strip().lower(),
+            norm_text.lower(),
         ]
     )
-    return hashlib.sha1(sig.encode("utf-8")).hexdigest()
+    return hashlib.sha256(sig.encode("utf-8")).hexdigest(), norm_text
 
 
-def compute_fingerprint64(norm_text: str) -> int:
-    """Deterministic 64-bit fingerprint for future fuzzy-dedupe (stored; not enforced by default)."""
-    s = (norm_text or "").strip()
-    if not s:
+def compute_fingerprint64(text: str) -> int:
+    """64-bit SimHash fingerprint over normalized text for future fuzzy-dedupe.
+
+    Stored as signed BIGINT (Postgres).
+    """
+    s = (text or "").lower()
+    toks = re.findall(r"[a-z0-9]+", s)
+    if not toks:
         return 0
-    h = hashlib.sha1(s.encode("utf-8")).digest()  # 20 bytes
-    # Take first 8 bytes as unsigned 64-bit int
-    return int.from_bytes(h[:8], byteorder="big", signed=False)
+
+    v = [0] * 64
+    for tok in toks:
+        h = hashlib.blake2b(tok.encode("utf-8"), digest_size=8).digest()
+        x = int.from_bytes(h, "big", signed=False)
+        for i in range(64):
+            v[i] += 1 if (x >> i) & 1 else -1
+
+    fp = 0
+    for i, score in enumerate(v):
+        if score > 0:
+            fp |= (1 << i)
+
+    # Convert to signed 64-bit for Postgres BIGINT
+    if fp >= (1 << 63):
+        fp = fp - (1 << 64)
+    return fp
 
 def hash_api_key(api_key: str) -> str:
     s = (api_key or "").strip()
@@ -247,8 +298,7 @@ class Db:
 
             # Indexes
             await conn.execute(_CREATE_TENANT_EVENT_HASH_UQ)
-            if _env_bool("DEDUP_V2_ENFORCE", default=False):
-                await conn.execute(_CREATE_TENANT_EVENT_HASH_V2_UQ)
+            await conn.execute(_CREATE_TENANT_EVENT_HASH_V2_UQ)
             await conn.execute(_CREATE_INGESTED_IDX)
             await conn.execute(_CREATE_TENANT_ID_IDX)
 
@@ -353,8 +403,14 @@ LIMIT 1;
             ping_categories=_csv_to_set(str(row["ping_categories"] or "")),
         )
 
+
     async def insert_events(self, events: Iterable[ParsedEvent], *, tenant_id: int) -> List[ParsedEvent]:
-        """Insert events and return only newly inserted events (deduped by tenant_id+event_hash)."""
+        """Insert events and return only newly inserted events.
+
+        Dedupe is enforced by DB unique indexes:
+          - (tenant_id, event_hash)           [legacy]
+          - (tenant_id, event_hash_v2)        [preferred, OCR-stable]
+        """
         if self._pool is None:
             return []
 
@@ -362,7 +418,10 @@ LIMIT 1;
         if not evs:
             return []
 
-        cols = "(tenant_id, server, tribe, ark_day, ark_time, severity, category, actor, message, raw_line, event_hash, event_hash_v2, normalized_text, fingerprint)"
+        cols = (
+            "(tenant_id, server, tribe, ark_day, ark_time, severity, category, actor, "
+            "message, raw_line, event_hash, event_hash_v2, normalized_text, fingerprint)"
+        )
 
         values_sql = []
         args = []
@@ -382,9 +441,58 @@ LIMIT 1;
                     e.message,
                     e.raw_line,
                     e.event_hash,
-                    (e.event_hash_v2 or None),
-                    (e.normalized_text or None),
-                    (int(e.fingerprint) if getattr(e, 'fingerprint', 0) else None),
+                    e.event_hash_v2,
+                    e.normalized_text,
+                    e.fingerprint,
+                ]
+            )
+
+        sql = (
+            f"INSERT INTO tribe_events {cols} VALUES "
+            + ",".join(values_sql)
+            + " ON CONFLICT DO NOTHING RETURNING event_hash, event_hash_v2;"
+        )
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(sql, *args)
+
+        inserted_v2 = {r["event_hash_v2"] for r in rows if r and r["event_hash_v2"]}
+        inserted_v1 = {r["event_hash"] for r in rows if r and r["event_hash"]}
+
+        out: List[ParsedEvent] = []
+        for e in evs:
+            if e.event_hash_v2 and e.event_hash_v2 in inserted_v2:
+                out.append(e)
+            elif e.event_hash in inserted_v1:
+                out.append(e)
+        return out
+        if self._pool is None:
+            return []
+
+        evs = list(events)
+        if not evs:
+            return []
+
+        cols = "(tenant_id, server, tribe, ark_day, ark_time, severity, category, actor, message, raw_line, event_hash)"
+
+        values_sql = []
+        args = []
+        for i, e in enumerate(evs):
+            base = i * 11
+            values_sql.append("(" + ",".join([f"${base + j}" for j in range(1, 12)]) + ")")
+            args.extend(
+                [
+                    int(tenant_id),
+                    e.server,
+                    e.tribe,
+                    int(e.ark_day),
+                    e.ark_time,
+                    e.severity,
+                    e.category,
+                    e.actor,
+                    e.message,
+                    e.raw_line,
+                    e.event_hash,
                 ]
             )
 

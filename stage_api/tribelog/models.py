@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -14,11 +15,9 @@ class ParsedEvent:
     actor: str
     message: str
     raw_line: str
-
-    # v1: legacy (kept for back-compat)
     event_hash: str
 
-    # v2: more stable under OCR drift (additive; safe to ignore if unused)
-    event_hash_v2: str = ""
-    normalized_text: str = ""
-    fingerprint: int = 0
+    # v2 dedupe / normalization (optional; safe defaults)
+    event_hash_v2: Optional[str] = None
+    normalized_text: Optional[str] = None
+    fingerprint: Optional[int] = None
