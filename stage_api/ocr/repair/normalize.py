@@ -121,28 +121,41 @@ def schema_score(lines: List[Line]) -> float:
 def mean_conf(lines: List[Line]) -> float:
     return sum(ln.conf for ln in lines) / max(1, len(lines))
 
-def _normalize_line_text(text: str) -> str:
-    txt = _repair_text(text)
-    txt = _canon_replace(txt, CRE_CANON, CRE_PAT)
-    txt = _canon_replace(txt, STR_CANON, STR_PAT)
-    txt = _canon_replace(txt, VEH_CANON, VEH_PAT)
-    # normalize common verb renderings
-    txt = re.sub(r"\bkilled[\s\-]*by\b", "killed by", txt, flags=re.I)
-    txt = re.sub(r"\bdestroyed[\s\-]*by\b", "destroyed by", txt, flags=re.I)
-    txt = re.sub(r"\bauto[\s\-]*decay(ing|s)?\b", "auto-decayed", txt, flags=re.I)
-    txt = re.sub(r"\bstarving\b", "starved", txt, flags=re.I)
-    txt = re.sub(r"\bdies\b", "died", txt, flags=re.I)
-    txt = re.sub(r"\bdemolishing\b", "demolished", txt, flags=re.I)
-    txt = re.sub(r"\bfreezing\b", "froze", txt, flags=re.I)
-    return re.sub(r"\s{2,}", " ", txt).strip()
+def _normalize_line_text(txt: str) -> str:
+    # Standardize quotes & dashes.
+    txt = (txt or "").replace("’", "'").replace("“", '"').replace("”", '"')
+    txt = txt.replace("–", "-").replace("—", "-")
 
-def normalize(lines: List[Line]) -> List[Line]:
-    """Return new list with repaired/normalized text per line; bbox and conf preserved."""
-    out: List[Line] = []
-    for ln in lines:
-        try:
-            new_text = _normalize_line_text(ln.text or "")
-        except Exception:
-            new_text = ln.text or ""
-        out.append(Line(text=new_text, conf=ln.conf, bbox=ln.bbox))
-    return out
+    # Common normalization for tribe log phrasing.
+    txt = re.sub(r"\bwas demolish\b", "was demolished", txt, flags=re.I)
+    txt = re.sub(r"\bhas demolish\b", "has demolished", txt, flags=re.I)
+    txt = re.sub(r"\bwas destro[yv]ed\b", "was destroyed", txt, flags=re.I)
+
+    # common OCR confusions for ASA condensed fonts
+    txt = re.sub(r"\bki[l1I]{2}ed\b", "killed", txt, flags=re.I)
+    txt = re.sub(r"\bkllled\b", "killed", txt, flags=re.I)
+    txt = re.sub(r"\bdestr[0o]yed\b", "destroyed", txt, flags=re.I)
+    txt = re.sub(r"\bdestroved\b", "destroyed", txt, flags=re.I)
+    txt = re.sub(r"\bdem[0o]lished\b", "demolished", txt, flags=re.I)
+    txt = re.sub(r"\btammed\b", "tamed", txt, flags=re.I)
+
+    # normalize Lvl tokens and common digit substitutions only inside the level segment
+    txt = re.sub(r"\b(?:lvl|1vl|Iv1|LvI)\b", "Lvl", txt, flags=re.I)
+    txt = re.sub(r"\bLv[1lI]\b", "Lvl", txt, flags=re.I)
+    txt = re.sub(r"\bLvl\s*[:\-]?\s*(\d)", r"Lvl \1", txt, flags=re.I)
+
+    def _lvl_fix(m: re.Match) -> str:
+        raw = m.group(1)
+        trans = str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1", "S": "5", "s": "5", "Z": "2", "z": "2"})
+        return "Lvl " + raw.translate(trans)
+
+    txt = re.sub(r"\bLvl\s+([0-9OIlSZ]{1,6})\b", _lvl_fix, txt)
+
+    # standardize sentence endings when it looks like an event line
+    if txt.endswith(".") and any(
+        k in txt.lower()
+        for k in ("killed", "destroyed", "demolished", "tamed", "claimed", "hatched", "born", "joined", "left")
+    ):
+        txt = txt[:-1] + "!"
+
+    return re.sub(r"\s{2,}", " ", txt).strip()

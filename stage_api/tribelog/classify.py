@@ -7,6 +7,13 @@ from typing import Tuple
 from db import compute_event_hash, compute_event_hash_v2, compute_fingerprint64, normalize_event_text
 from tribelog.models import ParsedEvent
 
+def _truthy(v: str) -> bool:
+    return (v or "").strip().lower() in ("1", "true", "yes", "y", "on")
+
+# If enabled, events where *your* tribe kills something are treated as CRITICAL instead of SUCCESS.
+TRIBE_KILLS_CRITICAL = _truthy(os.getenv("TRIBE_KILLS_CRITICAL", "0"))
+
+
 
 # -----------------
 # Helpers
@@ -15,6 +22,25 @@ from tribelog.models import ParsedEvent
 
 def _norm_spaces(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip())
+
+def _fix_common_lvl_misreads(s: str) -> str:
+    """Fix OCR artifacts that break stricter regex matching."""
+    s = s or ""
+
+    # Common OCR: "Lvl 140-380220997" (steam id or long token appended) -> keep the level prefix.
+    s = re.sub(r"\bLvl\s+(\d{1,4})\s*-\s*\d{4,}\b", r"Lvl \1", s, flags=re.I)
+
+    # Ensure consistent spacing: "Lvl450" -> "Lvl 450"
+    s = re.sub(r"\bLvl\s*(\d)\b", r"Lvl \1", s, flags=re.I)
+
+    # Collapse accidental double phrases (seen when a wrapped line is repeated).
+    if s.lower().count(" was killed by ") > 1:
+        first = s.lower().find(" was killed by ")
+        second = s.lower().find(" was killed by ", first + 1)
+        if second > 0:
+            s = s[:second].strip()
+
+    return s
 
 
 def _strip_trailing_punct(s: str) -> str:
@@ -396,7 +422,12 @@ def classify_message(msg: str) -> Tuple[str, str, str]:
         victim = _clean_entity(yt.group("victim"))
         # Keep legacy split categories, but make both CRITICAL.
         cat = "TRIBE_KILLED_PLAYER" if _is_probably_player(victim) else "TRIBE_KILLED_CREATURE"
-        return (cat, "CRITICAL", "Your Tribe")
+        return (cat, "CRITICAL" if TRIBE_KILLS_CRITICAL else "SUCCESS", "Your Tribe")
+
+    wt = RX_WAS_KILLED_BY_TURRET.match(m)
+    if wt:
+        victim = _clean_entity(wt.group("victim"))
+        return ("TAME_DIED", "CRITICAL", "Turret")
 
     wk = RX_WAS_KILLED_BY.match(m)
     if wk:
@@ -501,4 +532,3 @@ def classify_event(
         normalized_text=norm_text,
         fingerprint=fp,
     )
-

@@ -67,6 +67,9 @@ def stitch_wrapped_lines(lines: List[str]) -> List[str]:
         s = (raw or "").strip()
         if not s:
             continue
+        # Skip pure punctuation/noise so we don't append "-" onto valid headers.
+        if re.fullmatch(r"[-–—_.]+", s):
+            continue
         if _RX_HEADER.match(s):
             out.append(s)
         else:
@@ -105,7 +108,11 @@ def parse_header_lines(lines: List[str]) -> List[Dict[str, object]]:
             }
         )
 
-    return _merge_starved_killed_pairs(out)
+    out = _merge_starved_killed_pairs(out)
+    out = _merge_same_timestamp_fragments(out)
+    out = _drop_noise_events(out)
+    out = _drop_fragment_substrings(out)
+    return out
 
 
 def _canonical_victim(s: str) -> str:
@@ -166,4 +173,160 @@ def _merge_starved_killed_pairs(events: List[Dict[str, object]]) -> List[Dict[st
                 # drop the redundant kill line
                 continue
         out.append(e)
+    return out
+
+
+_ACTION_KWS = (
+    "was killed",
+    "was destroyed",
+    "was demolished",
+    "decayed and was destroyed",
+    "starved to death",
+    "destroyed their",
+    "tamed a",
+    "claimed a",
+    "was born",
+    "hatched",
+    "joined the tribe",
+    "left the tribe",
+    "was kicked",
+    "uploaded",
+    "downloaded",
+    "was released from a cryopod",
+    "froze",
+    "unfroze",
+)
+
+
+def _has_action_keywords(msg: str) -> bool:
+    m = (msg or "").lower()
+    return any(k in m for k in _ACTION_KWS)
+
+
+def _looks_like_continuation(msg: str) -> bool:
+    s = (msg or "").strip()
+    if not s:
+        return False
+    if s[0] in "([{'\"":
+        return True
+    if s.startswith("-"):
+        return True
+    if re.match(r"^(?:Lvl\b|-\s*Lvl\b|\d+\b)", s, flags=re.IGNORECASE):
+        return True
+    return False
+
+
+def _looks_like_fragment(msg: str) -> bool:
+    s = (msg or "").strip()
+    if not s:
+        return True
+    if len(s) <= 2:
+        return True
+    if s in {"-", "—", "–", "_"}:
+        return True
+    if re.fullmatch(r"[-–—_.]+", s):
+        return True
+    if len(s) < 20 and not _has_action_keywords(s):
+        return True
+    if re.search(r"(?:\bLvl\b|\bwas\b|\bby\b|\bTribe\b)\s*$", s, flags=re.IGNORECASE):
+        return True
+    if s.endswith("-"):
+        return True
+    return False
+
+
+def _merge_same_timestamp_fragments(events: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """Merge consecutive same-timestamp entries when one/both look like wrapped fragments."""
+    out: List[Dict[str, object]] = []
+
+    for e in events or []:
+        if not out:
+            out.append(e)
+            continue
+
+        prev = out[-1]
+        same_ts = (
+            int(prev.get("ark_day") or 0) == int(e.get("ark_day") or 0)
+            and str(prev.get("ark_time") or "") == str(e.get("ark_time") or "")
+        )
+        if not same_ts:
+            out.append(e)
+            continue
+
+        prev_msg = str(prev.get("message") or "").strip()
+        cur_msg = str(e.get("message") or "").strip()
+        if not cur_msg:
+            continue
+
+        if _looks_like_fragment(prev_msg) or _looks_like_continuation(cur_msg):
+            prev["message"] = (prev_msg + " " + cur_msg).strip()
+
+            prev_raw = str(prev.get("raw_line") or "").strip()
+            cur_raw = str(e.get("raw_line") or "").strip()
+            if cur_raw and cur_raw not in prev_raw:
+                prev["raw_line"] = (prev_raw + " | " + cur_raw).strip(" |")
+            continue
+
+        if _looks_like_fragment(cur_msg) and not _has_action_keywords(prev_msg):
+            prev["message"] = (prev_msg + " " + cur_msg).strip()
+            continue
+
+        out.append(e)
+
+    return out
+
+
+def _is_noise_message(msg: str) -> bool:
+    s = (msg or "").strip()
+    if not s:
+        return True
+    if s in {"-", "—", "–", "_"}:
+        return True
+    if re.fullmatch(r"[-–—_.]+", s):
+        return True
+    if re.fullmatch(r"\d{1,2}[:.,]\d{2}(?:[:.,]\d{2})?", s):
+        return True
+    return False
+
+
+def _drop_noise_events(events: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    out: List[Dict[str, object]] = []
+    for e in events or []:
+        if _is_noise_message(str(e.get("message") or "")):
+            continue
+        out.append(e)
+    return out
+
+
+def _norm_cmp(s: str) -> str:
+    s = (s or "").lower()
+    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"[\"'`]+", "", s)
+    return s
+
+
+def _drop_fragment_substrings(events: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """Drop fragment-only entries when the adjacent same-timestamp entry contains the full text."""
+    if not events:
+        return []
+
+    out: List[Dict[str, object]] = []
+    i = 0
+    while i < len(events):
+        cur = events[i]
+        cur_msg = str(cur.get("message") or "").strip()
+        if i + 1 < len(events):
+            nxt = events[i + 1]
+            same_ts = (
+                int(cur.get("ark_day") or 0) == int(nxt.get("ark_day") or 0)
+                and str(cur.get("ark_time") or "") == str(nxt.get("ark_time") or "")
+            )
+            if same_ts:
+                a = _norm_cmp(cur_msg)
+                b = _norm_cmp(str(nxt.get("message") or "").strip())
+                if a and b and a != b and a in b and _looks_like_fragment(cur_msg) and not _has_action_keywords(cur_msg):
+                    i += 1
+                    continue
+        out.append(cur)
+        i += 1
     return out
