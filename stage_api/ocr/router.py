@@ -12,7 +12,7 @@ import cv2 as cv
 
 from .engines import make_extractor  # type: ignore
 from .schema import Line
-from .repair.normalize import normalize, mean_conf
+from .repair.normalize import normalize, mean_conf, schema_score
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -261,6 +261,23 @@ def _variant_images(pil_img: Image.Image, *, max_w: int | None = None) -> list[t
     rb_minus_g = np.clip(((r + b) // 2 - g + 128), 0, 255).astype(np.uint8)
     max_rgb = np.max(np_rgb, axis=2).astype(np.uint8)
 
+    # LAB a* and YCrCb Cr channel emphasis (often improves saturated red text legibility)
+    lab_a: Optional[np.ndarray] = None
+    ycrcb_cr: Optional[np.ndarray] = None
+    try:
+        lab = cv.cvtColor(np_bgr, cv.COLOR_BGR2LAB)
+        a = lab[:, :, 1]
+        lab_a = _percentile_normalize(a, 1, 99)
+    except Exception:
+        lab_a = None
+    try:
+        ycrcb = cv.cvtColor(np_bgr, cv.COLOR_BGR2YCrCb)
+        cr = ycrcb[:, :, 1]
+        ycrcb_cr = _percentile_normalize(cr, 1, 99)
+    except Exception:
+        ycrcb_cr = None
+
+
     # HDR-ish normalize (helps when capture is slightly washed out)
     hdr_norm = _percentile_normalize(raw, 1, 99)
 
@@ -271,6 +288,11 @@ def _variant_images(pil_img: Image.Image, *, max_w: int | None = None) -> list[t
 
     variants: list[tuple[str, np.ndarray]] = []
     variants.append(("raw", raw))
+
+    if lab_a is not None:
+        variants.append(("lab_a", lab_a))
+    if ycrcb_cr is not None:
+        variants.append(("cr_chan", ycrcb_cr))
 
     if weighted_gray is not None:
         variants.append(("weighted_gray", weighted_gray))
@@ -319,6 +341,22 @@ def _header_hits(lines: List[Line]) -> int:
             hits += 1
     return hits
 
+
+
+def _parsed_event_hits(lines: List[Line]) -> int:
+    """Count lines that parse as a tribe-log event header (Day + time + message)."""
+    hits = 0
+    for ln in lines:
+        s = (ln.text or "").strip()
+        if not s or _is_junk_text(s):
+            continue
+        m = _RX_DAYTIME.match(s)
+        if not m:
+            continue
+        rest = s[m.end():].strip()
+        if len(rest) >= 3:
+            hits += 1
+    return hits
 
 def _is_critical_text(s: str) -> bool:
     return bool(_RX_CRITICAL.search(s or ""))
@@ -443,6 +481,8 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
         "weighted_binary",
         "weighted_inverted",
         "redmag_mask",
+        "lab_a",
+        "cr_chan",
         "rb_minus_g",
         "max_rgb",
         "clahe",
@@ -459,7 +499,7 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
         variants = variants[: max(1, min(len(variants), try_max))]
 
     best: Optional[Dict[str, Any]] = None
-    best_key = (-1, -1, -1.0)  # (header_hits, critical_hits, mean_conf)
+    best_key = (-1, -1, -1, -1.0, -1.0)  # (parsed_events, header_hits, critical_hits, schema_score, mean_conf)
 
     candidates: List[Dict[str, Any]] = []
 
@@ -476,21 +516,26 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
                 continue
 
             hits = _header_hits(lines)
+            pe = _parsed_event_hits(lines)
             crit = _critical_hits(lines)
+            ss = float(schema_score(lines))
             mc = float(mean_conf(lines))
 
             candidates.append(
                 {
                     "engine": eng,
                     "variant": vname,
+                    "parsed_events": pe,
                     "header_hits": hits,
                     "critical_hits": crit,
+                    "schema_score": ss,
                     "mean_conf": mc,
                     "line_count": len(lines),
                 }
             )
 
-            key = (hits, crit, mc)
+            # Parse-aware scoring prefers candidates that actually look like tribe-log events.
+            key = (pe, hits, crit, ss, mc)
             if key > best_key:
                 best_key = key
                 best = {
@@ -506,7 +551,7 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
             if fast and (hits >= accept_hits or crit >= 1 or mc >= accept_conf):
                 break
 
-        if fast and best is not None and (best_key[0] >= accept_hits or best_key[2] >= accept_conf):
+        if fast and best is not None and (best_key[1] >= accept_hits or best_key[4] >= accept_conf):
             break
 
     if best is None:
@@ -515,7 +560,7 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
     # Include candidate stats for debugging (/extract UI and logs).
     best["candidates"] = sorted(
         candidates,
-        key=lambda d: (d.get("header_hits", 0), d.get("critical_hits", 0), d.get("mean_conf", 0.0)),
+        key=lambda d: (d.get("parsed_events", 0), d.get("header_hits", 0), d.get("critical_hits", 0), d.get("schema_score", 0.0), d.get("mean_conf", 0.0)),
         reverse=True,
     )
 
@@ -622,6 +667,14 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
     if _env_bool("OCR_MERGE_RB_MINUS_G", default=True):
         if _merge_from("rb_minus_g", require_critical=False, min_conf=_env_float("OCR_RBMG_MIN_CONF", 0.30)):
             merged.append("rb_minus_g")
+        # Optional extra merges: LAB a* and Cr channel can recover saturated red text.
+        # Enable with OCR_MERGE_LABCR=1 if you want the API to spend extra OCR passes for better recall.
+        if _env_bool("OCR_MERGE_LABCR", default=False):
+            if _merge_from("lab_a", require_critical=False, min_conf=_env_float("OCR_LABA_MIN_CONF", 0.30)):
+                merged += 1
+            if _merge_from("cr_chan", require_critical=False, min_conf=_env_float("OCR_CR_MIN_CONF", 0.30)):
+                merged += 1
+
 
     if merged:
         best["lines"].sort(key=lambda d: (d["bbox"][1], d["bbox"][0]))
