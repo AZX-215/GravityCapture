@@ -1,6 +1,10 @@
 import os
-import regex as re
-from typing import Dict, Iterable, List, Set, Tuple
+try:
+    import regex as re  # type: ignore
+except Exception:  # pragma: no cover
+    import re
+from typing import Dict, Iterable, List, Set
+
 from ..schema import Line
 
 # Timestamp-like tokens (e.g., 12:34, 12:34:56, 01/02/2025, 01-02-25)
@@ -11,19 +15,45 @@ TS = re.compile(
 
 # Expanded verb lexicon for ARK tribe logs
 VERBS: Set[str] = {
-    "tamed", "killed", "destroyed", "claimed", "demolished",
-    "uploaded", "downloaded", "transferred", "removed", "added", "crafted",
-    "died", "dies", "die",
-    "starved", "starving", "starve",
-    "decayed", "auto-decayed", "autodecayed", "decay", "auto-decay",
-    "froze", "frozen", "freezing", "freeze",
-    "demolish", "demolishing",
-    "attacked", "attacking",
-    "killed-by", "destroyed-by",
-    "auto-decays", "auto-decaying",
+    "tamed",
+    "killed",
+    "destroyed",
+    "claimed",
+    "demolished",
+    "uploaded",
+    "downloaded",
+    "transferred",
+    "removed",
+    "added",
+    "crafted",
+    "died",
+    "dies",
+    "die",
+    "starved",
+    "starving",
+    "starve",
+    "decayed",
+    "auto-decayed",
+    "autodecayed",
+    "decay",
+    "auto-decay",
+    "froze",
+    "frozen",
+    "freezing",
+    "freeze",
+    "demolish",
+    "demolishing",
+    "attacked",
+    "attacking",
+    "killed-by",
+    "destroyed-by",
+    "auto-decays",
+    "auto-decaying",
 }
 
+
 # ---------- ARK lexicons (creatures, structures, vehicles) ----------
+
 def _read_list(path: str) -> List[str]:
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -31,19 +61,23 @@ def _read_list(path: str) -> List[str]:
     except Exception:
         return []
 
+
 _here = os.path.dirname(__file__)
 CREATURES = _read_list(os.path.join(_here, "Ark_Creatures.txt"))
 STRUCTURES = _read_list(os.path.join(_here, "Ark_Structures.txt"))
-VEHICLES  = _read_list(os.path.join(_here, "Ark_Vehicle.txt"))
+VEHICLES = _read_list(os.path.join(_here, "Ark_Vehicle.txt"))
+
 
 def _canon_key(s: str) -> str:
     return re.sub(r"[\s\-]+", " ", s.strip().lower())
+
 
 def _to_pattern(name: str) -> str:
     parts = [re.escape(p) for p in re.split(r"\s+", name.strip()) if p]
     if not parts:
         return r"$^"
     return r"\b" + r"[\s\-]*".join(parts) + r"\b"
+
 
 def _build_lexicon(names: Iterable[str]):
     canon: Dict[str, str] = {}
@@ -58,13 +92,16 @@ def _build_lexicon(names: Iterable[str]):
     pat = re.compile("|".join(pats), re.I) if pats else re.compile(r"$^")
     return canon, pat
 
+
 CRE_CANON, CRE_PAT = _build_lexicon(CREATURES)
 STR_CANON, STR_PAT = _build_lexicon(STRUCTURES)
 VEH_CANON, VEH_PAT = _build_lexicon(VEHICLES)
 
+
 def load_lexicons():
     """For diagnostics/tests."""
     return set(CRE_CANON.values()), set(STR_CANON.values()), set(VEH_CANON.values())
+
 
 # ---------- OCR noise repair ----------
 DIGIT_GLUE_FIX = (
@@ -80,6 +117,7 @@ SPACE_FIX = (
     (re.compile(r"\s([:;,.])"), r"\1"),
 )
 
+
 def _repair_text(t: str) -> str:
     if not t:
         return t
@@ -92,20 +130,24 @@ def _repair_text(t: str) -> str:
         out = rx.sub(rep, out)
     return out.strip()
 
+
 def _canon_replace(text: str, canon: Dict[str, str], pat: re.Pattern) -> str:
     def _sub(m: re.Match) -> str:
         key = _canon_key(m.group(0))
         return canon.get(key, m.group(0))
+
     return pat.sub(_sub, text)
 
+
 # ---------- scoring and normalization ----------
+
 def schema_score(lines: List[Line]) -> float:
     """Heuristic: fraction of tokens that look like verbs, timestamps, or ARK entities."""
     if not lines:
         return 0.0
     ok = tot = 0
     for ln in lines:
-        for tk in ln.text.split():
+        for tk in (ln.text or "").split():
             tot += 1
             low = tk.lower().strip(".,:;()[]{}")
             if (
@@ -118,8 +160,16 @@ def schema_score(lines: List[Line]) -> float:
                 ok += 1
     return ok / max(1, tot)
 
+
 def mean_conf(lines: List[Line]) -> float:
-    return sum(ln.conf for ln in lines) / max(1, len(lines))
+    return sum(float(ln.conf) for ln in lines) / max(1, len(lines))
+
+
+_RX_DAYTIME = re.compile(
+    r"^\s*(?:Day|Dav|Doy)\s*[,/:\-]?\s*(\d{1,6})\s*[,/; ]+([0-9]{1,2}:[0-9]{2}:[0-9]{2,3})\s*[:\-]?\s*(.*)$",
+    re.I,
+)
+
 
 def _normalize_line_text(txt: str) -> str:
     # Standardize quotes & dashes.
@@ -131,7 +181,7 @@ def _normalize_line_text(txt: str) -> str:
     txt = re.sub(r"\bhas demolish\b", "has demolished", txt, flags=re.I)
     txt = re.sub(r"\bwas destro[yv]ed\b", "was destroyed", txt, flags=re.I)
 
-    # common OCR confusions for ASA condensed fonts
+    # Common OCR confusions for ASA condensed fonts
     txt = re.sub(r"\bki[l1I]{2}ed\b", "killed", txt, flags=re.I)
     txt = re.sub(r"\bkllled\b", "killed", txt, flags=re.I)
     txt = re.sub(r"\bdestr[0o]yed\b", "destroyed", txt, flags=re.I)
@@ -139,7 +189,7 @@ def _normalize_line_text(txt: str) -> str:
     txt = re.sub(r"\bdem[0o]lished\b", "demolished", txt, flags=re.I)
     txt = re.sub(r"\btammed\b", "tamed", txt, flags=re.I)
 
-    # normalize Lvl tokens and common digit substitutions only inside the level segment
+    # Normalize Lvl tokens and common digit substitutions only inside the level segment
     txt = re.sub(r"\b(?:lvl|1vl|Iv1|LvI)\b", "Lvl", txt, flags=re.I)
     txt = re.sub(r"\bLv[1lI]\b", "Lvl", txt, flags=re.I)
     txt = re.sub(r"\bLvl\s*[:\-]?\s*(\d)", r"Lvl \1", txt, flags=re.I)
@@ -151,7 +201,7 @@ def _normalize_line_text(txt: str) -> str:
 
     txt = re.sub(r"\bLvl\s+([0-9OIlSZ]{1,6})\b", _lvl_fix, txt)
 
-    # standardize sentence endings when it looks like an event line
+    # Standardize sentence endings when it looks like an event line
     if txt.endswith(".") and any(
         k in txt.lower()
         for k in ("killed", "destroyed", "demolished", "tamed", "claimed", "hatched", "born", "joined", "left")
@@ -159,3 +209,87 @@ def _normalize_line_text(txt: str) -> str:
         txt = txt[:-1] + "!"
 
     return re.sub(r"\s{2,}", " ", txt).strip()
+
+
+def normalize(lines: List[Line]) -> List[Line]:
+    """Normalize OCR output lines.
+
+    This fixes the Railway crash (router imports normalize/mean_conf/schema_score).
+
+    It also does small quality improvements:
+      - cleans common OCR noise and ASA-specific token errors
+      - optional canonization of ARK names (helps classifier consistency)
+      - stitches rare split "Day ..." header lines
+      - optionally removes exact duplicate lines
+
+    Env toggles:
+      - OCR_CANON_DISABLE=1  -> skip canonization
+      - OCR_STRICT_DEDUPE=0  -> keep exact duplicates
+    """
+    if not lines:
+        return []
+
+    disable_canon = str(os.getenv("OCR_CANON_DISABLE", "")).strip().lower() in {"1", "true", "yes", "y", "on"}
+    strict_dedupe = str(os.getenv("OCR_STRICT_DEDUPE", "1")).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    # Pass 1: basic cleanup
+    cleaned: List[Line] = []
+    for ln in lines:
+        txt = _repair_text(getattr(ln, "text", "") or "")
+        txt = _normalize_line_text(txt)
+        if not txt:
+            continue
+
+        if not disable_canon:
+            try:
+                txt = _canon_replace(txt, CRE_CANON, CRE_PAT)
+                txt = _canon_replace(txt, STR_CANON, STR_PAT)
+                txt = _canon_replace(txt, VEH_CANON, VEH_PAT)
+            except Exception:
+                pass
+
+        cleaned.append(
+            Line(
+                text=txt,
+                conf=float(getattr(ln, "conf", 0.0) or 0.0),
+                bbox=getattr(ln, "bbox", (0, 0, 0, 0)),
+            )
+        )
+
+    if not cleaned:
+        return []
+
+    # Pass 2: stitch split event headers (rare but causes UNKNOWN + dupes)
+    stitched: List[Line] = []
+    i = 0
+    while i < len(cleaned):
+        cur = cleaned[i]
+        m = _RX_DAYTIME.match(cur.text)
+        if m:
+            msg = (m.group(3) or "").strip()
+            if (not msg) and (i + 1 < len(cleaned)):
+                nxt = cleaned[i + 1]
+                if not _RX_DAYTIME.match(nxt.text):
+                    joined = cur.text.rstrip(":- ") + " " + nxt.text.strip()
+                    conf = min(float(cur.conf), float(nxt.conf))
+                    stitched.append(Line(text=joined.strip(), conf=conf, bbox=cur.bbox))
+                    i += 2
+                    continue
+
+        stitched.append(cur)
+        i += 1
+
+    # Pass 3: dedupe exact repeats
+    if not strict_dedupe:
+        return stitched
+
+    out: List[Line] = []
+    seen: Set[str] = set()
+    for ln in stitched:
+        key = (ln.text or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(ln)
+
+    return out
