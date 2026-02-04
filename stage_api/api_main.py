@@ -24,6 +24,7 @@ from ocr.router import extract_text
 from tribelog.parser import stitch_wrapped_lines, parse_header_lines
 from tribelog.classify import classify_event
 from gc_discord.interactions import router as discord_interactions_router
+from gc_discord.register_commands import register_commands_if_enabled
 from tribelog.selftest import run_classifier_selftest
 
 
@@ -199,6 +200,15 @@ def create_app() -> FastAPI:
 
         # Always bootstrap a legacy tenant when DB is available.
         # This keeps old installs working and also backfills pre-tenant rows.
+        
+        # Discord slash-command auto-registration (optional).
+        # Set DISCORD_AUTO_REGISTER=1 and provide DISCORD_BOT_TOKEN + DISCORD_APPLICATION_ID.
+        # If DISCORD_GUILD_ID is set, commands are registered to that guild for immediate availability.
+        try:
+            asyncio.create_task(register_commands_if_enabled())
+        except Exception as e:
+            logger.exception("Failed to schedule Discord auto-register task: %s", e)
+
         if settings.database_url and settings.tenants_bootstrap_legacy:
             legacy_secret = settings.gl_shared_secret or "legacy-no-secret"
             try:

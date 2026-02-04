@@ -66,8 +66,15 @@ def _verify_discord_signature(public_key_hex: str, signature_hex: str, timestamp
 
 router = APIRouter()
 
+@router.get("/discord/interactions")
+@router.get("/discord/interactions/")
+async def discord_interactions_health() -> Dict[str, Any]:
+    return {"ok": True}
+
+
 
 @router.post("/discord/interactions")
+@router.post("/discord/interactions/")
 async def discord_interactions(
     request: Request,
     x_signature_ed25519: Optional[str] = Header(default=None, alias="X-Signature-Ed25519"),
@@ -100,7 +107,7 @@ async def discord_interactions(
         name = (data.get("name") or "").lower().strip()
 
         # Support a few common command names
-        if name in {"gravitycapture", "download", "gc"}:
+        if name in {"gravitycapture", "download", "gc", "download_gravity_capture"}:
             flags = 64 if _truthy(os.getenv("DISCORD_EPHEMERAL", "0")) else 0
             resp: Dict[str, Any] = {
                 "type": 4,
@@ -116,7 +123,7 @@ async def discord_interactions(
         return {
             "type": 4,
             "data": {
-                "content": "Unknown command. Try /gravitycapture",
+                "content": "Unknown command. Try /gravitycapture or /download_gravity_capture",
                 "flags": 64,
             },
         }
