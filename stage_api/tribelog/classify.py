@@ -153,6 +153,13 @@ RX_TRIBEMEMBER_KILLED_BY = re.compile(
 )
 RX_YOUR_TRIBE_KILLED = re.compile(r"^\s*Your\s+Tribe\s+killed\s+(?P<victim>.+?)\s*!?\s*$", re.I)
 RX_WAS_KILLED_BY = re.compile(r"^(?P<victim>.+?)\s+was\s+killed\s+by\s+(?P<actor>.+?)\s*!?\s*$", re.I)
+
+# Victim was killed by <... turret ...> (treat as CRITICAL tame death)
+RX_WAS_KILLED_BY_TURRET = re.compile(
+    r"^(?P<victim>.+?)\s+was\s+killed\s+by\s+.+?\b(?:auto\s+turret|heavy\s+auto\s+turret|tek\s+turret|turret)\b.*!?\s*$",
+    re.I,
+)
+
 RX_WAS_KILLED = re.compile(r"^(?P<victim>.+?)\s+was\s+killed\b", re.I)
 
 # Tames

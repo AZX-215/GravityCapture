@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import os
 import asyncio
 import logging
 from typing import Any, Dict, Optional
@@ -22,6 +23,8 @@ from discord_webhook import DiscordWebhookClient
 from ocr.router import extract_text
 from tribelog.parser import stitch_wrapped_lines, parse_header_lines
 from tribelog.classify import classify_event
+from gc_discord.interactions import router as discord_interactions_router
+from tribelog.selftest import run_classifier_selftest
 
 
 logger = logging.getLogger("gravitycapture")
@@ -102,6 +105,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Set DISCORD_PUBLIC_KEY on Railway to enable verification.
+    # Discord slash-command interactions endpoint (optional)
+    app.include_router(discord_interactions_router)
     # --- state ---
     app.state.settings = settings
     app.state.db = Db(settings.database_url)
@@ -178,6 +184,18 @@ def create_app() -> FastAPI:
     async def _startup() -> None:
         # DB
         await app.state.db.start()
+
+        # Classifier self-test (optional).
+        # Set CLASSIFIER_SELFTEST=1 to run on startup and catch missing regex/constants immediately.
+        if str(os.getenv("CLASSIFIER_SELFTEST", "0")).strip() in {"1", "true", "yes", "on"}:
+            try:
+                run_classifier_selftest()
+            except Exception as e:
+                logger.exception("Classifier self-test failed: %s", e)
+                # If strict, fail fast so Railway shows the error during startup instead of random 500s later.
+                if str(os.getenv("CLASSIFIER_SELFTEST_STRICT", "1")).strip() in {"1", "true", "yes", "on"}:
+                    raise
+
 
         # Always bootstrap a legacy tenant when DB is available.
         # This keeps old installs working and also backfills pre-tenant rows.

@@ -10,3 +10,4 @@ numpy
 Pillow
 pytesseract
 regex
+PyNaCl
