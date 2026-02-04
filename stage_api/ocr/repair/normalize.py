@@ -159,31 +159,3 @@ def _normalize_line_text(txt: str) -> str:
         txt = txt[:-1] + "!"
 
     return re.sub(r"\s{2,}", " ", txt).strip()
-
-def normalize(lines: List[Line]) -> List[Line]:
-    """
-    Normalize/repair OCR lines.
-
-    - Repairs common OCR noise (digit glue, dashes, spacing).
-    - Canonicalizes creature/structure/vehicle tokens using lexicons.
-    - Applies line-level normalization for ARK tribe log phrasing.
-    """
-    if not lines:
-        return []
-    out: List[Line] = []
-    for ln in lines:
-        try:
-            txt = ln.text or ""
-            txt = _repair_text(txt)
-            txt = _canon_replace(txt, CRE_CANON, CRE_PAT)
-            txt = _canon_replace(txt, STR_CANON, STR_PAT)
-            txt = _canon_replace(txt, VEH_CANON, VEH_PAT)
-            txt = _normalize_line_text(txt)
-            out.append(Line(text=txt, conf=float(getattr(ln, "conf", 0.0)), bbox=getattr(ln, "bbox", (0, 0, 0, 0))))
-        except Exception:
-            # Best effort: never let normalization crash the API
-            try:
-                out.append(ln)
-            except Exception:
-                pass
-    return out

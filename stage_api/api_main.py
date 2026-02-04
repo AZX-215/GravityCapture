@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import asyncio
 import logging
+from collections import Counter
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
@@ -49,10 +50,17 @@ async def _post_events_background(
     settings: Settings,
     tenant: Tenant,
 ) -> int:
-    """Post inserted events to Discord. Runs either inline or as a background task."""
-    posted = 0
+    """Post inserted events to Discord.
+
+    This function is safe to run in a background task: it never raises per-event posting
+    errors to the caller, and it logs failures as a single summary line to avoid spam.
+    """
     if not inserted or webhook is None:
         return 0
+
+    posted = 0
+    failures: Counter[str] = Counter()
+    first_error: Optional[str] = None
 
     for ev in inserted:
         try:
@@ -76,12 +84,26 @@ async def _post_events_background(
             delay = float(tenant.post_delay_seconds or 0.0)
             if delay > 0:
                 await asyncio.sleep(delay)
+
         except Exception as e:
-            logger.exception("Discord posting failed: %s", e)
+            failures[type(e).__name__] += 1
+            if first_error is None:
+                # Keep it single-line to reduce log spam.
+                first_error = f"{type(e).__name__}: {str(e).strip()}"
+            continue
+
+    if failures:
+        failed = int(sum(failures.values()))
+        parts = ", ".join([f"{k} x{v}" for k, v in failures.most_common()])
+        logger.warning(
+            "Discord webhook: %d/%d posts failed (%s). First error: %s",
+            failed,
+            len(inserted),
+            parts,
+            first_error or "-",
+        )
 
     return posted
-
-
 def _require_key(settings: Settings, x_gl_key: Optional[str], x_api_key: Optional[str]) -> str:
     """Legacy single-tenant auth."""
     # If no secret is configured, allow requests (useful for local dev).
@@ -385,7 +407,14 @@ def create_app() -> FastAPI:
         webhook = _get_webhook_client(webhook_url)
 
         if allow_post and tenant.log_posting_enabled and webhook is not None and inserted:
-            if settings.async_posting_enabled:
+            # Never let Discord webhook/network issues slow down ingest responses.
+            # If you need blocking behavior for debugging, set POSTING_BLOCKING=1 explicitly.
+            block_posting = _parse_boolish(os.getenv("POSTING_BLOCKING", "0")) is True
+
+            if block_posting:
+                posting_mode = "sync"
+                posted = await _post_events_background(inserted, client_ping, webhook, settings, tenant)
+            else:
                 posting_mode = "async"
                 enqueued_events = len(inserted)
 
@@ -393,12 +422,10 @@ def create_app() -> FastAPI:
                     try:
                         await _post_events_background(inserted, client_ping, webhook, settings, tenant)
                     except Exception as e:
-                        logger.exception("Background posting task crashed: %s", e)
+                        # Should be rare (the posting function is defensive), but keep a single line if it happens.
+                        logger.warning("Background posting task crashed: %s", str(e).strip())
 
                 asyncio.create_task(_runner())
-            else:
-                posting_mode = "sync"
-                posted = await _post_events_background(inserted, client_ping, webhook, settings, tenant)
 
         return {
             "ok": True,
@@ -494,7 +521,14 @@ def create_app() -> FastAPI:
         webhook = _get_webhook_client(webhook_url)
 
         if allow_post and tenant.log_posting_enabled and webhook is not None and inserted:
-            if settings.async_posting_enabled:
+            # Never let Discord webhook/network issues slow down ingest responses.
+            # If you need blocking behavior for debugging, set POSTING_BLOCKING=1 explicitly.
+            block_posting = _parse_boolish(os.getenv("POSTING_BLOCKING", "0")) is True
+
+            if block_posting:
+                posting_mode = "sync"
+                posted = await _post_events_background(inserted, client_ping, webhook, settings, tenant)
+            else:
                 posting_mode = "async"
                 enqueued_events = len(inserted)
 
@@ -502,12 +536,10 @@ def create_app() -> FastAPI:
                     try:
                         await _post_events_background(inserted, client_ping, webhook, settings, tenant)
                     except Exception as e:
-                        logger.exception("Background posting task crashed: %s", e)
+                        # Should be rare (the posting function is defensive), but keep a single line if it happens.
+                        logger.warning("Background posting task crashed: %s", str(e).strip())
 
                 asyncio.create_task(_runner())
-            else:
-                posting_mode = "sync"
-                posted = await _post_events_background(inserted, client_ping, webhook, settings, tenant)
 
         return {
             "ok": True,

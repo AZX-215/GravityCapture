@@ -10,17 +10,21 @@ from typing import Dict, List, Optional, Tuple
 # - separators can be :, . or whitespace (OCR)
 # - seconds may be 2 or 3 digits (OCR can produce 122)
 # - "Day" can be misread as "Dav"/"Doy"
+# - seconds may be 2 or 3 digits (OCR can produce 122)
+# - "Day" can be misread as "Dav"/"Doy"
+# - OCR can inject stray brackets/punctuation after the day number (e.g. "Day 782], 17:16:28")
 _RX_HEADER = re.compile(
     r"""
     ^\s*
     (?:(?:Day|Dav|Doy))\s*[,/:\-]?\s*
     (?P<day>\d{1,6})
-    (?:\s*,\s*|\s+)?
+    \s*[\]\)\}\|,]*\s*          # tolerate stray bracket/comma chars after day
+    (?:\s*,\s*|\s+)?               # separator to time
     (?P<hour>\d{1,2})
     \s*[:.]\s*
     (?P<minute>\d{1,2})
     (?:\s*[:.]\s*(?P<second>\d{2,3}))?
-    \s*(?:\s*[:\-]\s*|\s+)?   # optional ':' before message
+    \s*(?:\s*[:\-]\s*|\s+)?      # optional ':' before message
     (?P<msg>.*?)
     \s*$
     """,
@@ -30,7 +34,7 @@ _RX_HEADER = re.compile(
 
 # Same header pattern, but not anchored. Used to split lines where OCR concatenates multiple events.
 _RX_HEADER_ANY = re.compile(
-    r"(?:Day|Dav|Doy)\s*[,/:\-]?\s*\d{1,6}(?:\s*,\s*|\s+)?\d{1,2}\s*[:.]\s*\d{1,2}(?:\s*[:.]\s*\d{2,3})?",
+    r"(?:Day|Dav|Doy)\s*[,/:\-]?\s*\d{1,6}\s*[\]\)\}\|,]*\s*(?:\s*,\s*|\s+)?\d{1,2}\s*[:.]\s*\d{1,2}(?:\s*[:.]\s*\d{2,3})?",
     re.IGNORECASE,
 )
 
@@ -115,7 +119,19 @@ def stitch_wrapped_lines(lines: List[str]) -> List[str]:
             else:
                 out.append(p)
 
-    return out
+    # Drop exact duplicate stitched lines (can happen across OCR variants)
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for l in out:
+        k = _RX_SPACES.sub(" ", (l or "")).strip().lower()
+        if not k:
+            continue
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(l)
+
+    return uniq
 
 
 def parse_header_lines(lines: List[str]) -> List[Dict[str, object]]:

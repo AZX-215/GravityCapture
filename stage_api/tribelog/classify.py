@@ -144,17 +144,17 @@ RX_ORP_PREVENTED = re.compile(r"^\s*An\s+attack\s+was\s+prevented\s+by\s+Offline
 RX_DEMOLISHED = re.compile(r"^(?P<actor>.+?)\s+demolished\b", re.I)
 RX_DESTROYED_BY = re.compile(r"\bwas\s+destroyed\s+by\s+(?P<actor>.+?)\s*(?:!|\.|$)", re.I)
 RX_DESTROYED = re.compile(r"\bwas\s+destroyed\b", re.I)
-RX_ENEMY_DESTROYED = re.compile(r"\bdestroyed\b\s+their\b", re.I)
+RX_ENEMY_DESTROYED = re.compile(r"\bdestroyed\b\s+(?:their|the|thelr|therr|ther|le|oan|dan)\b", re.I)
 
 # Kills
 # Tribemember deaths (tolerant of OCR: "Tribe member", "Tribe mernber", etc.)
 RX_TRIBEMEMBER_KILLED_BY = re.compile(
-    r"^\s*(?:Tribemember|Tribe\s*me(?:m|rn)ber)\s+(?P<victim>.+?)\s+was\s+killed\s+by\s+(?P<actor>.+?)\s*!?\s*$",
+    r"^\s*(?:Tribemember|Tribe\s*m\w{0,6}ber)\s+(?P<victim>.+?)\s+was\s+killed\s+by\s+(?P<actor>.+?)\s*!?\s*$",
     re.I,
 )
 # Non-anchored fallback for rare OCR concatenations (multiple events merged into one line).
 RX_TRIBEMEMBER_KILLED_BY_ANY = re.compile(
-    r"(?:Tribemember|Tribe\s*me(?:m|rn)ber)\s+(?P<victim>.+?)\s+was\s+killed\s+by\s+(?P<actor>.+?)\s*!?",
+    r"(?:Tribemember|Tribe\s*m\w{0,6}ber)\s+(?P<victim>.+?)\s+was\s+killed\s+by\s+(?P<actor>.+?)\s*!?",
     re.I,
 )
 RX_YOUR_TRIBE_KILLED = re.compile(r"^\s*Your\s+Tribe\s+killed\s+(?P<victim>.+?)\s*!?\s*$", re.I)
@@ -499,25 +499,34 @@ def classify_event(
     )
 
     # Preferred (v2) hash uses OCR normalization for stability.
-    # To avoid collapsing true duplicates (e.g., many identical wall-destroyed lines in the same second),
-    # v2 dedupe is applied to high-signal events only.
+    # v2 is used by the DB unique index to prevent duplicate posts across ingests,
+    # even if classification/actor fluctuates.
     norm_text = normalize_event_text(msg_clean)
     fp = compute_fingerprint64(norm_text)
 
     h2: str | None = None
-    if os.getenv("DEDUP_V2_ENABLED", "1").strip().lower() in ("1", "true", "yes", "on"):
-        high_signal = category in {
-            "TAME_DIED",
-            "TAME_STARVED",
-            "TRIBEMEMBER_WAS_KILLED",
-            "TRIBE_KILLED_PLAYER",
-            "STRUCTURE_DESTROYED",
-            "STRUCTURE_DESTROYED_BY_ENEMY",
-        }
+    dedup_v2_enabled = os.getenv("DEDUP_V2_ENABLED", "1").strip().lower() in ("1", "true", "yes", "on")
+    if dedup_v2_enabled:
+        scope = (os.getenv("DEDUP_V2_SCOPE") or "all").strip().lower()
+        # If scope == 'high_signal', keep the conservative behavior; otherwise dedupe all categories.
+        high_signal = scope != "high_signal"
+        if not high_signal:
+            high_signal = category in {
+                "TAME_DIED",
+                "TAME_STARVED",
+                "TRIBEMEMBER_WAS_KILLED",
+                "TRIBE_KILLED_PLAYER",
+                "STRUCTURE_DESTROYED",
+                "STRUCTURE_DESTROYED_BY_ENEMY",
+            }
 
-        if category.startswith("STRUCTURE_"):
-            # Only apply v2 structure dedupe to higher-value losses to avoid over-deduping raids.
-            high_signal = high_signal and _is_high_value_structure(msg_clean)
+        # For structure-loss spam, default to only de-dupe higher-value items unless explicitly overridden.
+        if category in {"STRUCTURE_DESTROYED", "STRUCTURE_DESTROYED_BY_ENEMY"}:
+            loss_mode = (os.getenv("DEDUP_V2_STRUCTURE_LOSS_MODE") or "high_value").strip().lower()
+            if loss_mode == "off":
+                high_signal = False
+            elif loss_mode == "high_value" and not _is_high_value_structure(msg_clean):
+                high_signal = False
 
         if high_signal:
             # compute_event_hash_v2 returns (hash, normalized_text)
@@ -526,13 +535,14 @@ def classify_event(
                 tribe=tribe,
                 ark_day=int(ark_day),
                 ark_time=str(ark_time),
-                category=category,
-                actor=actor,
+                category=category,  # ignored inside v2 signature
+                actor=actor,        # ignored inside v2 signature
                 message=msg_clean,
             )
             fp = compute_fingerprint64(norm_text)
 
     return ParsedEvent(
+
         server=server,
         tribe=tribe,
         ark_day=int(ark_day),

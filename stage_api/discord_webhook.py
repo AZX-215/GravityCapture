@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 import httpx
+import asyncio
 
 from tribelog.models import ParsedEvent
 
@@ -30,7 +31,10 @@ def _field(name: str, value: str, inline: bool = True) -> Dict[str, Any]:
 class DiscordWebhookClient:
     def __init__(self, webhook_url: str, *, post_delay_seconds: float = 0.8) -> None:
         self._webhook_url = (webhook_url or "").strip()
-        self._client = httpx.AsyncClient(timeout=20)
+        # Tight timeouts: Discord is best-effort and should fail fast if unreachable.
+        timeout = httpx.Timeout(12.0, connect=4.0)
+        limits = httpx.Limits(max_keepalive_connections=10, max_connections=20)
+        self._client = httpx.AsyncClient(timeout=timeout, limits=limits)
         self._post_delay_seconds = float(post_delay_seconds or 0.0)
 
     async def aclose(self) -> None:
@@ -77,5 +81,21 @@ class DiscordWebhookClient:
             "allowed_mentions": {"parse": [], "roles": allowed_roles or []},
         }
 
-        resp = await self._client.post(self._webhook_url, json=payload)
-        resp.raise_for_status()
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                resp = await self._client.post(self._webhook_url, json=payload)
+                resp.raise_for_status()
+                return
+            except httpx.RequestError as e:
+                last_exc = e
+                await asyncio.sleep(0.5 * (2**attempt))
+            except httpx.HTTPStatusError as e:
+                last_exc = e
+                status = getattr(e.response, "status_code", None)
+                if status and 500 <= int(status) < 600 and attempt == 0:
+                    await asyncio.sleep(0.5)
+                    continue
+                break
+
+        raise last_exc if last_exc else RuntimeError("Discord webhook post failed")

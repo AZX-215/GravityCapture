@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Set
 
@@ -123,6 +124,8 @@ _KEYWORD_FIXES = [
     (re.compile(r"\bdestroved\b", re.I), "destroyed"),
     (re.compile(r"\bdem0lished\b", re.I), "demolished"),
     (re.compile(r"\bdemo1ished\b", re.I), "demolished"),
+    (re.compile(r"\bdestroyed\s+(?:le|thelr|therr|ther)\b", re.I), "destroyed their"),
+    (re.compile(r"\bthelr\b", re.I), "their"),
     (re.compile(r"\btammed\b", re.I), "tamed"),
 ]
 
@@ -189,9 +192,15 @@ def compute_event_hash_v2(
     actor: str,
     message: str,
 ) -> tuple[str, str]:
-    """More stable hash for dedupe when OCR varies slightly.
+    """Stable hash for de-dupe that is resilient to classifier/actor variation.
 
     Returns (event_hash_v2, normalized_text).
+
+    Notes:
+    - We intentionally do NOT include category or actor in the signature.
+      OCR/classification can fluctuate between ingests; the same underlying
+      tribe-log line should not be re-posted just because it was categorized
+      differently on a later pass.
     """
     norm_text = normalize_event_text(message)
     sig = "|".join(
@@ -200,12 +209,11 @@ def compute_event_hash_v2(
             (tribe or "").strip().lower(),
             str(int(ark_day)),
             (ark_time or "").strip(),
-            (category or "").strip().upper(),
-            (actor or "").strip().lower(),
             norm_text.lower(),
         ]
     )
     return hashlib.sha256(sig.encode("utf-8")).hexdigest(), norm_text
+
 
 
 def compute_fingerprint64(text: str) -> int:
@@ -306,6 +314,65 @@ class Db:
         if self._pool is not None:
             await self._pool.close()
             self._pool = None
+
+
+    async def backfill_event_hash_v2_recent(self, *, days: int = 3, limit: int = 10000) -> int:
+        """Backfill event_hash_v2 (and normalized_text) for recent rows that were inserted before v2 de-dupe existed.
+
+        This helps prevent re-posting older events after upgrading, because Postgres UNIQUE indexes
+        allow multiple NULLs. We only scan recent rows to keep startup fast.
+        """
+        if self._pool is None:
+            return 0
+
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        updated = 0
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, server, tribe, ark_day, ark_time, category, actor, message
+                FROM tribe_events
+                WHERE event_hash_v2 IS NULL
+                  AND created_at >= $1
+                ORDER BY created_at DESC
+                LIMIT $2
+                """,
+                cutoff,
+                limit,
+            )
+
+            for r in rows:
+                try:
+                    h2, norm_text = compute_event_hash_v2(
+                        server=r["server"],
+                        tribe=r["tribe"],
+                        ark_day=int(r["ark_day"]),
+                        ark_time=str(r["ark_time"]),
+                        category=r["category"],  # ignored in v2 signature
+                        actor=r["actor"],        # ignored in v2 signature
+                        message=r["message"],
+                    )
+                    # This may hit a UNIQUE constraint if duplicates already exist; that's fine.
+                    res = await conn.execute(
+                        """
+                        UPDATE tribe_events
+                        SET event_hash_v2 = $1,
+                            normalized_text = $2
+                        WHERE id = $3
+                          AND event_hash_v2 IS NULL
+                        """,
+                        h2,
+                        norm_text,
+                        r["id"],
+                    )
+                    if res.startswith("UPDATE") and not res.endswith(" 0"):
+                        updated += 1
+                except Exception:
+                    # Ignore unique violations or any single-row backfill failure.
+                    continue
+
+        return updated
 
     async def ensure_legacy_tenant(
         self,
