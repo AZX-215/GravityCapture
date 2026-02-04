@@ -675,9 +675,9 @@ def extract_text(image_bytes: bytes, engine_hint: str = "auto", *, fast: bool = 
         # Enable with OCR_MERGE_LABCR=1 if you want the API to spend extra OCR passes for better recall.
         if _env_bool("OCR_MERGE_LABCR", default=False):
             if _merge_from("lab_a", require_critical=False, min_conf=_env_float("OCR_LABA_MIN_CONF", 0.30)):
-                merged += 1
+                merged.append("lab_a")
             if _merge_from("cr_chan", require_critical=False, min_conf=_env_float("OCR_CR_MIN_CONF", 0.30)):
-                merged += 1
+                merged.append("cr_chan")
 
 
     if merged:
