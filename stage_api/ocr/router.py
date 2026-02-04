@@ -228,7 +228,11 @@ def _variant_images(pil_img: Image.Image, *, max_w: int | None = None) -> list[t
     # red hue wraps, magenta/pink occupies upper hue band
     red_hsv = (((h <= 12) | (h >= 165)) & (s >= sat_min) & (v >= val_min))
     mag_hsv = ((h >= 135) & (h <= 175) & (s >= sat_min) & (v >= val_min))
-    mask_hsv = (red_hsv | mag_hsv).astype(np.uint8) * 255
+    # Some servers/UI themes render 'critical' text closer to violet/purple; catch it with stricter thresholds.
+    vio_sat_min = int(_env_float("OCR_VIOLET_SAT_MIN", 45))
+    vio_val_min = int(_env_float("OCR_VIOLET_VAL_MIN", 45))
+    vio_hsv = ((h >= 120) & (h < 135) & (s >= max(sat_min, vio_sat_min)) & (v >= max(val_min, vio_val_min)))
+    mask_hsv = (red_hsv | mag_hsv | vio_hsv).astype(np.uint8) * 255
 
     r = np_rgb[:, :, 0].astype(np.int16)
     g = np_rgb[:, :, 1].astype(np.int16)

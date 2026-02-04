@@ -28,6 +28,13 @@ _RX_HEADER = re.compile(
 )
 
 
+# Same header pattern, but not anchored. Used to split lines where OCR concatenates multiple events.
+_RX_HEADER_ANY = re.compile(
+    r"(?:Day|Dav|Doy)\s*[,/:\-]?\s*\d{1,6}(?:\s*,\s*|\s+)?\d{1,2}\s*[:.]\s*\d{1,2}(?:\s*[:.]\s*\d{2,3})?",
+    re.IGNORECASE,
+)
+
+
 def _clamp_int(x: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, x))
 
@@ -63,6 +70,26 @@ def stitch_wrapped_lines(lines: List[str]) -> List[str]:
       - Otherwise append to the previous line
     """
     out: List[str] = []
+
+    def _split_multi_headers(line: str) -> List[str]:
+        s2 = (line or "").strip()
+        if not s2:
+            return []
+        ms = list(_RX_HEADER_ANY.finditer(s2))
+        if not ms:
+            return [s2]
+        # If the first header isn't at the start, keep the prefix to append to the previous line.
+        parts: List[str] = []
+        if ms[0].start() > 0:
+            prefix = s2[: ms[0].start()].strip()
+            if prefix:
+                parts.append(prefix)  # marked as non-header prefix
+        for i, m in enumerate(ms):
+            start = m.start()
+            end = ms[i + 1].start() if i + 1 < len(ms) else len(s2)
+            parts.append(s2[start:end].strip())
+        return [p for p in parts if p]
+
     for raw in lines or []:
         s = (raw or "").strip()
         if not s:
@@ -70,13 +97,24 @@ def stitch_wrapped_lines(lines: List[str]) -> List[str]:
         # Skip pure punctuation/noise so we don't append "-" onto valid headers.
         if re.fullmatch(r"[-–—_.]+", s):
             continue
-        if _RX_HEADER.match(s):
-            out.append(s)
-        else:
+
+        # If OCR concatenated multiple events into one "line", split them back out.
+        parts = _split_multi_headers(s)
+        if not parts:
+            continue
+
+        for p in parts:
+            if not p:
+                continue
+            if _RX_HEADER.match(p):
+                out.append(p)
+                continue
+            # Non-header prefix: append to previous header line if possible.
             if out:
-                out[-1] = (out[-1] + " " + s).strip()
+                out[-1] = (out[-1] + " " + p).strip()
             else:
-                out.append(s)
+                out.append(p)
+
     return out
 
 

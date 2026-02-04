@@ -347,7 +347,10 @@ def create_app() -> FastAPI:
         img_bytes = await file.read()
 
         # Keep request latency low for the desktop client: use fast OCR path by default.
-        ocr = extract_text(img_bytes, engine_hint=settings.ocr_engine, fast=True)
+        fast_ingest = _parse_boolish(os.getenv("OCR_FAST_INGEST", "1"))
+        if fast_ingest is None:
+            fast_ingest = True
+        ocr = extract_text(img_bytes, engine_hint=settings.ocr_engine, fast=bool(fast_ingest))
 
         # Prefer the line-wise output for event splitting.
         raw_lines = [str(x).strip() for x in (ocr.get("lines_text") or []) if str(x).strip()]

@@ -147,8 +147,14 @@ RX_DESTROYED = re.compile(r"\bwas\s+destroyed\b", re.I)
 RX_ENEMY_DESTROYED = re.compile(r"\bdestroyed\b\s+their\b", re.I)
 
 # Kills
+# Tribemember deaths (tolerant of OCR: "Tribe member", "Tribe mernber", etc.)
 RX_TRIBEMEMBER_KILLED_BY = re.compile(
-    r"^\s*Tribemember\s+(?P<victim>.+?)\s+was\s+killed\s+by\s+(?P<actor>.+?)\s*!?\s*$",
+    r"^\s*(?:Tribemember|Tribe\s*me(?:m|rn)ber)\s+(?P<victim>.+?)\s+was\s+killed\s+by\s+(?P<actor>.+?)\s*!?\s*$",
+    re.I,
+)
+# Non-anchored fallback for rare OCR concatenations (multiple events merged into one line).
+RX_TRIBEMEMBER_KILLED_BY_ANY = re.compile(
+    r"(?:Tribemember|Tribe\s*me(?:m|rn)ber)\s+(?P<victim>.+?)\s+was\s+killed\s+by\s+(?P<actor>.+?)\s*!?",
     re.I,
 )
 RX_YOUR_TRIBE_KILLED = re.compile(r"^\s*Your\s+Tribe\s+killed\s+(?P<victim>.+?)\s*!?\s*$", re.I)
@@ -391,6 +397,8 @@ def classify_message(msg: str) -> Tuple[str, str, str]:
 
     # --- KILLS (CRITICAL) ---
     tm = RX_TRIBEMEMBER_KILLED_BY.match(m)
+    if not tm:
+        tm = RX_TRIBEMEMBER_KILLED_BY_ANY.search(m)
     if tm:
         return ("TRIBEMEMBER_WAS_KILLED", "CRITICAL", _clean_actor(tm.group("actor")) or _clean_entity(tm.group("victim")) or "Environment")
 
